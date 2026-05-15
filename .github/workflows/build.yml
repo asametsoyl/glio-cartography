@@ -1,0 +1,76 @@
+name: Build Desktop App
+
+on:
+  # Bu workflow manuel olarak tetiklenebilir
+  workflow_dispatch:
+  # Veya v1.0 gibi tag attığınızda otomatik çalışır
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          
+      - name: Setup Micromamba (Python Environment)
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-name: glio-env
+          create-args: >-
+            python=3.10 scanpy squidpy pytorch torchvision fastapi uvicorn loguru pandas numpy scipy scikit-learn
+          init-shell: >-
+            bash powershell
+
+      - name: Install Extra Python Packages
+        shell: bash -l {0}
+        run: |
+          pip install tangram-sc optuna
+          
+      - name: Bundle Python Env for Electron (macOS)
+        if: runner.os == 'macOS'
+        shell: bash -l {0}
+        run: |
+          mkdir -p desktop_app/python_env
+          cp -R $MAMBA_ROOT_PREFIX/envs/glio-env/* desktop_app/python_env/
+          
+      - name: Bundle Python Env for Electron (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path desktop_app\python_env
+          Copy-Item -Path "$env:MAMBA_ROOT_PREFIX\envs\glio-env\*" -Destination desktop_app\python_env -Recurse -Force
+          
+      - name: Install NPM Dependencies
+        working-directory: desktop_app
+        run: npm install
+        
+      - name: Build Electron App (macOS)
+        if: runner.os == 'macOS'
+        working-directory: desktop_app
+        run: npm run build:mac
+        
+      - name: Build Electron App (Windows)
+        if: runner.os == 'Windows'
+        working-directory: desktop_app
+        run: npm run build:win
+        
+      - name: Upload Application (Artifacts)
+        uses: actions/upload-artifact@v3
+        with:
+          name: Glio-Cartography-${{ runner.os }}
+          path: |
+            desktop_app/dist/*.dmg
+            desktop_app/dist/*.exe
+            desktop_app/dist/*.zip
