@@ -69,11 +69,15 @@ jobs:
       - name: Build Electron App (macOS)
         if: runner.os == 'macOS'
         working-directory: desktop_app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:mac
         
       - name: Build Electron App (Windows)
         if: runner.os == 'Windows'
         working-directory: desktop_app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:win
         
       - name: Upload Application (Artifacts)
