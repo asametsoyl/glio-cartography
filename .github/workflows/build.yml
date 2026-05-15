@@ -85,6 +85,6 @@ jobs:
         with:
           name: Glio-Cartography-${{ runner.os }}
           path: |
-            desktop_app/dist/*.dmg
-            desktop_app/dist/*.exe
-            desktop_app/dist/*.zip
+            desktop_app/dist/**/*.dmg
+            desktop_app/dist/**/*.exe
+            desktop_app/dist/**/*.zip
