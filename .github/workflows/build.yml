@@ -16,7 +16,7 @@ jobs:
           - os: macos-latest
             init-shell: bash
           - os: windows-latest
-            init-shell: powershell
+            init-shell: cmd.exe
     runs-on: ${{ matrix.os }}
     
     steps:
@@ -44,7 +44,7 @@ jobs:
           
       - name: Install Extra Python Packages (Windows)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: cmd
         run: |
           pip install tangram-sc optuna
           
@@ -53,14 +53,14 @@ jobs:
         shell: bash -l {0}
         run: |
           mkdir -p desktop_app/python_env
-          cp -R $MAMBA_ROOT_PREFIX/envs/glio-env/* desktop_app/python_env/
+          cp -R "$MAMBA_ROOT_PREFIX/envs/glio-env/"* desktop_app/python_env/
           
       - name: Bundle Python Env for Electron (Windows)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: cmd
         run: |
-          New-Item -ItemType Directory -Force -Path desktop_app\python_env
-          Copy-Item -Path "$env:MAMBA_ROOT_PREFIX\envs\glio-env\*" -Destination desktop_app\python_env -Recurse -Force
+          if not exist desktop_app\python_env mkdir desktop_app\python_env
+          xcopy /E /I /H /Y "%MAMBA_ROOT_PREFIX%\envs\glio-env\*" "desktop_app\python_env\"
           
       - name: Install NPM Dependencies
         working-directory: desktop_app
