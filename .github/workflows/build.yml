@@ -10,6 +10,8 @@ on:
 
 jobs:
   build:
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       matrix:
         os: [macos-latest, windows-latest]
@@ -31,7 +33,7 @@ jobs:
           create-args: >-
             python=3.10 scanpy squidpy pytorch torchvision fastapi uvicorn loguru pandas numpy scipy scikit-learn
           init-shell: >-
-            bash powershell
+            bash pwsh
 
       - name: Install Extra Python Packages
         shell: bash -l {0}
@@ -47,7 +49,7 @@ jobs:
           
       - name: Bundle Python Env for Electron (Windows)
         if: runner.os == 'Windows'
-        shell: powershell
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path desktop_app\python_env
           Copy-Item -Path "$env:MAMBA_ROOT_PREFIX\envs\glio-env\*" -Destination desktop_app\python_env -Recurse -Force
