@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glio-Cartography — Desktop</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ─── LICENSE OVERLAY ─────────────────────────────────── -->
+<div id="license-overlay" class="overlay active">
+  <div class="overlay-content">
+    <div class="logo-block">
+      <div class="logo-icon">🧠</div>
+      <h1>Glio-Cartography</h1>
+      <p class="logo-sub">Spatial Tumor Microenvironment Analysis Platform</p>
+      <span class="version-badge">v1.0 · Lisanslı</span>
+    </div>
+    <div class="license-form">
+      <!-- Makine ID — kullanıcı bu değeri lisans talebinde kullanır -->
+      <div class="machine-id-block">
+        <label>Makine Kimliği <span style="color:var(--text-muted);font-weight:400">(lisans talebinde bu değeri gönderin)</span></label>
+        <div class="machine-id-value" id="machine-id-display">Yükleniyor...</div>
+        <button class="btn-copy" onclick="copyMachineId()">📋 Kopyala</button>
+      </div>
+      <div class="input-group">
+        <label for="license-input">Lisans Anahtarı</label>
+        <input type="text" id="license-input" placeholder="GCARTO-XXXX-XXXX-XXXX-XXXX"
+               spellcheck="false" autocomplete="off">
+      </div>
+      <div id="license-error" class="license-error hidden"></div>
+      <button class="btn-primary btn-full" onclick="activateLicense()">
+        <span>Lisansı Etkinleştir</span>
+      </button>
+      <div class="license-contact">
+        <span>Lisans anahtarı almak için e-posta atınız:</span>
+        <a href="mailto:sametsoy.l28@gmail.com" class="license-contact-link">sametsoy.l28@gmail.com</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TITLE BAR ───────────────────────────────────────── -->
+<div class="titlebar">
+  <div class="titlebar-drag"></div>
+  <div class="titlebar-center">
+    <span class="app-name">🧠 Glio-Cartography</span>
+    <span class="app-version" id="app-version">v1.0</span>
+  </div>
+  <div class="titlebar-right">
+    <div class="status-dot" id="backend-dot" title="Backend durumu"></div>
+    <span class="status-text" id="backend-status">Backend bağlanıyor...</span>
+    <button class="btn-update-check" onclick="manualUpdateCheck()" title="Güncelleme ara">🔄</button>
+    <div class="license-info" id="license-badge" onclick="showLicenseInfo()">🔑 Lisanslı</div>
+  </div>
+</div>
+
+<!-- ─── UPDATE BANNER ──────────────────────────────── -->
+<div id="update-banner" class="update-banner hidden">
+  <span class="update-banner-icon">⬆️</span>
+  <span class="update-banner-text" id="update-banner-text">Yeni sürüm mevcut!</span>
+  <a class="update-banner-link" id="update-banner-link" href="#" onclick="openUpdateUrl()">İndir</a>
+  <button class="update-banner-close" onclick="document.getElementById('update-banner').classList.add('hidden')">×</button>
+</div>
+
+<!-- ─── MAIN LAYOUT ─────────────────────────────────────── -->
+<div class="app-layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="nav-section">
+      <div class="nav-item active" data-panel="setup" onclick="showPanel('setup')">
+        <span class="nav-icon">⚙️</span> Kurulum
+      </div>
+      <div class="nav-item" data-panel="monitor" onclick="showPanel('monitor')">
+        <span class="nav-icon">📡</span> Pipeline
+      </div>
+      <div class="nav-item" data-panel="results" onclick="showPanel('results')">
+        <span class="nav-icon">🗺️</span> Sonuçlar
+      </div>
+      <div class="nav-item" data-panel="figures" onclick="showPanel('figures')">
+        <span class="nav-icon">📊</span> Figürler
+      </div>
+      <div class="nav-item" data-panel="report" onclick="showPanel('report')">
+        <span class="nav-icon">📄</span> Rapor
+      </div>
+      <div class="nav-item" data-panel="quality" onclick="showPanel('quality')">
+        <span class="nav-icon">🔬</span> Kalite
+      </div>
+      <div class="nav-item" data-panel="model" onclick="showPanel('model')">
+        <span class="nav-icon">🧠</span> Model
+      </div>
+      <div class="nav-item" data-panel="multipatient" onclick="showPanel('multipatient')">
+        <span class="nav-icon">👥</span> Multi-Hasta
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-item" data-panel="guide" onclick="showPanel('guide')">
+        <span class="nav-icon">📖</span> Kullanım Kılavuzu
+      </div>
+      <div class="nav-item" data-panel="about" onclick="showPanel('about')">
+        <span class="nav-icon">ℹ️</span> Hakkımızda
+      </div>
+    </div>
+  </nav>
+
+  <!-- CONTENT -->
+  <main class="content">
+
+    <!-- ── SETUP PANEL ──────────────────────────────────── -->
+    <div id="panel-setup" class="panel active">
+      <div class="panel-header">
+        <h2>⚙️ Analiz Kurulumu</h2>
+        <p>Verilerinizi seçin ve analizi başlatın</p>
+      </div>
+
+      <div class="setup-grid">
+        <!-- Spatial Data -->
+        <div class="setup-card">
+          <div class="card-icon">📁</div>
+          <h3>Spatial Veri Klasörü</h3>
+          <p class="card-desc">Visium veya benzeri spatial transcriptomics veri klasörü (filtered_feature_bc_matrix, spatial/ alt klasörleri)</p>
+          <div class="path-selector">
+            <input type="text" id="spatial-path" readonly placeholder="Klasör seçilmedi...">
+            <button class="btn-browse" onclick="browseSpatial()">📂 Seç</button>
+          </div>
+          <div class="path-indicator" id="spatial-indicator"></div>
+        </div>
+
+        <!-- scRNA Data -->
+        <div class="setup-card">
+          <div class="card-icon">🧬</div>
+          <h3>scRNA-seq Veri Dosyası</h3>
+          <p class="card-desc">scRNA-seq referans verisi (.h5ad, .h5, .loom, .csv, .tsv formatları desteklenir)</p>
+          <div class="path-selector">
+            <input type="text" id="scrna-path" readonly placeholder="Dosya seçilmedi...">
+            <button class="btn-browse" onclick="browseScrna()">📂 Seç</button>
+          </div>
+          <div class="path-indicator" id="scrna-indicator"></div>
+        </div>
+
+        <!-- Output Dir -->
+        <div class="setup-card">
+          <div class="card-icon">💾</div>
+          <h3>Çıktı Klasörü</h3>
+          <p class="card-desc">Tüm analiz sonuçları, figürler ve raporlar bu klasöre kaydedilecek</p>
+          <div class="path-selector">
+            <input type="text" id="output-path" readonly placeholder="Çıktı klasörü seçilmedi...">
+            <button class="btn-browse" onclick="browseOutput()">📂 Seç</button>
+          </div>
+          <div class="path-indicator" id="output-indicator"></div>
+        </div>
+
+        <!-- Settings -->
+        <div class="setup-card">
+          <div class="card-icon">🎛️</div>
+          <h3>Analiz Ayarları</h3>
+          <div class="settings-form">
+            <div class="setting-row">
+              <label>Hasta ID</label>
+              <input type="text" id="patient-id" value="Patient_A" placeholder="Patient_A">
+            </div>
+            <div class="setting-row">
+              <label>GNN Epoch</label>
+              <input type="number" id="gnn-epochs" value="100" min="10" max="1000">
+            </div>
+            <div class="setting-row toggle-row">
+              <label>Optuna Optimizasyon</label>
+              <label class="toggle">
+                <input type="checkbox" id="run-optuna">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="optuna-trials-row" style="display:none">
+              <label>Optuna Trial</label>
+              <input type="number" id="optuna-trials" value="10" min="5" max="50">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Start Button -->
+      <div class="start-section">
+        <button class="btn-start" id="start-btn" onclick="startPipeline()">
+          <span class="btn-start-icon">▶</span>
+          <span>ANALİZİ BAŞLAT</span>
+        </button>
+        <p class="start-hint">Tüm aşamalar otomatik olarak çalışacak. İşlem süresi verinin boyutuna bağlıdır.</p>
+      </div>
+    </div>
+
+    <!-- ── MONITOR PANEL ─────────────────────────────────── -->
+    <div id="panel-monitor" class="panel">
+      <div class="panel-header">
+        <h2>📡 Pipeline Monitörü</h2>
+        <div class="monitor-actions">
+          <button class="btn-cancel" id="cancel-btn" onclick="cancelPipeline()" style="display:none">⛔ İptal</button>
+          <span class="elapsed-time" id="elapsed-time"></span>
+        </div>
+      </div>
+
+      <!-- Stage Progress -->
+      <div class="stages-track">
+        <div class="stage-item" id="stage-preprocessing">
+          <div class="stage-icon">📦</div>
+          <div class="stage-info"><div class="stage-name">Ön İşleme</div><div class="stage-status">Bekliyor</div></div>
+        </div>
+        <div class="stage-arrow">→</div>
+        <div class="stage-item" id="stage-deconvolution">
+          <div class="stage-icon">🔬</div>
+          <div class="stage-info"><div class="stage-name">Dekonvolüsyon</div><div class="stage-status">Bekliyor</div></div>
+        </div>
+        <div class="stage-arrow">→</div>
+        <div class="stage-item" id="stage-gnn">
+          <div class="stage-icon">🧠</div>
+          <div class="stage-info"><div class="stage-name">GNN Eğitimi</div><div class="stage-status">Bekliyor</div></div>
+        </div>
+        <div class="stage-arrow">→</div>
+        <div class="stage-item" id="stage-viz">
+          <div class="stage-icon">📊</div>
+          <div class="stage-info"><div class="stage-name">Görselleştirme</div><div class="stage-status">Bekliyor</div></div>
+        </div>
+        <div class="stage-arrow">→</div>
+        <div class="stage-item" id="stage-report">
+          <div class="stage-icon">📄</div>
+          <div class="stage-info"><div class="stage-name">Rapor</div><div class="stage-status">Bekliyor</div></div>
+        </div>
+      </div>
+
+      <!-- Overall Progress -->
+      <div class="progress-section">
+        <div class="progress-label">
+          <span id="progress-stage-label">Hazır</span>
+          <span id="progress-pct">0%</span>
+        </div>
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-bar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Log Terminal -->
+      <div class="log-terminal">
+        <div class="terminal-header">
+          <span>▌ Terminal Çıktısı</span>
+          <button class="btn-clear-log" onclick="clearLog()">🗑 Temizle</button>
+        </div>
+        <div class="terminal-body" id="log-body">
+          <p class="log-ready">Pipeline başlatılmayı bekliyor...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RESULTS PANEL ─────────────────────────────────── -->
+    <div id="panel-results" class="panel">
+      <div class="panel-header">
+        <h2>🗺️ Spatial Sonuç Görüntüleyici</h2>
+        <div class="results-actions">
+          <button class="btn-secondary" onclick="loadResults()">🔄 Yükle</button>
+          <button class="btn-secondary" onclick="openOutputFolder()">📂 Klasörü Aç</button>
+        </div>
+      </div>
+      <div id="results-placeholder" class="results-placeholder">
+        <div class="placeholder-icon">🧠</div>
+        <p>Analiz tamamlandıktan sonra burada görüntülenecek.</p>
+        <button class="btn-primary" onclick="loadResults()">Sonuçları Yükle</button>
+      </div>
+      <!-- Visualizer iframe — website'den aynı görünüm -->
+      <div id="results-viewer" class="results-viewer hidden">
+        <div class="viewer-controls">
+          <select id="view-mode" onchange="updateViewMode()">
+            <option value="zone">Zone Haritası</option>
+            <option value="drug">İlaç Skoru</option>
+            <option value="risk">TCGA Risk</option>
+            <option value="celltype">Hücre Tipi</option>
+            <option value="lr">Ligand-Reseptör</option>
+          </select>
+          <select id="filter-risk" onchange="updateViewMode()" class="hidden" style="margin-left:8px; background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:0.85rem;">
+            <option value="all">Tüm Riskler (Hepsi)</option>
+            <option value="high">Sadece Yüksek Risk (≥ Medyan)</option>
+            <option value="low">Sadece Düşük Risk (&lt; Medyan)</option>
+          </select>
+          <div class="zoom-controls">
+            <button class="btn-zoom" onclick="zoomIn()" title="Yakınlaştır">＋</button>
+            <span id="zoom-level-badge" class="zoom-badge">100%</span>
+            <button class="btn-zoom" onclick="zoomOut()" title="Uzaklaştır">－</button>
+            <button class="btn-zoom btn-zoom-reset" onclick="resetView()" title="Görünümü Sıfırla">⊡ Sıfırla</button>
+          </div>
+          <div class="stats-row" id="viewer-stats"></div>
+        </div>
+        <div style="position:relative; flex:1; overflow:hidden;">
+          <canvas id="spatial-canvas" style="cursor:grab; position:absolute; top:0; left:0;"></canvas>
+          <div class="spot-tooltip hidden" id="spot-tooltip"></div>
+          
+          <!-- Legend -->
+          <div id="spatial-legend" class="spatial-legend hidden"></div>
+          
+          <!-- Spot Details Floating Card -->
+          <div id="spot-details-card" class="spot-details-card hidden">
+            <div class="sd-header">
+              <h3 id="sd-title">Spot #ID Detayları</h3>
+              <button class="btn-close" onclick="closeSpotDetails()">✕</button>
+            </div>
+            <div class="sd-body">
+              <h4 style="margin-top:0;">Baskın Hücre Tipleri</h4>
+              <ul id="sd-celltypes" class="sd-list"></ul>
+              
+              <h4>🔗 Ligand-Reseptör Etkileşimleri</h4>
+              <ul id="sd-lr" class="sd-list"></ul>
+              
+              <h4>💊 Farmakolojik Hedef</h4>
+              <div id="sd-drug" class="sd-box"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FIGURES PANEL ─────────────────────────────────── -->
+    <div id="panel-figures" class="panel">
+      <div class="panel-header">
+        <h2>📊 Figür Galerisi</h2>
+        <button class="btn-secondary" onclick="loadFigures()">🔄 Yükle</button>
+      </div>
+      <div class="figures-gallery" id="figures-gallery">
+        <div class="gallery-placeholder">
+          <p>Analiz tamamlandıktan sonra figürler burada görünecek.</p>
+          <button class="btn-primary" onclick="loadFigures()">Figürleri Yükle</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── REPORT PANEL ──────────────────────────────────── -->
+    <div id="panel-report" class="panel">
+      <div class="panel-header">
+        <h2>📄 Klinik Rapor</h2>
+        <div class="report-actions">
+          <button class="btn-secondary" onclick="loadReport()">🔄 Yükle</button>
+          <button class="btn-primary" onclick="openReport()">📥 PDF Aç</button>
+        </div>
+      </div>
+      <div id="report-frame-wrapper" class="report-frame-wrapper">
+        <div class="gallery-placeholder">
+          <p>Analiz tamamlandıktan sonra rapor burada görünecek.</p>
+          <button class="btn-primary" onclick="loadReport()">Raporu Yükle</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── QUALITY PANEL ────────────────────────────── -->
+    <div id="panel-quality" class="panel">
+      <div class="panel-header">
+        <h2>🔬 Dekonvolüsyon Kalite Metrikleri</h2>
+        <button class="btn-secondary" onclick="loadDeconvQuality()">🔄 Yenile</button>
+      </div>
+      <div id="quality-placeholder" class="results-placeholder">
+        <div class="placeholder-icon">🔬</div>
+        <p>Analiz tamamlandıktan sonra kalite metrikleri burada görünecek.</p>
+        <button class="btn-primary" onclick="loadDeconvQuality()">Kaliteyi Yükle</button>
+      </div>
+      <div id="quality-content" class="hidden">
+        <!-- Grade card -->
+        <div class="quality-grade-card" id="quality-grade-card">
+          <div class="grade-circle" id="grade-circle">A</div>
+          <div class="grade-info">
+            <div class="grade-label" id="grade-label">Mükemmel</div>
+            <div class="grade-desc">Dekonvolüsyon Kalitesi</div>
+          </div>
+          <div class="grade-metrics">
+            <div class="gmetric">
+              <span class="gm-val" id="qm-confidence">—</span>
+              <span class="gm-lbl">Ort. Güven</span>
+            </div>
+            <div class="gmetric">
+              <span class="gm-val" id="qm-entropy">—</span>
+              <span class="gm-lbl">Ort. Entropi</span>
+            </div>
+            <div class="gmetric">
+              <span class="gm-val" id="qm-types">—</span>
+              <span class="gm-lbl">Hücre Tipi</span>
+            </div>
+          </div>
+        </div>
+        <!-- Interpretation -->
+        <div class="interp-box">
+          <strong>Entropi:</strong> 0 = kesin atanma, 1 = belirsiz (eşit dağılım) &nbsp;|
+          <strong>Güven:</strong> Dominant hücre tipine atanma olasılığı
+        </div>
+        <!-- Cell type table -->
+        <h3 style="margin:24px 0 12px; color:var(--text-dim); font-size:0.95rem;">Hücre Tipi Kompozisyonu</h3>
+        <table class="data-table" id="ct-quality-table">
+          <thead><tr><th>Hücre Tipi</th><th>Ort. Oran (%)</th><th>Dominant Spot</th><th>Bar</th></tr></thead>
+          <tbody id="ct-quality-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── MODEL PANEL ───────────────────────────────── -->
+    <div id="panel-model" class="panel">
+      <div class="panel-header">
+        <h2>🧠 GNN Model Bilgisi</h2>
+        <button class="btn-secondary" onclick="loadGnnModel()">🔄 Yenile</button>
+      </div>
+      <div id="model-placeholder" class="results-placeholder">
+        <div class="placeholder-icon">🧠</div>
+        <p>Analiz tamamlandıktan sonra model bilgisi burada görünecek.</p>
+        <button class="btn-primary" onclick="loadGnnModel()">Model Bilgisini Yükle</button>
+      </div>
+      <div id="model-content" class="hidden">
+        <div class="model-grid">
+          <div class="model-card">
+            <h3>💾 Model Dosyası</h3>
+            <table class="data-table">
+              <tbody id="model-file-tbody"></tbody>
+            </table>
+          </div>
+          <div class="model-card">
+            <h3>⚙️ Mimari Konfigürasyon</h3>
+            <table class="data-table">
+              <tbody id="model-arch-tbody"></tbody>
+            </table>
+          </div>
+          <div class="model-card">
+            <h3>📈 Eğitim Metrikleri</h3>
+            <table class="data-table">
+              <tbody id="model-train-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <h3 style="margin:24px 0 12px; color:var(--text-dim); font-size:0.95rem;">Hücre Tipi Korelasyonları (GNN)</h3>
+        <table class="data-table" id="model-corr-table">
+          <thead><tr><th>Hücre Tipi</th><th>Pearson r</th><th>Spearman ρ</th><th>Anlam</th></tr></thead>
+          <tbody id="model-corr-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── MULTI-HASTA PANEL ─────────────────────────── -->
+    <div id="panel-multipatient" class="panel">
+      <div class="panel-header">
+        <h2>👥 Multi-Hasta Karşılaştırmalı Analiz</h2>
+      </div>
+      <div class="multipatient-info">
+        <div class="mp-notice">
+          <div class="mp-notice-icon">⚠️</div>
+          <div>
+            <strong>Beta Özellik</strong> — Çoklu hasta karşılaştırması yapılandırılmış çıktı klasörleri arasında manuel olarak gerçekleştirilebilir.
+            <br><br>
+            <strong>Nasıl Yapılır:</strong>
+            <ol style="margin-top:8px; padding-left:20px; line-height:2;">
+              <li>Her hasta için ayrı analiz çalıştırın (farklı <em>Hasta ID</em> ve <em>Çıktı Klasörü</em> seçin)</li>
+              <li>Her hastanın <code>deconvolution_summary.json</code> ve <code>gnn_summary.json</code> dosyalarını karşılaştırın</li>
+              <li>Aşağıdaki özet karlaştırması için iki hasta klasörünü yükleyin</li>
+            </ol>
+          </div>
+        </div>
+        <div class="mp-compare-section">
+          <h3>Hasta A ↔ Hasta B Hızlı Karşılaştırma</h3>
+          <div class="mp-path-row">
+            <div class="mp-path-group">
+              <label>Hasta A Çıktı Klasörü</label>
+              <div class="path-selector">
+                <input type="text" id="mp-dir-a" placeholder="/path/to/output_A" readonly>
+                <button class="btn-browse" onclick="browseMultipatientDir('a')">📂 Seç</button>
+              </div>
+            </div>
+            <div class="mp-path-group">
+              <label>Hasta B Çıktı Klasörü</label>
+              <div class="path-selector">
+                <input type="text" id="mp-dir-b" placeholder="/path/to/output_B" readonly>
+                <button class="btn-browse" onclick="browseMultipatientDir('b')">📂 Seç</button>
+              </div>
+            </div>
+          </div>
+          <button class="btn-primary" style="margin-top:16px;" onclick="comparePatients()">🔍 Karşılaştır</button>
+          <div id="mp-compare-result" style="margin-top:20px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── KULLANIM KILAVUZU PANEL ──────────────────────── -->
+    <div id="panel-guide" class="panel">
+      <div class="panel-header">
+        <h2>📖 Kullanım Kılavuzu</h2>
+      </div>
+      <div class="guide-content">
+
+        <div class="guide-section">
+          <h3>🚀 Hızlı Başlangıç</h3>
+          <div class="guide-steps">
+            <div class="guide-step">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <strong>Kurulum</strong> — Sol menüden <em>Kurulum</em> seçin. Spatial veri klasörünüzü (10x Visium output — <code>filtered_feature_bc_matrix.h5</code> + <code>spatial/</code> klasörü içermeli) ve scRNA-seq referans dosyanızı (<code>.h5ad</code> veya <code>.tsv</code>) seçin.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <strong>Hasta ID & Çıktı</strong> — Hasta ID'yi doldurun (rapor dosya adında kullanılır). Çıktı klasörü seçin — analiz sonuçları buraya kaydedilir.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <strong>Analizi Başlat</strong> — <em>Analizi Başlat</em> butonuna tıklayın. Pipeline <em>Pipeline</em> sekmesinden takip edilebilir. 5 aşama otomatik çalışır: Preprocessing → Dekonvolüsyon → GNN → Görselleştirme → Klinik Rapor.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">4</div>
+              <div class="step-body">
+                <strong>Sonuçları İncele</strong> — Analiz tamamlandığında <em>Sonuçlar</em>, <em>Figürler</em>, <em>Kalite</em> ve <em>Model</em> sekmeleri otomatik yüklenir. Spatial harita üzerinde zoom/pan yapabilirsiniz.
+              </div>
+            </div>
+            <div class="guide-step">
+              <div class="step-num">5</div>
+              <div class="step-body">
+                <strong>Rapor</strong> — <em>Rapor</em> sekmesinden klinik raporu görüntüleyin. WHO grade, IDH/MGMT durumu ve tedavi önerilerini içerir. PDF olarak açmak için <em>PDF Aç</em> butonunu kullanın.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>🗺️ Harita Modları</h3>
+          <div class="guide-table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Mod</th><th>Gösterdiği</th><th>Renk</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Zone Haritası</strong></td><td>IVY GAP tümör zon sınıflandırması (Pseudopalisading, Leading Edge vb.)</td><td>Her zone için farklı renk</td></tr>
+                <tr><td><strong>İlaç Skoru</strong></td><td>Her spotta GNN'nin hesapladığı tedavi yanıt skoru</td><td>Koyu mavi → Kırmızı</td></tr>
+                <tr><td><strong>TCGA Risk</strong></td><td>TCGA survi verisiyle hesaplanan rölatif risk skoru</td><td>Yeşil → Kırmızı</td></tr>
+                <tr><td><strong>Hücre Tipi</strong></td><td>Her spottaki dominant hücre tipi (Tangram dekonvolüsyonu)</td><td>Her hücre tipi için benzersiz HSL rengi</td></tr>
+                <tr><td><strong>Ligand-Reseptör</strong></td><td>Her spottaki en aktif LR etkileşim skoru (GNN attention ağırlıklı)</td><td>Koyu → Parlak cyan</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>⌨️ Kısayollar & Etkileşim</h3>
+          <div class="guide-shortcuts">
+            <div class="shortcut-item"><kbd>Scroll</kbd> <span>Haritayı zoom</span></div>
+            <div class="shortcut-item"><kbd>Sürükle</kbd> <span>Pan (kaydır)</span></div>
+            <div class="shortcut-item"><kbd>⊡ Sıfırla</kbd> <span>Görünümü başa al</span></div>
+            <div class="shortcut-item"><kbd>Hover</kbd> <span>Spot detayı tooltip</span></div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>❓ Sık Sorulan Sorular</h3>
+          <div class="faq-list">
+            <div class="faq-item">
+              <div class="faq-q">Pipeline çok uzun sürüyor, ne yapmalıyım?</div>
+              <div class="faq-a">GNN epoch sayısını Kurulum &gt; Gelişmiş Ayarlar'dan düşürün (varsayılan 100). Optuna hiperparametre aramasını devre dışı bırakın.</div>
+            </div>
+            <div class="faq-item">
+              <div class="faq-q">Spatial veri klasöründe hangi dosyalar olmalı?</div>
+              <div class="faq-a"><code>filtered_feature_bc_matrix.h5</code> ve <code>spatial/</code> alt klasörü (içinde <code>tissue_positions.csv</code>, <code>scalefactors_json.json</code>, ve en az bir görüntü dosyası) olmalıdır.</div>
+            </div>
+            <div class="faq-item">
+              <div class="faq-q">scRNA-seq referans olarak hangi format destekleniyor?</div>
+              <div class="faq-a"><code>.h5ad</code> (AnnData), <code>.tsv</code> (TPM matrisi, satırlar=genler, sütunlar=hücreler) ve <code>.h5</code> formatları desteklenmektedir.</div>
+            </div>
+            <div class="faq-item">
+              <div class="faq-q">Multi-hasta karşılaştırması nasıl yapılır?</div>
+              <div class="faq-a">Her hasta için ayrı analiz çalıştırın (farklı Hasta ID ve Çıktı Klasörü). Ardından <em>Multi-Hasta</em> sekmesinden iki çıktı klasörünü seçip karşılaştırın.</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── HAKKIMIZDA PANEL ──────────────────────────────── -->
+    <div id="panel-about" class="panel">
+      <div class="panel-header">
+        <h2>ℹ️ Hakkımızda</h2>
+      </div>
+      <div class="about-content">
+
+        <div class="about-hero">
+          <div class="about-logo">🧠</div>
+          <div class="about-hero-text">
+            <h1 class="about-title">Glio-Cartography</h1>
+            <div class="about-subtitle">Spatial Tümör Mikro-Ortamı Atlası</div>
+            <div class="about-version-badges">
+              <span class="stat-badge">v1.1.0</span>
+              <span class="stat-badge">GNN v3</span>
+              <span class="stat-badge">Tangram Dekonvolüsyon</span>
+              <span class="stat-badge">IVY GAP Doğrulaması</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="about-grid">
+          <div class="about-card">
+            <h3>🎯 Proje Hakkında</h3>
+            <p>Glio-Cartography, glioblastoma (GBM) hastalarının spatial transkriptomik verilerini otomatik olarak analiz eden, hücre tipi dekonvolüsyonu ve GNN tabanlı tümör zon haritalaması gerçekleştiren klinik karar destek sistemidir.</p>
+            <p style="margin-top:12px;">10x Visium Spatial Transcriptomics verisi üzerinde çalışarak tümör mikro-ortamını (TME) bölgesel düzeyde karakterize eder; Pseudopalisading Necrosis, Microvascular Proliferation ve Leading Edge gibi IVY GAP zon sınıflandırmasını uygular.</p>
+          </div>
+          <div class="about-card">
+            <h3>⚗️ Teknoloji Yığını</h3>
+            <table class="data-table">
+              <tbody>
+                <tr><td>Frontend</td><td style="font-family:var(--mono);">Electron + Vanilla JS</td></tr>
+                <tr><td>Backend</td><td style="font-family:var(--mono);">Python FastAPI + Uvicorn</td></tr>
+                <tr><td>Dekonvolüsyon</td><td style="font-family:var(--mono);">Tangram (PyTorch)</td></tr>
+                <tr><td>Graf Öğrenimi</td><td style="font-family:var(--mono);">GATConv + SAGEConv (PyG)</td></tr>
+                <tr><td>Spatial İşleme</td><td style="font-family:var(--mono);">Scanpy + Squidpy</td></tr>
+                <tr><td>Hiperparametre</td><td style="font-family:var(--mono);">Optuna</td></tr>
+                <tr><td>Görselleştirme</td><td style="font-family:var(--mono);">Matplotlib + Canvas API</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="about-card">
+            <h3>📚 Bilimsel Referanslar</h3>
+            <div class="ref-list">
+              <div class="ref-item">Puchalski RB et al. (2018) <em>An anatomic transcriptional atlas of human glioblastoma.</em> Science.</div>
+              <div class="ref-item">Biancalani T et al. (2021) <em>Deep learning and alignment of spatially resolved single-cell transcriptomes with Tangram.</em> Nature Methods.</div>
+              <div class="ref-item">Stupp R et al. (2005) <em>Radiotherapy plus concomitant and adjuvant temozolomide for glioblastoma.</em> NEJM.</div>
+              <div class="ref-item">Velicky P et al. (2024) <em>Dense neural network for spatial transcriptomics.</em> Nature Biotechnology.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="about-disclaimer">
+          <strong>⚕️ Klinik Feragatname:</strong> Bu yazılım yalnızca araştırma amaçlıdır. Ürettiği klinik tahminler (WHO grade, IDH/MGMT durumu, tedavi önerileri) hesaplamalı proxy metriklerine dayanır ve sertifikalı patolojik değerlendirmenin yerini tutmaz. Klinik karar vermede kullanılmamalıdır.
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

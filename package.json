@@ -1,0 +1,57 @@
+{
+  "name": "glio-cartography",
+  "version": "1.1.0",
+  "description": "Glio-Cartography — Spatial Tumor Microenvironment Atlas for Glioblastoma",
+  "main": "electron/main.js",
+  "author": "Glio-Cartography Team",
+  "license": "PROPRIETARY",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.gliocartography.desktop",
+    "productName": "Glio-Cartography",
+    "copyright": "Copyright © 2025 Glio-Cartography Team",
+    "mac": {
+      "category": "public.app-category.medical",
+      "icon": "assets/icon.icns",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": ["nsis"]
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "target": ["AppImage"]
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "assets/**/*",
+      "python_backend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../configs",
+        "to": "configs"
+      },
+      {
+        "from": "python_env",
+        "to": "python_env"
+      }
+    ]
+  }
+}

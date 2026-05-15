@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/out/
+
+# Python environment (bundled separately)
+python_env/
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files (dev artifacts)
+*.bak
+*.bak_*
+*.bak2_*
+
+# License secret config (NEVER commit this)
+.lcfg
+*.lcfg
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Electron builder cache
+.cache/
+
+# Log files
+*.log
+
+# Environment variables
+.env
+.env.local
