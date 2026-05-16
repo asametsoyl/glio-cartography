@@ -80,11 +80,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build:win
         
-      - name: Upload Application (Artifacts)
+      - name: Upload Application (macOS)
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: Glio-Cartography-${{ runner.os }}
+          name: Glio-Cartography-macOS
           path: |
-            desktop_app/dist/**/*.dmg
-            desktop_app/dist/**/*.exe
-            desktop_app/dist/**/*.zip
+            desktop_app/dist/*.dmg
+            desktop_app/dist/*.zip
+            
+      - name: Upload Application (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glio-Cartography-Windows
+          path: desktop_app/dist/*.exe
