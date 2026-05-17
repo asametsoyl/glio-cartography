@@ -84,4 +84,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Glio-Cartography-${{ runner.os }}
-          path: desktop_app/dist/
+          path: |
+            **/*.dmg
+            **/*.zip
+            **/*.exe
+          if-no-files-found: warn
