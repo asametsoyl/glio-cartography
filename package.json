@@ -21,6 +21,7 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
+    "asar": false,
     "appId": "com.gliocartography.desktop",
     "productName": "Glio-Cartography",
     "copyright": "Copyright © 2025 Glio-Cartography Team",

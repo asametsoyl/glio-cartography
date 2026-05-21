@@ -20,8 +20,8 @@ from scipy.stats import pearsonr, spearmanr
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 
-# Import GNN from models/train_gnn.py
-sys.path.insert(0, str(PROJECT_ROOT / "models"))
+# Import GNN from python_backend/train_gnn.py
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from train_gnn import (
     build_graph_data, GlioCartographyGNN, train_model,
     export_attention_to_json, counterfactual_knockout,

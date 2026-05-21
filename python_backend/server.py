@@ -5,6 +5,7 @@ FastAPI server that orchestrates the full pipeline
 """
 
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import sys
 import json
 import asyncio

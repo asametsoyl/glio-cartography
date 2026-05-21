@@ -137,7 +137,7 @@ class PipelineRunner:
             raise RuntimeError(f"Script hata kodu: {self._proc.returncode}")
 
     async def _run_preprocessing(self):
-        script = PROJECT_ROOT / "desktop_app" / "python_backend" / "stages" / "stage1_preprocessing.py"
+        script = Path(__file__).parent / "stages" / "stage1_preprocessing.py"
         env = {
             "GLIO_SCRNA_PATH": str(self.scrna_path),
             "GLIO_SPATIAL_DIR": str(self.spatial_dir),
@@ -147,7 +147,7 @@ class PipelineRunner:
         await self._run_script(script, env_extra=env)
 
     async def _run_deconvolution(self):
-        script = PROJECT_ROOT / "desktop_app" / "python_backend" / "stages" / "stage2_deconvolution.py"
+        script = Path(__file__).parent / "stages" / "stage2_deconvolution.py"
         env = {
             "GLIO_OUTPUT_DIR": str(self.output_dir),
             "GLIO_PATIENT_ID": self.patient_id,
@@ -155,7 +155,7 @@ class PipelineRunner:
         await self._run_script(script, env_extra=env)
 
     async def _run_gnn(self):
-        script = PROJECT_ROOT / "desktop_app" / "python_backend" / "stages" / "stage3_gnn.py"
+        script = Path(__file__).parent / "stages" / "stage3_gnn.py"
         env = {
             "GLIO_OUTPUT_DIR": str(self.output_dir),
             "GLIO_GNN_EPOCHS": str(self.gnn_epochs),
@@ -165,7 +165,7 @@ class PipelineRunner:
         await self._run_script(script, env_extra=env)
 
     async def _run_visualization(self):
-        script = PROJECT_ROOT / "desktop_app" / "python_backend" / "stages" / "stage4_visualization.py"
+        script = Path(__file__).parent / "stages" / "stage4_visualization.py"
         env = {
             "GLIO_OUTPUT_DIR": str(self.output_dir),
             "GLIO_PATIENT_ID": self.patient_id,
@@ -173,7 +173,7 @@ class PipelineRunner:
         await self._run_script(script, env_extra=env)
 
     async def _run_report(self):
-        script = PROJECT_ROOT / "desktop_app" / "python_backend" / "stages" / "stage5_report.py"
+        script = Path(__file__).parent / "stages" / "stage5_report.py"
         env = {
             "GLIO_OUTPUT_DIR": str(self.output_dir),
             "GLIO_PATIENT_ID": self.patient_id,

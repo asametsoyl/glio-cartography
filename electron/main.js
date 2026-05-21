@@ -188,7 +188,7 @@ function startBackend() {
 
     backendProcess = spawn(spawnBin, spawnArgs, {
       cwd: path.join(__dirname, '..', '..'), // project root
-      env: { ...process.env, PYTHONUNBUFFERED: '1', PATH: extraPath }
+      env: { ...process.env, PYTHONUNBUFFERED: '1', PATH: extraPath, KMP_DUPLICATE_LIB_OK: 'TRUE' }
     });
 
     backendProcess.stdout.on('data', (data) => {

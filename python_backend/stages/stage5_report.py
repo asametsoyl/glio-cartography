@@ -329,7 +329,7 @@ logger.info(f"   ✅ HTML rapor: {html_path}")
 logger.info("📄 Klinik PDF Rapor oluşturuluyor (v2.0 Gold Standard)...")
 try:
     import subprocess
-    pdf_script = PROJECT_ROOT / "data" / "generate_pdf_report.py"
+    pdf_script = Path(__file__).parent.parent / "generate_pdf_report.py"
     pdf_out_path = reports_out / f"Klinik_Rapor_{PATIENT_ID}.pdf"
     
     # generate_pdf_report.py takes: [1] json_path, [2] pdf_path, [3] patient_label
