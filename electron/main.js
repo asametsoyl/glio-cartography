@@ -13,9 +13,26 @@ const os = require('os');
 let Store;
 let store;
 async function initStore() {
-  const mod = await import('electron-store');
-  Store = mod.default;
-  store = new Store({ name: 'glio-cartography-config' });
+  const maxRetries = 5;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const mod = await import('electron-store');
+      Store = mod.default;
+      store = new Store({ name: 'glio-cartography-config' });
+      return; // Success!
+    } catch (e) {
+      console.warn(`[Store Init] Attempt ${attempt}/${maxRetries} failed:`, e);
+      if (attempt === maxRetries) {
+        throw e;
+      }
+      const isEintr = e.code === 'EINTR' || e.errno === 'EINTR' || (e.message && e.message.includes('EINTR'));
+      if (isEintr) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 // ── Dev Mode ───────────────────────────────────────────────
@@ -42,18 +59,34 @@ sB2nIzvMmdeGrjP4hWVGT8uglgeiUelSK9SR0SNAS1LPPrl8zXmixPMXxPxpWrev
 DQIDAQAB
 -----END PUBLIC KEY-----`;
 
+function execSyncWithRetry(command, options = {}, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return execSync(command, options);
+    } catch (e) {
+      const isEintr = e.code === 'EINTR' || e.errno === 'EINTR' || (e.message && e.message.includes('EINTR'));
+      if (isEintr && i < retries - 1) {
+        console.warn(`[execSync] Interrupted by EINTR, retrying (attempt ${i + 1}/${retries}): ${command}`);
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 let _cachedMachineId = null;
 function getMachineId() {
   if (_cachedMachineId) return _cachedMachineId;
   try {
     if (process.platform === 'darwin') {
-      _cachedMachineId = execSync("system_profiler SPHardwareDataType | awk '/Hardware UUID/ {print $3}'").toString().trim();
+      _cachedMachineId = execSyncWithRetry("system_profiler SPHardwareDataType | awk '/Hardware UUID/ {print $3}'").toString().trim();
     } else if (process.platform === 'win32') {
-      _cachedMachineId = execSync('wmic csproduct get uuid').toString().trim().split('\n').pop().trim();
+      _cachedMachineId = execSyncWithRetry('wmic csproduct get uuid').toString().trim().split('\n').pop().trim();
     } else {
       _cachedMachineId = os.hostname();
     }
   } catch (e) {
+    console.error('Failed to retrieve machine ID:', e);
     _cachedMachineId = os.hostname() + '-' + os.cpus()[0].model.replace(/\s/g, '').slice(0, 8);
   }
   return _cachedMachineId;
@@ -160,13 +193,13 @@ function findPython() {
   ];
   for (const p of candidates) {
     try {
-      execSync(`"${p}" -c "import scanpy, fastapi"`, { stdio: 'ignore', shell: true });
+      execSyncWithRetry(`"${p}" -c "import scanpy, fastapi"`, { stdio: 'ignore', shell: true });
       return { bin: p, compiled: false };
     } catch {}
   }
   // Last resort: ask the shell
   try {
-    const fallback = execSync('which python3', { shell: true }).toString().trim();
+    const fallback = execSyncWithRetry('which python3', { shell: true }).toString().trim();
     if (fallback) return { bin: fallback, compiled: false };
   } catch {}
   return { bin: 'python3', compiled: false };
@@ -449,7 +482,17 @@ app.whenReady().then(async () => {
     callback(pathname);
   });
 
-  await initStore();
+  try {
+    await initStore();
+  } catch (err) {
+    console.error('CRITICAL: Failed to initialize electron-store:', err);
+    // Fallback: Mock store to prevent complete app crash
+    store = {
+      get: (key, fallback) => fallback,
+      set: () => {},
+      delete: () => {}
+    };
+  }
   createWindow();
 
   // Wait for window to be shown before sending events

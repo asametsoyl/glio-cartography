@@ -7,6 +7,9 @@ const api = window.glioAPI;
 // ── State ────────────────────────────────────────────────────
 let state = {
   backendReady: false,
+  licenseValid: false,
+  licenseChecked: false,
+  manualLicenseView: false,
   pipelineRunning: false,
   currentPanel: 'setup',
   outputDir: null,
@@ -44,8 +47,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const stored = await api.getStoredLicense();
   if (stored) {
     const result = await api.validateLicense(stored.key);
-    if (result.valid) { hideLicense(); }
+    if (result.valid) {
+      state.licenseValid = true;
+      showLicenseWaitingState();
+    } else {
+      state.licenseValid = false;
+      showLicenseFormState();
+    }
+  } else {
+    state.licenseValid = false;
+    showLicenseFormState();
   }
+  state.licenseChecked = true;
+  evaluateLaunchState();
 
   // Optuna toggle
   document.getElementById('run-optuna').addEventListener('change', (e) => {
@@ -56,7 +70,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   api.onBackendReady((ready) => setBackendStatus(ready));
 
   // Güncelleme bildirimi dinle
-  let _updateUrl = '';
   api.onUpdateAvailable((info) => {
     if (info.upToDate) {
       // Manuel kontrol istedi, güncel mesajı
@@ -150,6 +163,7 @@ function setBackendStatus(ready) {
     dot.className = 'status-dot error';
     txt.textContent = 'Backend bağlanamadı';
   }
+  evaluateLaunchState();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -166,7 +180,12 @@ async function activateLicense() {
     const result = await api.validateLicense(key);
     if (result.valid) {
       await api.saveLicense(key, result.expiryDate);
-      hideLicense();
+      state.licenseValid = true;
+      if (state.backendReady) {
+        hideLicense();
+      } else {
+        showLicenseWaitingState();
+      }
     } else {
       showLicenseError(result.reason || 'Geçersiz lisans');
     }
@@ -182,11 +201,43 @@ function showLicenseError(msg) {
 }
 
 function hideLicense() {
+  state.manualLicenseView = false;
   document.getElementById('license-overlay').classList.remove('active');
+  document.getElementById('license-overlay-close').classList.add('hidden');
 }
 
 function showLicenseInfo() {
+  state.manualLicenseView = true;
+  showLicenseFormState();
+  if (state.licenseValid) {
+    document.getElementById('license-overlay-close').classList.remove('hidden');
+  } else {
+    document.getElementById('license-overlay-close').classList.add('hidden');
+  }
   document.getElementById('license-overlay').classList.add('active');
+}
+
+function closeLicenseOverlay() {
+  state.manualLicenseView = false;
+  hideLicense();
+}
+
+function showLicenseWaitingState() {
+  document.getElementById('license-form-container').classList.add('hidden');
+  document.getElementById('license-checking-state').classList.remove('hidden');
+  document.getElementById('checking-msg').textContent = 'Lisans tanındı, lütfen bekleyiniz...';
+  document.getElementById('checking-submsg').textContent = 'Uygulama sunucusuna bağlanılıyor...';
+}
+
+function showLicenseFormState() {
+  document.getElementById('license-checking-state').classList.add('hidden');
+  document.getElementById('license-form-container').classList.remove('hidden');
+}
+
+function evaluateLaunchState() {
+  if (state.licenseValid && state.backendReady && !state.manualLicenseView) {
+    hideLicense();
+  }
 }
 
 function copyMachineId() {
@@ -533,7 +584,7 @@ function updateLegend(mode, data) {
   } else if (mode === 'lr') {
     lg.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;color:var(--text);">Ligand-Reseptör Etkileşimi</div>';
     lg.innerHTML += `
-      <div class="legend-gradient" style="background: linear-gradient(to right, #000004, #51127c, #b63679, #fb8861, #fcffa4);"></div>
+      <div class="legend-gradient" style="background: linear-gradient(to right, #4f46e5, #06b6d4, #10b981, #f97316, #ef4444);"></div>
       <div class="legend-gradient-labels"><span>0.00</span><span>${(state._lrMax||1).toFixed(2)}</span></div>
     `;
   } else if (mode === 'drug') {
@@ -806,18 +857,17 @@ function interpolateColor(c1, c2, t) {
   return `rgb(${r},${g},${b})`;
 }
 
-// Plasma/Inferno benzeri 5-duraklı LR renk haritası
-// 0.0 → siyah-lacivert, 0.25 → koyu mor, 0.5 → magenta/fuşya
-// 0.75 → parlak turuncu, 1.0 → parlak sarı
+// Jet/Rainbow benzeri yüksek kontrastlı 5-duraklı LR renk haritası
+// 0.00 → İndigo/Mavi (#4f46e5), 0.25 → Turkuaz (#06b6d4), 0.50 → Yeşil (#10b981)
+// 0.75 → Turuncu (#f97316), 1.00 → Kırmızı (#ef4444)
 function lrPlasmaColor(t) {
   // [stop, r, g, b]
   const stops = [
-    [0.00,  13,  21,  40],   // #0d1528 — arkaplan lacivert
-    [0.20,  72,  12, 168],   // #4c0ca8 — derin mor
-    [0.45, 200,  20, 180],   // #c814b4 — magenta/fuşya
-    [0.70, 253, 130,  20],   // #fd8214 — parlak turuncu
-    [0.85, 253, 231,  37],   // #fde725 — viridis sarısı
-    [1.00, 255, 255, 220],   // #fffdf4 — krem-beyaz (max yoğunluk)
+    [0.00,  79,  70, 229],   // #4f46e5 — İndigo/Mavi (Düşük)
+    [0.25,   6, 182, 212],   // #06b6d4 — Turkuaz
+    [0.50,  16, 185, 129],   // #10b981 — Zümrüt Yeşili
+    [0.75, 249, 115,  22],   // #f97316 — Parlak Turuncu
+    [1.00, 239,  68,  68]    // #ef4444 — Kırmızı (Yüksek)
   ];
   // İki duraklı arası lineer interpolasyon
   for (let i = 0; i < stops.length - 1; i++) {
@@ -828,7 +878,7 @@ function lrPlasmaColor(t) {
       return `rgb(${Math.round(r0+(r1-r0)*f)},${Math.round(g0+(g1-g0)*f)},${Math.round(b0+(b1-b0)*f)})`;
     }
   }
-  return 'rgb(255,255,220)';
+  return 'rgb(239, 68, 68)';
 }
 
 function updateViewerStats(spots, ZONES) {

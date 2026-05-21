@@ -13,13 +13,25 @@
 <!-- ─── LICENSE OVERLAY ─────────────────────────────────── -->
 <div id="license-overlay" class="overlay active">
   <div class="overlay-content">
+    <button class="overlay-close hidden" id="license-overlay-close" onclick="closeLicenseOverlay()" title="Kapat">✕</button>
     <div class="logo-block">
       <div class="logo-icon">🧠</div>
       <h1>Glio-Cartography</h1>
       <p class="logo-sub">Spatial Tumor Microenvironment Analysis Platform</p>
       <span class="version-badge">v1.0 · Lisanslı</span>
     </div>
-    <div class="license-form">
+
+    <!-- Başlangıç / Yükleme Durumu -->
+    <div id="license-checking-state" class="license-checking-state">
+      <div class="premium-loader">
+        <div class="loader-ring"></div>
+        <div class="loader-glow"></div>
+      </div>
+      <p class="checking-msg" id="checking-msg">Sistem başlatılıyor...</p>
+      <p class="checking-submsg" id="checking-submsg">Lisans kontrol ediliyor...</p>
+    </div>
+
+    <div class="license-form hidden" id="license-form-container">
       <!-- Makine ID — kullanıcı bu değeri lisans talebinde kullanır -->
       <div class="machine-id-block">
         <label>Makine Kimliği <span style="color:var(--text-muted);font-weight:400">(lisans talebinde bu değeri gönderin)</span></label>
