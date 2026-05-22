@@ -4,6 +4,7 @@ import os, sys, json
 from pathlib import Path
 import numpy as np
 import scipy.stats as stats
+import yaml
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -163,6 +164,19 @@ if "spatial" not in adata_sp.obsm:
 logger.info(f"   Spatial shape: {adata_sp.shape}")
 
 # ── Spatial QC (v5.1) ───────────────────────────────────────
+config_path = PROJECT_ROOT / "configs" / "config.yaml"
+min_counts = 1000
+min_genes = 300
+try:
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    sp_cfg = cfg.get("preprocessing", {}).get("spatial", {})
+    min_counts = sp_cfg.get("min_counts", 1000)
+    min_genes = sp_cfg.get("min_genes", 300)
+    logger.info(f"   Loaded QC config: min_counts={min_counts}, min_genes={min_genes}")
+except Exception as e:
+    logger.warning(f"   Config load failed ({e}), using defaults.")
+
 adata_sp.var_names_make_unique()
 
 adata_sp.var["mt"] = adata_sp.var_names.str.upper().str.startswith("MT-")
@@ -171,9 +185,9 @@ adata_sp.var["hb"] = adata_sp.var_names.str.upper().str.startswith(("HBA", "HBB"
 sc.pp.calculate_qc_metrics(adata_sp, qc_vars=["mt", "ribo", "hb"], percent_top=None, log1p=False, inplace=True)
 
 sc.pp.filter_genes(adata_sp, min_cells=10)
-sc.pp.filter_cells(adata_sp, min_counts=1000)
+sc.pp.filter_cells(adata_sp, min_counts=min_counts)
 sc.pp.filter_cells(adata_sp, max_counts=40000)
-adata_sp = adata_sp[adata_sp.obs.n_genes_by_counts >= 200].copy()
+adata_sp = adata_sp[adata_sp.obs.n_genes_by_counts >= min_genes, :].copy()
 
 # ── Normalize Spatial ────────────────────────────────────────
 sc.pp.normalize_total(adata_sp, target_sum=1e4)

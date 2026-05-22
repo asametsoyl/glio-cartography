@@ -23,12 +23,61 @@
 
     <!-- Başlangıç / Yükleme Durumu -->
     <div id="license-checking-state" class="license-checking-state">
-      <div class="premium-loader">
+      <div class="premium-loader" id="premium-loader-el">
         <div class="loader-ring"></div>
         <div class="loader-glow"></div>
       </div>
       <p class="checking-msg" id="checking-msg">Sistem başlatılıyor...</p>
       <p class="checking-submsg" id="checking-submsg">Lisans kontrol ediliyor...</p>
+
+      <!-- Progress Bar for Downloading -->
+      <div id="download-progress-container" class="download-progress-container hidden" style="margin-top: 15px; margin-bottom: 15px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85em;">
+          <span id="download-progress-status" style="color: var(--accent); font-weight: 500;">Hazırlanıyor...</span>
+          <span id="download-progress-percent" style="font-family: monospace;">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div id="download-progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+        </div>
+        <div id="download-progress-info" style="font-size: 0.75em; color: var(--text-muted); text-align: right;">0 MB / 0 MB</div>
+      </div>
+
+      <!-- Hata & Kurtarma Kontrolleri -->
+      <!-- Hata & Kurtarma Kontrolleri -->
+      <div id="connection-error-container" class="connection-error-container hidden">
+        <div class="connection-error-actions" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;">
+          <div style="display: flex; width: 100%; gap: 10px;">
+            <button class="btn-premium" id="btn-download-runtime" onclick="downloadRuntime()" style="width: auto; flex: 1.5;">
+              <span>🔄 Bileşenleri Otomatik Yeniden Yükle</span>
+            </button>
+            <button class="btn-secondary" id="btn-retry-connection" onclick="retryBackendConnection()" style="width: auto; flex: 1; border: 1px solid var(--border-bright); background: rgba(255,255,255,0.05); color: var(--text);">
+              <span>🔄 Yeniden Dene</span>
+            </button>
+          </div>
+          <div style="display: flex; width: 100%; gap: 10px;">
+            <button class="btn-secondary" id="btn-open-log" onclick="openLogFile()" style="width: auto; flex: 1; border: 1px solid rgba(255, 75, 75, 0.4); background: rgba(255, 75, 75, 0.05); color: #ff5c5c;">
+              <span>📋 Sistem Tanılama Kaydını Aç</span>
+            </button>
+          </div>
+        </div>
+
+        <details style="margin-top: 15px; margin-bottom: 10px; font-size: 0.85em; color: var(--text-muted); text-align: left;">
+          <summary style="cursor: pointer; user-select: none; font-weight: 500; color: var(--accent); outline: none;">Gelişmiş Seçenekler (Sistem Yöneticisi)</summary>
+          <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <button class="btn-primary" id="btn-select-python" onclick="selectCustomPython()" style="width: 100%; font-size: 0.9em; padding: 8px 12px;">
+              <span>📂 Bileşen Yolunu Seç (python.exe)</span>
+            </button>
+            <div class="custom-python-path-display hidden" id="custom-python-path-display" style="font-size: 0.85em; margin-top: 4px; word-break: break-all;">
+              Bileşen Konumu: <span id="selected-python-path-text" style="color:var(--accent); font-weight: 500;">Yok</span>
+            </div>
+          </div>
+        </details>
+        
+        <div class="log-preview-block">
+          <label>Sistem Tanılama Kayıtları:</label>
+          <pre id="connection-log-preview" class="log-preview-content">Başlatılıyor...</pre>
+        </div>
+      </div>
     </div>
 
     <div class="license-form hidden" id="license-form-container">
@@ -63,8 +112,8 @@
     <span class="app-version" id="app-version">v1.0</span>
   </div>
   <div class="titlebar-right">
-    <div class="status-dot" id="backend-dot" title="Backend durumu"></div>
-    <span class="status-text" id="backend-status">Backend bağlanıyor...</span>
+    <div class="status-dot" id="backend-dot" title="Bağlantı durumu"></div>
+    <span class="status-text" id="backend-status">Bileşenlere bağlanıyor...</span>
     <button class="btn-update-check" onclick="manualUpdateCheck()" title="Güncelleme ara">🔄</button>
     <div class="license-info" id="license-badge" onclick="showLicenseInfo()">🔑 Lisanslı</div>
   </div>
@@ -92,6 +141,12 @@
       </div>
       <div class="nav-item" data-panel="results" onclick="showPanel('results')">
         <span class="nav-icon">🗺️</span> Sonuçlar
+      </div>
+      <div class="nav-item" data-panel="signaling" onclick="showPanel('signaling')">
+        <span class="nav-icon">🔗</span> Sinyalleşme
+      </div>
+      <div class="nav-item" data-panel="contrast" onclick="showPanel('contrast')">
+        <span class="nav-icon">📊</span> Kontrast
       </div>
       <div class="nav-item" data-panel="figures" onclick="showPanel('figures')">
         <span class="nav-icon">📊</span> Figürler
@@ -287,6 +342,13 @@
             <option value="risk">TCGA Risk</option>
             <option value="celltype">Hücre Tipi</option>
             <option value="lr">Ligand-Reseptör</option>
+            <option value="pathway">Yolak Aktivitesi</option>
+          </select>
+          <select id="filter-pathway" onchange="updateViewMode()" class="hidden" style="margin-left:8px; background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:0.85rem;">
+            <option value="PI3K_AKT_mTOR">PI3K/AKT/mTOR</option>
+            <option value="MAPK_ERK">MAPK/ERK</option>
+            <option value="JAK_STAT">JAK/STAT</option>
+            <option value="NFkB">NFkB</option>
           </select>
           <select id="filter-risk" onchange="updateViewMode()" class="hidden" style="margin-left:8px; background:var(--surface); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:0.85rem;">
             <option value="all">Tüm Riskler (Hepsi)</option>
@@ -323,6 +385,95 @@
               
               <h4>💊 Farmakolojik Hedef</h4>
               <div id="sd-drug" class="sd-box"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CELL-CELL SIGNALING PANEL ─────────────────────── -->
+    <div id="panel-signaling" class="panel">
+      <div class="panel-header">
+        <h2>🔗 Hücre-Hücre Sinyalleşmesi</h2>
+        <div class="results-actions">
+          <button class="btn-secondary" onclick="loadResults()">🔄 Yenile</button>
+        </div>
+      </div>
+      <div id="signaling-placeholder" class="results-placeholder">
+        <div class="placeholder-icon">🔗</div>
+        <p>Analiz tamamlandıktan sonra hücre-hücre iletişim haritası burada görüntülenecek.</p>
+        <button class="btn-primary" onclick="loadResults()">Verileri Yükle</button>
+      </div>
+      
+      <div id="signaling-container" class="signaling-layout hidden">
+        <div class="signaling-sidebar">
+          <h3>Filtreler</h3>
+          
+          <div class="filter-group">
+            <label for="signaling-lr-select">Ligand-Reseptör Çifti</label>
+            <select id="signaling-lr-select" onchange="renderSignalingDiagram()">
+              <!-- Dynamic LR pairs -->
+            </select>
+          </div>
+          
+          <div class="filter-group">
+            <label>Hücre Tipleri</label>
+            <div id="signaling-ct-checkboxes" class="checkbox-list">
+              <!-- Dynamic cell types -->
+            </div>
+          </div>
+          
+          <div class="filter-group" style="margin-top:auto;">
+            <div class="info-card">
+              <h4>İletişim Skoru</h4>
+              <p>Çemberdeki yay genişliği, hücrelerin uzamsal yakınlığı ve GNN attention ağırlıklarıyla hesaplanan toplam sinyalleşme gücünü temsil eder.</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="signaling-main">
+          <div id="chord-diagram-wrapper" style="position:relative; width:100%; height:100%; display:flex; justify-content:center; align-items:center;">
+            <svg id="chord-svg" width="600" height="600" viewBox="-300 -300 600 600" style="max-width:100%; max-height:100%; overflow:visible;">
+              <!-- Dynamic SVG Chord Diagram will go here -->
+            </svg>
+            <div id="chord-tooltip" class="spot-tooltip hidden" style="position:absolute; pointer-events:none; z-index:100; background:rgba(7,11,24,0.95); border:1px solid var(--accent); padding:10px; border-radius:6px; font-size:0.85rem;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ZONAL CONTRAST PANEL ─────────────────────────── -->
+    <div id="panel-contrast" class="panel">
+      <div class="panel-header">
+        <h2>📊 Zonal Kontrast Karşılaştırması</h2>
+        <div class="results-actions">
+          <button class="btn-secondary" onclick="loadResults()">🔄 Yenile</button>
+        </div>
+      </div>
+      <div id="contrast-placeholder" class="results-placeholder">
+        <div class="placeholder-icon">📊</div>
+        <p>Analiz tamamlandıktan sonra patolojik bölgeler arası karşılaştırma grafikleri burada görüntülenecek.</p>
+        <button class="btn-primary" onclick="loadResults()">Verileri Yükle</button>
+      </div>
+      
+      <div id="contrast-container" class="contrast-layout hidden">
+        <div class="contrast-tabs" style="display:flex; gap:10px; margin-bottom:20px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+          <button class="btn-tab active" id="btn-tab-pathways" onclick="switchContrastTab('pathways')" style="background:transparent; border:none; border-bottom:2px solid var(--accent); color:var(--text); padding:8px 16px; cursor:pointer; font-weight:600;">Yolak Aktivitesi</button>
+          <button class="btn-tab" id="btn-tab-lr" onclick="switchContrastTab('lr')" style="background:transparent; border:none; border-bottom:2px solid transparent; color:var(--text-muted); padding:8px 16px; cursor:pointer; font-weight:600;">L-R Etkileşimleri</button>
+        </div>
+        
+        <div class="contrast-main">
+          <!-- Pathway contrast charts -->
+          <div id="contrast-pathways-panel" class="contrast-tab-panel">
+            <div class="contrast-grid" id="pathways-contrast-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:20px;">
+              <!-- Dynamically rendered SVG bar charts per pathway -->
+            </div>
+          </div>
+          
+          <!-- L-R contrast charts -->
+          <div id="contrast-lr-panel" class="contrast-tab-panel hidden">
+            <div class="contrast-grid" id="lr-contrast-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:20px;">
+              <!-- Dynamically rendered SVG bar charts per LR pair -->
             </div>
           </div>
         </div>

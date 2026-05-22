@@ -7,6 +7,7 @@ const api = window.glioAPI;
 // ── State ────────────────────────────────────────────────────
 let state = {
   backendReady: false,
+  backendStartupFailed: false,
   licenseValid: false,
   licenseChecked: false,
   manualLicenseView: false,
@@ -20,6 +21,8 @@ let state = {
   startTime: null,
   pollInterval: null,
   elapsedInterval: null,
+  downloadAttempted: false,
+  downloading: false,
 };
 
 // ── ZONE CONFIG ───────────────────────────────────────────────
@@ -68,6 +71,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Backend events — listen before polling so we don't miss it
   api.onBackendReady((ready) => setBackendStatus(ready));
+  api.onBackendLog((msg) => handleBackendLog(msg));
+  if (api.onDownloadProgress) {
+    api.onDownloadProgress((data) => handleDownloadProgress(data));
+  }
+  if (api.onRuntimeMissing) {
+    api.onRuntimeMissing(() => {
+      console.log('[Runtime] Runtime missing event triggered. Checking auto-download...');
+      triggerAutoDownload();
+    });
+  }
+
+  // Sync backend state now to avoid race conditions
+  await syncBackendState();
 
   // Güncelleme bildirimi dinle
   api.onUpdateAvailable((info) => {
@@ -145,23 +161,58 @@ async function restoreLastPaths() {
   }
 }
 
+let lastBackendLogs = [];
+function handleBackendLog(msg) {
+  lastBackendLogs.push(msg);
+  if (lastBackendLogs.length > 80) lastBackendLogs.shift();
+  
+  const logEl = document.getElementById('connection-log-preview');
+  if (logEl) {
+    logEl.textContent = lastBackendLogs.join('\n');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
 async function checkBackendHealth() {
+  // Skip noisy polling when we know backend isn't running yet
+  if (state.downloading) return;
+  
   try {
+    const stateObj = await api.getBackendState();
+    // Don't poll HTTP if main process says runtime is missing or still starting
+    if (stateObj && (stateObj.status === 'runtime-missing' || stateObj.status === 'starting')) return;
+
     const res = await api.backendRequest('/health', 'GET', {});
-    if (res && res.status === 'ok') setBackendStatus(true);
-  } catch (e) { /* still waiting */ }
+    if (res && res.status === 'ok') {
+      setBackendStatus(true);
+    } else {
+      setBackendStatus(false);
+    }
+  } catch (e) {
+    // Only set status to false if we were already connected before
+    if (state.backendReady) {
+      setBackendStatus(false);
+    }
+  }
 }
 
 function setBackendStatus(ready) {
   state.backendReady = ready;
+  if (ready) {
+    state.backendStartupFailed = false;
+  } else {
+    state.backendStartupFailed = true;
+  }
   const dot = document.getElementById('backend-dot');
   const txt = document.getElementById('backend-status');
   if (ready) {
     dot.className = 'status-dot connected';
-    txt.textContent = 'Backend bağlandı';
+    txt.textContent = 'Bileşenler bağlandı';
+    hideConnectionError();
   } else {
     dot.className = 'status-dot error';
-    txt.textContent = 'Backend bağlanamadı';
+    txt.textContent = 'Bileşenler bağlanamadı';
+    showConnectionError();
   }
   evaluateLaunchState();
 }
@@ -181,10 +232,16 @@ async function activateLicense() {
     if (result.valid) {
       await api.saveLicense(key, result.expiryDate);
       state.licenseValid = true;
-      if (state.backendReady) {
-        hideLicense();
+      
+      const stateObj = await api.getBackendState();
+      if (stateObj && stateObj.status === 'runtime-missing') {
+        triggerAutoDownload();
       } else {
-        showLicenseWaitingState();
+        if (state.backendReady) {
+          hideLicense();
+        } else {
+          showLicenseWaitingState();
+        }
       }
     } else {
       showLicenseError(result.reason || 'Geçersiz lisans');
@@ -225,8 +282,18 @@ function closeLicenseOverlay() {
 function showLicenseWaitingState() {
   document.getElementById('license-form-container').classList.add('hidden');
   document.getElementById('license-checking-state').classList.remove('hidden');
-  document.getElementById('checking-msg').textContent = 'Lisans tanındı, lütfen bekleyiniz...';
-  document.getElementById('checking-submsg').textContent = 'Uygulama sunucusuna bağlanılıyor...';
+  
+  if (state.licenseValid && state.backendStartupFailed) {
+    showConnectionError();
+  } else {
+    document.getElementById('checking-msg').textContent = 'Lisans tanındı, lütfen bekleyiniz...';
+    document.getElementById('checking-submsg').textContent = 'Uygulama sunucusuna bağlanılıyor...';
+    // Ensure premium loader is visible
+    const loader = document.getElementById('premium-loader-el');
+    if (loader) loader.style.display = '';
+    const container = document.getElementById('connection-error-container');
+    if (container) container.classList.add('hidden');
+  }
 }
 
 function showLicenseFormState() {
@@ -237,6 +304,293 @@ function showLicenseFormState() {
 function evaluateLaunchState() {
   if (state.licenseValid && state.backendReady && !state.manualLicenseView) {
     hideLicense();
+  } else if (state.licenseValid && state.backendStartupFailed) {
+    showConnectionError();
+  }
+}
+
+function showConnectionError() {
+  if (state.downloading) {
+    return; // Don't interrupt active download/installation
+  }
+
+  const overlay = document.getElementById('license-overlay');
+  if (overlay) overlay.classList.add('active');
+
+  const checkingState = document.getElementById('license-checking-state');
+  if (checkingState) checkingState.classList.remove('hidden');
+
+  const formContainer = document.getElementById('license-form-container');
+  if (formContainer) formContainer.classList.add('hidden');
+
+  document.getElementById('checking-msg').textContent = '⚠️ Bileşen Bağlantı Hatası';
+  document.getElementById('checking-submsg').innerHTML = 'Glio-Cartography Bileşenleri başlatılamadı veya yanıt vermiyor.<br>Lütfen uygulamanın gerekli bileşenleri kurmasına izin verin veya internet bağlantınızı kontrol edin.';
+  
+  // Hide loading ring
+  const loader = document.getElementById('premium-loader-el');
+  if (loader) loader.style.display = 'none';
+
+  // Show error container
+  const container = document.getElementById('connection-error-container');
+  if (container) container.classList.remove('hidden');
+  
+  updateCustomPathDisplay();
+
+  // Populate log preview
+  const logEl = document.getElementById('connection-log-preview');
+  if (logEl) {
+    logEl.textContent = lastBackendLogs.length > 0 
+      ? lastBackendLogs.join('\n') 
+      : 'Bağlantı bekleniyor... Log kaydı bulunamadı.';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+}
+
+async function updateCustomPathDisplay() {
+  try {
+    const savedPath = await api.getCustomPythonPath();
+    const displayContainer = document.getElementById('custom-python-path-display');
+    const displaySpan = document.getElementById('selected-python-path-text');
+    if (savedPath) {
+      if (displaySpan) displaySpan.textContent = savedPath;
+      if (displayContainer) displayContainer.classList.remove('hidden');
+    } else {
+      if (displayContainer) displayContainer.classList.add('hidden');
+    }
+  } catch (e) {
+    console.error('Failed to get custom python path:', e);
+  }
+}
+
+function hideConnectionError() {
+  const loader = document.getElementById('premium-loader-el');
+  if (loader) loader.style.display = '';
+
+  const container = document.getElementById('connection-error-container');
+  if (container) container.classList.add('hidden');
+
+  if (state.licenseValid && state.backendStartupFailed) {
+    // keep error message
+  } else {
+    document.getElementById('checking-msg').textContent = 'Sistem başlatılıyor...';
+    document.getElementById('checking-submsg').textContent = 'Uygulama sunucusuna bağlanılıyor...';
+  }
+}
+
+async function selectCustomPython() {
+  try {
+    const selected = await api.selectPythonPath();
+    if (selected) {
+      console.log('User selected Python path:', selected);
+      await api.saveCustomPythonPath(selected);
+      updateCustomPathDisplay();
+      
+      // Attempt restart automatically
+      await retryBackendConnection();
+    }
+  } catch (err) {
+    alert('Bileşen seçimi sırasında hata oluştu: ' + err.message);
+  }
+}
+
+async function retryBackendConnection() {
+  try {
+    // Show loading state again
+    const container = document.getElementById('connection-error-container');
+    if (container) container.classList.add('hidden');
+    
+    const loader = document.getElementById('premium-loader-el');
+    if (loader) loader.style.display = '';
+    
+    document.getElementById('checking-msg').textContent = 'Yeniden başlatılıyor...';
+    document.getElementById('checking-submsg').textContent = 'Glio-Cartography bileşenleri başlatılıyor...';
+    
+    // Clear logs
+    lastBackendLogs = [];
+    const logEl = document.getElementById('connection-log-preview');
+    if (logEl) logEl.textContent = 'Glio-Cartography bileşenleri başlatılıyor...';
+
+    const ok = await api.restartBackend();
+    if (ok) {
+      setBackendStatus(true);
+    } else {
+      setBackendStatus(false);
+    }
+  } catch (err) {
+    console.error('Restart backend error:', err);
+    setBackendStatus(false);
+  }
+}
+
+async function syncBackendState() {
+  try {
+    const stateObj = await api.getBackendState();
+    console.log('[Sync] Received backend state:', stateObj);
+    if (!stateObj) return;
+
+    if (stateObj.status === 'ready') {
+      setBackendStatus(true);
+    } else if (stateObj.status === 'failed') {
+      setBackendStatus(false);
+      if (stateObj.error) {
+        const statusEl = document.getElementById('download-progress-status');
+        if (statusEl) statusEl.textContent = '❌ Hata: ' + stateObj.error;
+      }
+    } else if (stateObj.status === 'runtime-missing') {
+      console.log('[Runtime] Sync state shows runtime missing. Checking auto-download...');
+      triggerAutoDownload();
+    } else if (['downloading', 'extracting', 'configuring', 'downloading_vc', 'installing_vc', 'completed'].includes(stateObj.status)) {
+      handleDownloadProgress(stateObj);
+    }
+  } catch (e) {
+    console.error('[Sync] Failed to sync backend state:', e);
+  }
+}
+
+function triggerAutoDownload() {
+  if (state.licenseValid && !state.downloadAttempted) {
+    state.downloadAttempted = true;
+    console.log('[Runtime] Starting automatic background download...');
+    downloadRuntime();
+  }
+}
+
+async function downloadRuntime() {
+  try {
+    state.downloading = true;
+    const btnDownload = document.getElementById('btn-download-runtime');
+    if (btnDownload) btnDownload.disabled = true;
+
+    // Show progress bar immediately so user sees activity
+    showLicenseWaitingState();
+    const container = document.getElementById('download-progress-container');
+    if (container) container.classList.remove('hidden');
+    const statusEl = document.getElementById('download-progress-status');
+    if (statusEl) statusEl.textContent = '🔌 Sunucuya bağlanılıyor...';
+    document.getElementById('checking-msg').textContent = 'Bileşenler Kuruluyor...';
+    document.getElementById('checking-submsg').textContent = 'Glio-Cartography için gerekli bileşenler indiriliyor. Lütfen bekleyiniz...';
+    
+    const ok = await api.downloadRuntime();
+    if (ok && ok.success) {
+      console.log('Download success: Python saved at', ok.pythonPath);
+    }
+  } catch (err) {
+    console.error('Download error:', err);
+    state.downloading = false;
+    state.downloadAttempted = false; // Allow retry
+
+    // Show friendly error
+    document.getElementById('checking-msg').textContent = '❌ İndirme Başarısız';
+    document.getElementById('checking-submsg').textContent = 'Bileşenler indirilemedi. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.';
+    const container = document.getElementById('download-progress-container');
+    if (container) container.classList.add('hidden');
+    const errContainer = document.getElementById('connection-error-container');
+    if (errContainer) errContainer.classList.remove('hidden');
+    const loader = document.getElementById('premium-loader-el');
+    if (loader) loader.style.display = 'none';
+  }
+}
+
+function openLogFile() {
+  api.openLogFile();
+}
+
+function handleDownloadProgress(data) {
+  // Ensure we are in the waiting state view
+  showLicenseWaitingState();
+
+  const container = document.getElementById('download-progress-container');
+  const statusEl = document.getElementById('download-progress-status');
+  const percentEl = document.getElementById('download-progress-percent');
+  const fillEl = document.getElementById('download-progress-bar-fill');
+  const infoEl = document.getElementById('download-progress-info');
+  const btnDownload = document.getElementById('btn-download-runtime');
+  const btnSelect = document.getElementById('btn-select-python');
+  const btnRetry = document.getElementById('btn-retry-connection');
+  const errContainer = document.getElementById('connection-error-container');
+  const loader = document.getElementById('premium-loader-el');
+
+  if (container) container.classList.remove('hidden');
+
+  const isFinished = (data.status === 'completed' || data.status === 'failed');
+
+  if (isFinished) {
+    state.downloading = false;
+  } else {
+    state.downloading = true;
+  }
+
+  if (!isFinished) {
+    if (btnDownload) btnDownload.disabled = true;
+    if (btnSelect) btnSelect.disabled = true;
+    if (btnRetry) btnRetry.disabled = true;
+    
+    // Hide error container and premium loader ring while setup is actively running
+    if (errContainer) errContainer.classList.add('hidden');
+    if (loader) loader.style.display = 'none';
+
+    // Update main checking messages to be clinician-friendly
+    document.getElementById('checking-msg').textContent = 'Bileşenler Kuruluyor...';
+    document.getElementById('checking-submsg').textContent = 'Glio-Cartography için gerekli bileşenler otomatik olarak yapılandırılıyor.';
+  } else {
+    if (btnDownload) btnDownload.disabled = false;
+    if (btnSelect) btnSelect.disabled = false;
+    if (btnRetry) btnRetry.disabled = false;
+  }
+
+  if (data.status === 'downloading_vc') {
+    statusEl.textContent = '📥 Glio-Cartography sistem bileşenleri indiriliyor...';
+    percentEl.textContent = `${data.percent}%`;
+    if (fillEl) fillEl.style.width = `${data.percent}%`;
+    if (infoEl) infoEl.textContent = `${data.received} MB / ${data.total} MB`;
+  } else if (data.status === 'installing_vc') {
+    statusEl.textContent = '⚙️ Glio-Cartography sistem bileşenleri kuruluyor (Lütfen bekleyiniz)...';
+    percentEl.textContent = '50%';
+    if (fillEl) {
+      fillEl.style.width = '50%';
+      fillEl.style.background = 'linear-gradient(90deg, #7c3aed, #00d4ff)';
+    }
+    if (infoEl) infoEl.textContent = 'Yönetici izni penceresi açılabilir, lütfen onaylayın.';
+  } else if (data.status === 'downloading') {
+    statusEl.textContent = '📥 Glio-Cartography bileşenleri indiriliyor...';
+    percentEl.textContent = `${data.percent}%`;
+    if (fillEl) {
+      fillEl.style.width = `${data.percent}%`;
+      fillEl.style.background = '';
+    }
+    if (infoEl) infoEl.textContent = `${data.received} MB / ${data.total} MB`;
+  } else if (data.status === 'extracting') {
+    statusEl.textContent = '📦 Glio-Cartography bileşenleri kuruluyor (Arşiv açılıyor)...';
+    percentEl.textContent = '100%';
+    if (fillEl) {
+      fillEl.style.width = '100%';
+      fillEl.style.background = 'linear-gradient(90deg, #7c3aed, #00d4ff)';
+    }
+    if (infoEl) infoEl.textContent = 'Bu işlem 1-2 dakika sürebilir...';
+  } else if (data.status === 'configuring') {
+    statusEl.textContent = '⚙️ Glio-Cartography bileşenleri yapılandırılıyor...';
+    percentEl.textContent = '100%';
+    if (infoEl) infoEl.textContent = 'Yapılandırma tamamlanıyor...';
+  } else if (data.status === 'completed') {
+    statusEl.textContent = '✅ Kurulum başarıyla tamamlandı!';
+    percentEl.textContent = '100%';
+    if (fillEl) {
+      fillEl.style.width = '100%';
+      fillEl.style.background = 'linear-gradient(90deg, #10b981, #059669)';
+    }
+    if (infoEl) infoEl.textContent = 'Glio-Cartography bileşenleri başlatılıyor...';
+    setTimeout(() => {
+      if (container) container.classList.add('hidden');
+      retryBackendConnection();
+    }, 2000);
+  } else if (data.status === 'failed') {
+    statusEl.textContent = '❌ Kurulum başarısız oldu.';
+    percentEl.textContent = '-';
+    if (fillEl) fillEl.style.width = '0%';
+    if (infoEl) infoEl.textContent = data.error || 'Bilinmeyen hata';
+    
+    // Show error UI and fill log preview
+    showConnectionError();
   }
 }
 
@@ -313,7 +667,7 @@ async function startPipeline() {
   if (!outputDir)  { alert('Çıktı klasörü seçin!'); return; }
 
   if (!state.backendReady) {
-    alert('Backend henüz hazır değil, lütfen bekleyin.'); return;
+    alert('Glio-Cartography bileşenleri henüz hazır değil, lütfen bekleyin.'); return;
   }
 
   // Seçilen yolları electron-store'a kaydet (sonraki oturum için)
@@ -520,12 +874,28 @@ async function loadResults() {
   await new Promise(r => setTimeout(r, 50));
 
   try {
-    const res = await fetch(`local://${dataPath}`);
+    const res = await fetch(`local://${encodeURI(dataPath)}`);
     if (!res.ok) throw new Error('Fetch failed');
     state.gnnData = await res.json();
   } catch (e) {
     console.warn("Native fetch başarısız, IPC okumasına dönülüyor:", e);
     state.gnnData = await api.readJsonFile(dataPath);
+  }
+
+  // Post-processing of gnnData: convert lr dictionary to lr_pairs array if needed!
+  if (state.gnnData && state.gnnData.spots) {
+    state.gnnData.spots.forEach(spot => {
+      if (spot.lr && !spot.lr_pairs) {
+        spot.lr_pairs = Object.entries(spot.lr).map(([key, val]) => {
+          const parts = key.split('-');
+          return {
+            ligand: parts[0] || '',
+            receptor: parts[1] || '',
+            score: val
+          };
+        });
+      }
+    });
   }
 
   btnNodes.forEach(btn => { btn.textContent = btn.dataset.orig; btn.disabled = false; });
@@ -547,22 +917,32 @@ async function loadResults() {
   const bgPath = `${state.outputDir}/spatial_data/tissue_hires_image.png`;
   const bgExists = await api.fileExists(bgPath);
   if (bgExists) {
-    state.bgImage.onload = () => { state.bgLoaded = true; renderSpatialCanvas(); };
-    state.bgImage.onerror = () => { state.bgLoaded = false; renderSpatialCanvas(); };
-    state.bgImage.src = `local://${bgPath}`;
+    state.bgImage.onload = () => { state.bgLoaded = true; renderSpatialCanvas(); setupNewFeatures(); };
+    state.bgImage.onerror = () => { state.bgLoaded = false; renderSpatialCanvas(); setupNewFeatures(); };
+    state.bgImage.src = `local://${encodeURI(bgPath)}`;
   } else {
     renderSpatialCanvas();
+    setupNewFeatures();
   }
 }
 
 function updateViewMode() {
   const mode = document.getElementById('view-mode').value;
   const filterRisk = document.getElementById('filter-risk');
+  const filterPathway = document.getElementById('filter-pathway');
+  
   if (mode === 'risk') {
     filterRisk.classList.remove('hidden');
   } else {
     filterRisk.classList.add('hidden');
   }
+  
+  if (mode === 'pathway') {
+    filterPathway.classList.remove('hidden');
+  } else {
+    filterPathway.classList.add('hidden');
+  }
+  
   renderSpatialCanvas();
 }
 
@@ -599,6 +979,14 @@ function updateLegend(mode, data) {
       <div class="legend-gradient" style="background: linear-gradient(to right, #2A9D8F, #E63946);"></div>
       <div class="legend-gradient-labels"><span>Düşük Risk</span><span>Yüksek Risk</span></div>
     `;
+  } else if (mode === 'pathway') {
+    const activePathway = document.getElementById('filter-pathway').value;
+    const displayName = activePathway.replace(/_/g, '/');
+    lg.innerHTML = `<div style="font-weight:bold;margin-bottom:4px;color:var(--text);">${displayName}</div>`;
+    lg.innerHTML += `
+      <div class="legend-gradient" style="background: linear-gradient(to right, #0f172a, #6366f1, #ec4899, #f97316, #eab308);"></div>
+      <div class="legend-gradient-labels"><span>${(state._pathwayMin||0).toFixed(2)}</span><span>${(state._pathwayMax||1).toFixed(2)}</span></div>
+    `;
   }
 }
 
@@ -617,7 +1005,7 @@ function renderSpatialCanvas() {
   const t = state.viewTransform;
 
   const spots = data.spots;
-  const ZONES = data.metadata.zones;
+  const ZONES = (data.metadata && data.metadata.zones) || [];
   const mode  = document.getElementById('view-mode').value;
 
   // LR modunda normalize edebilmek için dataset genelindeki maks skoru önceden hesapla
@@ -631,6 +1019,22 @@ function renderSpatialCanvas() {
       }
     });
     if (state._lrMax === 0) state._lrMax = 1; // sıfır bölme önlemi
+  }
+
+  // Pathway modunda normalize edebilmek için dataset genelindeki min ve maks skoru önceden hesapla
+  if (mode === 'pathway') {
+    const activePathway = document.getElementById('filter-pathway').value;
+    state._pathwayMin = Infinity;
+    state._pathwayMax = -Infinity;
+    spots.forEach(s => {
+      const val = (s.pathways && s.pathways[activePathway]) || 0;
+      if (val < state._pathwayMin) state._pathwayMin = val;
+      if (val > state._pathwayMax) state._pathwayMax = val;
+    });
+    if (state._pathwayMin === state._pathwayMax) {
+      state._pathwayMin = 0;
+      state._pathwayMax = 1;
+    }
   }
 
   const xs = spots.map(s => s.x * state.spatialScale);
@@ -722,6 +1126,12 @@ function renderSpatialCanvas() {
       // Normalize against dataset max (computed once per render at top of spots loop)
       const t = state._lrMax > 0 ? Math.min(rawLR / state._lrMax, 1) : 0;
       color = lrPlasmaColor(t);
+    } else if (mode === 'pathway') {
+      const activePathway = document.getElementById('filter-pathway').value;
+      const rawVal = (spot.pathways && spot.pathways[activePathway]) || 0;
+      const denom = (state._pathwayMax - state._pathwayMin) || 1;
+      const t = Math.min(Math.max((rawVal - state._pathwayMin) / denom, 0), 1);
+      color = pathwayPlasmaColor(t);
     }
 
     ctx.beginPath();
@@ -748,7 +1158,7 @@ function renderSpatialCanvas() {
     // Tooltip listeners
     canvas.addEventListener('mousemove', (e) => {
       if (isDragging || !state.gnnData) return;
-      showSpotTooltip(e, canvas, state.gnnData.spots, state.gnnData.metadata.zones, (x, y) => {
+      showSpotTooltip(e, canvas, state.gnnData.spots, (state.gnnData.metadata && state.gnnData.metadata.zones) || [], (x, y) => {
         const lx = (state._offsetX || 0) + (x * state.spatialScale) * (state._renderScale || 1);
         const ly = (state._offsetY || 0) + (y * state.spatialScale) * (state._renderScale || 1);
         return {
@@ -906,8 +1316,10 @@ function closeSpotDetails() {
 
 function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
   const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mouseX = (e.clientX - rect.left) * scaleX;
+  const mouseY = (e.clientY - rect.top) * scaleY;
 
   let clickedSpot = null;
   // tersten tara (üstte çizileni almak için)
@@ -1016,7 +1428,7 @@ async function loadFigures() {
     const item = document.createElement('div');
     item.className = 'fig-item';
     item.innerHTML = `
-      <img src="local://${fig.path}" alt="${fig.name}" loading="lazy">
+      <img src="local://${encodeURI(fig.path)}" alt="${fig.name}" loading="lazy">
       <div class="fig-item-name">${fig.name.replace(/_/g,' ')}</div>`;
     item.onclick = () => api.openOutputFolder(fig.path);
     gallery.appendChild(item);
@@ -1039,7 +1451,7 @@ async function loadReport() {
     return;
   }
 
-  wrapper.innerHTML = `<iframe src="local://${htmlPath}" title="Klinik Rapor"></iframe>`;
+  wrapper.innerHTML = `<iframe src="local://${encodeURI(htmlPath)}" title="Klinik Rapor"></iframe>`;
 }
 
 async function openReport() {
@@ -1276,6 +1688,552 @@ async function comparePatients() {
     result.innerHTML = `<p style="color:var(--danger)">❌ Karşılaştırma hatası: ${e.message || e}</p>`;
   }
 }
+
+// ══════════════════════════════════════════════════════════════
+// NEXT-GEN CLINICAL DECISION SUPPORT FEATURES
+// ══════════════════════════════════════════════════════════════
+
+function pathwayPlasmaColor(t) {
+  const stops = [
+    [0.00,  15,  23,  42],   // #0f172a - Koyu Slate
+    [0.30,  99, 102, 241],   // #6366f1 - İndigo
+    [0.60, 236,  72, 153],   // #ec4899 - Pembe
+    [0.85, 249, 115,  22],   // #f97316 - Turuncu
+    [1.00, 234, 179,   8]    // #eab308 - Sarı
+  ];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [t0, r0, g0, b0] = stops[i];
+    const [t1, r1, g1, b1] = stops[i + 1];
+    if (t >= t0 && t <= t1) {
+      const f = (t - t0) / (t1 - t0);
+      return `rgb(${Math.round(r0+(r1-r0)*f)},${Math.round(g0+(g1-g0)*f)},${Math.round(b0+(b1-b0)*f)})`;
+    }
+  }
+  return 'rgb(234, 179, 8)';
+}
+
+function setupNewFeatures() {
+  const data = state.gnnData;
+  if (!data) return;
+
+  // 1. Populate L-R Select in Signaling Panel
+  const commData = data.cell_cell_communication || {};
+  const lrSelect = document.getElementById('signaling-lr-select');
+  if (lrSelect) {
+    const lrKeys = Object.keys(commData);
+    if (lrKeys.length > 0) {
+      lrSelect.innerHTML = lrKeys.map(k => `<option value="${k}">${k}</option>`).join('');
+      document.getElementById('signaling-placeholder').classList.add('hidden');
+      document.getElementById('signaling-container').classList.remove('hidden');
+    } else {
+      document.getElementById('signaling-placeholder').classList.remove('hidden');
+      document.getElementById('signaling-container').classList.add('hidden');
+    }
+  }
+
+  // 2. Populate Cell Type checkboxes in Signaling Panel
+  const ctList = (data.metadata && (data.metadata.cell_types || data.metadata.ct_names)) || [];
+  const ctContainer = document.getElementById('signaling-ct-checkboxes');
+  if (ctContainer) {
+    ctContainer.innerHTML = ctList.map(ct => `
+      <label class="checkbox-item">
+        <input type="checkbox" value="${ct}" checked onchange="renderSignalingDiagram()" style="accent-color:var(--accent);">
+        <span>${ct}</span>
+      </label>
+    `).join('');
+  }
+
+  // 3. Render Signaling Diagram
+  renderSignalingDiagram();
+
+  // 4. Render Zonal Contrast Charts
+  const contrastData = data.zonal_contrast || {};
+  const pathwaysContrastGrid = document.getElementById('pathways-contrast-grid');
+  const lrContrastGrid = document.getElementById('lr-contrast-grid');
+  
+  if (pathwaysContrastGrid && contrastData.pathways) {
+    document.getElementById('contrast-placeholder').classList.add('hidden');
+    document.getElementById('contrast-container').classList.remove('hidden');
+    
+    // Group pathway scores across zones
+    const pathways = {};
+    Object.entries(contrastData.pathways).forEach(([zone, pData]) => {
+      Object.entries(pData).forEach(([pName, val]) => {
+        if (!pathways[pName]) pathways[pName] = {};
+        pathways[pName][zone] = val;
+      });
+    });
+    
+    pathwaysContrastGrid.innerHTML = Object.entries(pathways).map(([pName, pData]) => {
+      const displayName = pName.replace(/_/g, '/');
+      return drawContrastChart(`chart-pathway-${pName}`, displayName, pData);
+    }).join('');
+  }
+
+  if (lrContrastGrid && contrastData.lr_pairs) {
+    // Group L-R scores across zones
+    const lrPairs = {};
+    Object.entries(contrastData.lr_pairs).forEach(([zone, lrData]) => {
+      Object.entries(lrData).forEach(([lrName, val]) => {
+        if (!lrPairs[lrName]) lrPairs[lrName] = {};
+        lrPairs[lrName][zone] = val;
+      });
+    });
+    
+    // Sort L-R pairs by max activity across any zone to show the most relevant ones.
+    const sortedLRPairs = Object.entries(lrPairs).sort((a, b) => {
+      const maxA = Math.max(...Object.values(a[1]));
+      const maxB = Math.max(...Object.values(b[1]));
+      return maxB - maxA;
+    });
+    
+    lrContrastGrid.innerHTML = sortedLRPairs.map(([lrName, lrData]) => {
+      return drawContrastChart(`chart-lr-${lrName}`, lrName, lrData);
+    }).join('');
+  }
+}
+
+function renderSignalingDiagram() {
+  const svg = document.getElementById('chord-svg');
+  if (!svg || !state.gnnData) return;
+  
+  // Clear SVG and existing gradients
+  svg.innerHTML = '';
+  
+  const commData = state.gnnData.cell_cell_communication || {};
+  const lrPair = document.getElementById('signaling-lr-select').value;
+  if (!lrPair || !commData[lrPair]) {
+    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">Seçili L-R çifti için veri bulunamadı.</text>`;
+    return;
+  }
+  
+  const pairData = commData[lrPair];
+  
+  // Get active cell types from checkboxes
+  const checkboxes = document.querySelectorAll('#signaling-ct-checkboxes input[type="checkbox"]');
+  const activeCTs = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+  
+  if (activeCTs.length < 2) {
+    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">Lütfen en az 2 hücre tipi seçin.</text>`;
+    return;
+  }
+  
+  // Compute total weights for active cell types
+  const W = {}; 
+  activeCTs.forEach(a => {
+    W[a] = {};
+    activeCTs.forEach(b => {
+      const key1 = `${a}->${b}`;
+      const key2 = `${b}->${a}`;
+      const w1 = pairData[key1] || 0;
+      const w2 = pairData[key2] || 0;
+      W[a][b] = w1 + w2;
+    });
+  });
+  
+  // Cell type colors map
+  const ctColors = {};
+  const allCTs = (state.gnnData.metadata && (state.gnnData.metadata.cell_types || state.gnnData.metadata.ct_names)) || [];
+  const fixedColors = {
+    'AC-like': '#4ECDC4',
+    'MES-like': '#FF6B6B',
+    'NPC-like': '#FFE66D',
+    'OPC-like': '#A593E0',
+    'Endothelial': '#45B6FE',
+    'Microglia': '#34A853',
+    'Oligodendrocyte': '#F2C94C',
+    'Myeloid': '#9B51E0',
+    'Stromal': '#A8B2C1'
+  };
+  
+  allCTs.forEach((ct, idx) => {
+    if (fixedColors[ct]) {
+      ctColors[ct] = fixedColors[ct];
+    } else {
+      const hue = (idx * 137) % 360;
+      ctColors[ct] = `hsl(${hue}, 70%, 60%)`;
+    }
+  });
+  
+  // Total weight per cell type
+  const ctTotals = {};
+  activeCTs.forEach(a => {
+    let sum = 0;
+    activeCTs.forEach(b => {
+      sum += W[a][b];
+    });
+    ctTotals[a] = sum;
+  });
+  
+  // Total communication weight
+  const totalComm = Object.values(ctTotals).reduce((sum, val) => sum + val, 0);
+  
+  // Layout math
+  const r = 180; // Inner radius
+  const r_out = 195; // Outer radius
+  const gap = 0.06; // Gap between sectors in radians
+  const N = activeCTs.length;
+  
+  // Sector angles
+  const minAngle = 0.12; 
+  const totalGapAngle = N * gap;
+  const remainingAngle = 2 * Math.PI - totalGapAngle;
+  
+  // Determine sector angle for each cell type
+  const sectorAngles = {};
+  if (totalComm > 0) {
+    let sumAngles = 0;
+    activeCTs.forEach(ct => {
+      const ratio = ctTotals[ct] / totalComm;
+      const angle = minAngle + (remainingAngle - N * minAngle) * ratio;
+      sectorAngles[ct] = angle;
+      sumAngles += angle;
+    });
+  } else {
+    const angle = remainingAngle / N;
+    activeCTs.forEach(ct => {
+      sectorAngles[ct] = angle;
+    });
+  }
+  
+  // Assign start/end angles to each cell type sector
+  const sectors = {};
+  let currentAngle = -Math.PI / 2; 
+  activeCTs.forEach(ct => {
+    const start = currentAngle;
+    const end = start + sectorAngles[ct];
+    sectors[ct] = { start, end, mid: (start + end)/2 };
+    currentAngle = end + gap;
+  });
+  
+  // Draw outer sectors (arcs)
+  const sectorsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  sectorsGroup.setAttribute('class', 'sectors-group');
+  
+  activeCTs.forEach(ct => {
+    const { start, end, mid } = sectors[ct];
+    const color = ctColors[ct];
+    
+    const x1_in = r * Math.cos(start), y1_in = r * Math.sin(start);
+    const x2_in = r * Math.cos(end), y2_in = r * Math.sin(end);
+    const x1_out = r_out * Math.cos(start), y1_out = r_out * Math.sin(start);
+    const x2_out = r_out * Math.cos(end), y2_out = r_out * Math.sin(end);
+    
+    const largeArcFlag = (end - start) > Math.PI ? 1 : 0;
+    
+    const pathData = `
+      M ${x1_in} ${y1_in}
+      L ${x1_out} ${y1_out}
+      A ${r_out} ${r_out} 0 ${largeArcFlag} 1 ${x2_out} ${y2_out}
+      L ${x2_in} ${y2_in}
+      A ${r} ${r} 0 ${largeArcFlag} 0 ${x1_in} ${y1_in}
+      Z
+    `;
+    
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', pathData);
+    path.setAttribute('fill', color);
+    path.setAttribute('stroke', '#020509');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('cursor', 'pointer');
+    path.setAttribute('class', `sector sector-${ct.replace(/\s+/g, '-')}`);
+    
+    // Hover event for sector
+    path.addEventListener('mouseover', (e) => {
+      highlightSector(ct);
+      showChordTooltip(e, `<strong>${ct}</strong><br>Toplam İletişim Gücü: ${ctTotals[ct].toFixed(3)}`);
+    });
+    path.addEventListener('mousemove', (e) => {
+      moveChordTooltip(e);
+    });
+    path.addEventListener('mouseout', () => {
+      resetChordHighlight();
+      hideChordTooltip();
+    });
+    
+    sectorsGroup.appendChild(path);
+    
+    // Label text
+    const labelDist = r_out + 12;
+    const lx = labelDist * Math.cos(mid);
+    const ly = labelDist * Math.sin(mid);
+    
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', lx.toString());
+    text.setAttribute('y', ly.toString());
+    
+    let textAnchor = 'middle';
+    const deg = (mid * 180 / Math.PI) % 360;
+    const normalizedDeg = deg < 0 ? deg + 360 : deg;
+    if (normalizedDeg > 80 && normalizedDeg < 280) {
+      textAnchor = 'end';
+    } else if (normalizedDeg < 80 || normalizedDeg > 280) {
+      textAnchor = 'start';
+    }
+    
+    text.setAttribute('text-anchor', textAnchor);
+    text.setAttribute('fill', 'var(--text)');
+    text.setAttribute('font-size', '11px');
+    text.setAttribute('font-weight', '600');
+    text.setAttribute('alignment-baseline', 'middle');
+    text.textContent = ct;
+    
+    sectorsGroup.appendChild(text);
+  });
+  
+  svg.appendChild(sectorsGroup);
+  
+  // Allocate positions for chords inside each sector
+  const chordPositions = {};
+  activeCTs.forEach(ct => {
+    chordPositions[ct] = { currentAngle: sectors[ct].start };
+  });
+  
+  // Draw Chords
+  const chordsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  chordsGroup.setAttribute('class', 'chords-group');
+  
+  const renderedPairs = new Set();
+  
+  activeCTs.forEach(a => {
+    activeCTs.forEach(b => {
+      const chordId = [a, b].sort().join('::');
+      if (renderedPairs.has(chordId)) return;
+      renderedPairs.add(chordId);
+      
+      const w = W[a][b];
+      if (w <= 0) return; 
+      
+      // Calculate angle width on sector a
+      const sumA = ctTotals[a] || 1;
+      const angleWidthA = sectorAngles[a] * (w / sumA);
+      const startA = chordPositions[a].currentAngle;
+      const endA = startA + angleWidthA;
+      chordPositions[a].currentAngle = endA;
+      
+      // Calculate angle width on sector b
+      const sumB = ctTotals[b] || 1;
+      const angleWidthB = sectorAngles[b] * (w / sumB);
+      const startB = chordPositions[b].currentAngle;
+      const endB = startB + angleWidthB;
+      chordPositions[b].currentAngle = endB;
+      
+      const x1_a = r * Math.cos(startA), y1_a = r * Math.sin(startA);
+      const x2_a = r * Math.cos(endA), y2_a = r * Math.sin(endA);
+      const x1_b = r * Math.cos(startB), y1_b = r * Math.sin(startB);
+      const x2_b = r * Math.cos(endB), y2_b = r * Math.sin(endB);
+      
+      let pathData = '';
+      if (a === b) {
+        // Self loop
+        const midAngle = (startA + endA) / 2;
+        const ctrlDist = r * 0.7;
+        const cx = ctrlDist * Math.cos(midAngle);
+        const cy = ctrlDist * Math.sin(midAngle);
+        pathData = `
+          M ${x1_a} ${y1_a}
+          A ${r} ${r} 0 0 1 ${x2_a} ${y2_a}
+          Q ${cx} ${cy} ${x1_a} ${y1_a}
+          Z
+        `;
+      } else {
+        pathData = `
+          M ${x1_a} ${y1_a}
+          A ${r} ${r} 0 0 1 ${x2_a} ${y2_a}
+          Q 0 0 ${x1_b} ${y1_b}
+          A ${r} ${r} 0 0 1 ${x2_b} ${y2_b}
+          Q 0 0 ${x1_a} ${y1_a}
+          Z
+        `;
+      }
+      
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathData);
+      
+      const gradId = `grad-${a.replace(/\s+/g, '')}-${b.replace(/\s+/g, '')}`;
+      let grad = document.getElementById(gradId);
+      if (!grad) {
+        grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+        grad.setAttribute('id', gradId);
+        grad.setAttribute('x1', (x1_a / r / 2 + 0.5).toString());
+        grad.setAttribute('y1', (y1_a / r / 2 + 0.5).toString());
+        grad.setAttribute('x2', (x1_b / r / 2 + 0.5).toString());
+        grad.setAttribute('y2', (y1_b / r / 2 + 0.5).toString());
+        
+        const stop1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+        stop1.setAttribute('offset', '0%');
+        stop1.setAttribute('stop-color', ctColors[a]);
+        stop1.setAttribute('stop-opacity', '0.65');
+        
+        const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+        stop2.setAttribute('offset', '100%');
+        stop2.setAttribute('stop-color', ctColors[b]);
+        stop2.setAttribute('stop-opacity', '0.65');
+        
+        grad.appendChild(stop1);
+        grad.appendChild(stop2);
+        svg.appendChild(grad);
+      }
+      
+      path.setAttribute('fill', `url(#${gradId})`);
+      path.setAttribute('stroke', `url(#${gradId})`);
+      path.setAttribute('stroke-width', '0.5');
+      path.setAttribute('opacity', '0.6');
+      path.setAttribute('cursor', 'pointer');
+      path.setAttribute('class', `chord chord-${a.replace(/\s+/g, '-')} chord-${b.replace(/\s+/g, '-')}`);
+      
+      const ab_val = pairData[`${a}->${b}`] || 0;
+      const ba_val = pairData[`${b}->${a}`] || 0;
+      
+      let tooltipContent = '';
+      if (a === b) {
+        tooltipContent = `
+          <strong>${a} (Kendi Kendine)</strong><br>
+          Etkileşim Gücü: ${ab_val.toFixed(4)}
+        `;
+      } else {
+        tooltipContent = `
+          <strong>${a} ⇄ ${b} İletişimi</strong><br>
+          <span style="color:#00d4ff">${a} → ${b}:</span> ${ab_val.toFixed(4)}<br>
+          <span style="color:#ff6b6b">${b} → ${a}:</span> ${ba_val.toFixed(4)}<br>
+          <strong>Toplam Güç:</strong> ${w.toFixed(4)}
+        `;
+      }
+      
+      path.addEventListener('mouseover', (e) => {
+        highlightChord(path, a, b);
+        showChordTooltip(e, tooltipContent);
+      });
+      path.addEventListener('mousemove', (e) => {
+        moveChordTooltip(e);
+      });
+      path.addEventListener('mouseout', () => {
+        resetChordHighlight();
+        hideChordTooltip();
+      });
+      
+      chordsGroup.appendChild(path);
+    });
+  });
+  
+  svg.appendChild(chordsGroup);
+}
+
+function highlightSector(ct) {
+  const safeCt = ct.replace(/\s+/g, '-');
+  document.querySelectorAll('.chord').forEach(ch => {
+    if (ch.classList.contains(`chord-${safeCt}`)) {
+      ch.setAttribute('opacity', '0.9');
+    } else {
+      ch.setAttribute('opacity', '0.05');
+    }
+  });
+}
+
+function highlightChord(el, a, b) {
+  document.querySelectorAll('.chord').forEach(ch => {
+    if (ch === el) {
+      ch.setAttribute('opacity', '0.95');
+      ch.setAttribute('stroke-width', '1.5');
+    } else {
+      ch.setAttribute('opacity', '0.05');
+    }
+  });
+}
+
+function resetChordHighlight() {
+  document.querySelectorAll('.chord').forEach(ch => {
+    ch.setAttribute('opacity', '0.6');
+    ch.setAttribute('stroke-width', '0.5');
+  });
+}
+
+function showChordTooltip(e, content) {
+  const tt = document.getElementById('chord-tooltip');
+  if (!tt) return;
+  tt.innerHTML = content;
+  tt.classList.remove('hidden');
+  moveChordTooltip(e);
+}
+
+function moveChordTooltip(e) {
+  const tt = document.getElementById('chord-tooltip');
+  if (!tt) return;
+  const wrapper = document.getElementById('chord-diagram-wrapper');
+  const rect = wrapper.getBoundingClientRect();
+  const x = e.clientX - rect.left + 15;
+  const y = e.clientY - rect.top + 10;
+  tt.style.left = `${x}px`;
+  tt.style.top = `${y}px`;
+}
+
+function hideChordTooltip() {
+  const tt = document.getElementById('chord-tooltip');
+  if (tt) tt.classList.add('hidden');
+}
+
+function switchContrastTab(tab) {
+  document.querySelectorAll('.contrast-tabs .btn-tab').forEach(btn => {
+    btn.classList.remove('active');
+    btn.style.borderBottomColor = 'transparent';
+    btn.style.color = 'var(--text-muted)';
+  });
+  
+  const activeBtn = document.getElementById(`btn-tab-${tab}`);
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+    activeBtn.style.borderBottomColor = 'var(--accent)';
+    activeBtn.style.color = 'var(--text)';
+  }
+  
+  document.querySelectorAll('.contrast-tab-panel').forEach(panel => {
+    panel.classList.add('hidden');
+  });
+  
+  const targetPanel = document.getElementById(`contrast-${tab}-panel`);
+  if (targetPanel) {
+    targetPanel.classList.remove('hidden');
+  }
+}
+
+function drawContrastChart(containerId, title, data) {
+  const entries = Object.entries(data);
+  const maxVal = Math.max(...entries.map(e => e[1])) || 1.0;
+  
+  let rowsHtml = '';
+  entries.forEach(([zone, val], idx) => {
+    const color = ZONE_COLORS[zone] || '#888';
+    const y = idx * 30 + 10;
+    const barMaxWidth = 250;
+    const width = maxVal > 0 ? (val / maxVal) * barMaxWidth : 0;
+    
+    rowsHtml += `
+      <g class="bar-row">
+        <text x="10" y="${y + 10}" fill="var(--text-muted)" font-size="11px" font-weight="600">${zone}</text>
+        <rect x="10" y="${y + 16}" width="${barMaxWidth}" height="8" rx="4" fill="#1e293b" opacity="0.5" />
+        <rect x="10" y="${y + 16}" width="${width}" height="8" rx="4" fill="${color}">
+          <animate attributeName="width" from="0" to="${width}" dur="0.8s" fill="freeze" />
+        </rect>
+        <text x="${Math.max(10 + width + 8, 10 + barMaxWidth - 40)}" y="${y + 23}" fill="var(--text)" font-size="11px" font-weight="bold" font-family="monospace">${val.toFixed(3)}</text>
+      </g>
+    `;
+  });
+  
+  return `
+    <div class="card" style="background:var(--card); border:1px solid var(--border); padding:16px; border-radius:12px; display:flex; flex-direction:column; gap:12px;">
+      <h3 style="margin:0; font-size:0.95rem; color:var(--text); border-bottom:1px solid var(--border); padding-bottom:8px;">
+        <span>📊 ${title}</span>
+      </h3>
+      <svg width="100%" height="165" style="overflow:visible;">
+        ${rowsHtml}
+      </svg>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════
+// EOF
+// ══════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════
 // EOF

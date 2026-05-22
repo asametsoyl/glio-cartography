@@ -81,7 +81,7 @@ np.save(gnn_out / "spatial_embeddings.npy",   emb.cpu().numpy())
 
 # ── JSON export ──────────────────────────────────────────────
 export_attention_to_json(
-    model, data, ct_names,
+    model, data, adata, ct_names,
     zone_preds=zone_np, drug_scores=drug_np, survival_preds=surv_np,
     out_path=str(gnn_out / "data.json")
 )

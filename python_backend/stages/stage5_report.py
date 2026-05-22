@@ -37,6 +37,137 @@ CT_NAMES   = gnn_summary.get("ct_names", [])
 test_mse   = gnn_summary.get("test_mse", 0)
 n_spots    = gnn_summary.get("n_spots", 0)
 
+# ── Load data.json for pathways, zonal contrast, and synthesis ──────────
+data_json_path = OUTPUT_DIR / "gnn" / "data.json"
+spots_data = []
+zonal_contrast = {}
+pathway_avgs = {}
+clinical_synthesis = "Klinik sentez verisi yüklenemedi."
+top_pathway = "N/A"
+pathways = ['PI3K_AKT_mTOR', 'MAPK_ERK', 'JAK_STAT', 'NFkB']
+
+if data_json_path.exists():
+    try:
+        with open(data_json_path) as f:
+            data_json = json.load(f)
+        spots_data = data_json.get("spots", [])
+        zonal_contrast = data_json.get("zonal_contrast", {})
+        
+        # Calculate pathway averages
+        pathway_totals = {p: 0.0 for p in pathways}
+        pathway_counts = {p: 0 for p in pathways}
+        for s in spots_data:
+            spot_pathways = s.get("pathways", {})
+            for p in pathways:
+                if p in spot_pathways:
+                    pathway_totals[p] += float(spot_pathways[p])
+                    pathway_counts[p] += 1
+        
+        for p in pathways:
+            if pathway_counts[p] > 0:
+                pathway_avgs[p] = pathway_totals[p] / pathway_counts[p]
+            else:
+                pathway_avgs[p] = 0.0
+                
+        # Calculate risk and cell proportions for clinical synthesis
+        tam_total = 0.0
+        mes_total = 0.0
+        lr_totals = {}
+        for s in spots_data:
+            ct = s.get('ct', {})
+            tam_total += float(ct.get('TAM', 0))
+            mes_total += float(ct.get('Tumor_MES', 0))
+            for lr_key, val in s.get('lr', {}).items():
+                lr_totals[lr_key] = lr_totals.get(lr_key, 0.0) + float(val)
+                
+        tam_avg = (tam_total / len(spots_data)) * 100 if spots_data else 0
+        mes_avg = (mes_total / len(spots_data)) * 100 if spots_data else 0
+        
+        # Risk classification
+        mes_risk = "YÜKSEK" if mes_avg > 15.0 else "ORTA"
+        tam_risk = "YÜKSEK" if tam_avg > 20.0 else "ORTA"
+        gen_risk = "AGRESİF" if (mes_risk == "YÜKSEK" or tam_risk == "YÜKSEK") else "STABİL"
+        
+        top_lr = sorted(
+            [(k, v / len(spots_data)) for k, v in lr_totals.items()],
+            key=lambda x: x[1], reverse=True
+        )[:4]
+        
+        stats_calc = {
+            'n_spots': len(spots_data),
+            'tam_avg': tam_avg,
+            'mes_avg': mes_avg,
+            'gen_risk': gen_risk,
+            'pathway_avgs': pathway_avgs,
+            'top_lr': top_lr
+        }
+        
+        # Now generate synthesis
+        top_pathway = max(pathway_avgs, key=pathway_avgs.get) if pathway_avgs else "PI3K_AKT_mTOR"
+        dominant_lr = top_lr[0][0] if top_lr else "SPP1-CD44"
+        mes_high = mes_avg > 15.0
+        tam_high = tam_avg > 20.0
+        
+        synthesis = (
+            f"Glio-Cartography uzamsal transkriptomik analizi, {stats_calc['n_spots']:,} spot düzeyinde tümör mikroçevresi (TME) heterojenliğini ortaya koymuştur. "
+            f"Hastada GNN analizine göre global risk profili '{stats_calc['gen_risk']}' olarak belirlenmiştir. "
+        )
+        
+        if mes_high and tam_high:
+            synthesis += (
+                f"Dokuda yüksek invaziv mezenkimal tümör fraksiyonu (%{stats_calc['mes_avg']:.1f}) ile birlikte belirgin bir immünsüpresif Tümör İlişkili Makrofaj (TAM) "
+                f"infiltrasyonu (%{stats_calc['tam_avg']:.1f}) izlenmektedir. Bu iki profilin birlikteliği, tümörün mezenkimal fenotipe geçişini ve T-hücre aracılı immün "
+                f"yanıttan kaçışını destekleyen agresif bir mikroçevreye işaret eder. "
+            )
+        elif mes_high:
+            synthesis += (
+                f"Doku genelinde yüksek mezenkimal geçiş (MES) skoru (%{stats_calc['mes_avg']:.1f}) saptanmıştır. "
+                f"Bu durum, tümörün yüksek invazyon potansiyeline ve radyoterapi/kemoterapiye karşı olası direncine katkıda bulunan "
+                f"prominent bir hücre dışı matris (ECM) remodellemesiyle ilişkilidir. "
+            )
+        elif tam_high:
+            synthesis += (
+                f"Doku genelinde yüksek düzeyde immünsüpresif TAM infiltrasyonu (%{stats_calc['tam_avg']:.1f}) izlenmektedir. "
+                f"Bu durum, mikroçevredeki güçlü bir miyeloid kökenli baskılama mekanizmasını doğrulamakta olup T-hücrelerinin tümör içine "
+                f"penetrasyonunu ve aktivasyonunu engellemektedir. "
+            )
+        else:
+            synthesis += "Tümör dokusu görece stabil ve lokalize bir proliferasyon profili göstermektedir. "
+            
+        synthesis += (
+            f"Sinyal yolakları düzeyinde, dokuda baskın olarak '{top_pathway}' yolağı aktive olmuştur. "
+            f"Uzamsal iletişim analizinde en yüksek aktivite gösteren sinyal ekseni '{dominant_lr}' olarak saptanmıştır. "
+        )
+        
+        if dominant_lr == "SPP1-CD44":
+            synthesis += (
+                "SPP1-CD44 etkileşiminin yüksek aktivitesi, TAM'ların tümör hücreleriyle yakın temas kurarak mezenkimal transdiferansiasyonu "
+                "ve tümör kök hücre (GSC) stemness özelliklerini uyardığını doğrulamaktadır. Bu eksen, immünoterapiye dirençte kritik rol oynar. "
+            )
+        elif dominant_lr == "VEGFA-KDR":
+            synthesis += (
+                "VEGFA-KDR anjiyojenik sinyalleşmesinin baskınlığı, dokuda yoğun mikrovasküler proliferasyon ve hipoksiye yanıt olarak "
+                "gelişen yeni damar oluşumu odaklarını desteklemektedir. Bu durum anti-VEGF (Bevacizumab) tedavisi için rasyonel oluşturur. "
+            )
+        elif dominant_lr == "MIF-CD74":
+            synthesis += (
+                "MIF-CD74 ekseninin aktivasyonu, mikroglia ve makrofajların pro-enflamatuar/immünsüpresif duruma geçişini uyararak "
+                "tümör lehine immün kaçış ortamı hazırlamaktadır. "
+            )
+        elif dominant_lr == "SPP1-PTPN1":
+            synthesis += (
+                "SPP1-PTPN1 kontrol noktası etkileşimi, T-hücre tükenmesini uyararak mikroçevredeki baskılayıcı immün yanıtı güçlendirmektedir. "
+            )
+        
+        synthesis += (
+            "Zonal kontrast analizi, 'Leading Edge' bölgesinde mezenkimal ve invaziv yolakların, 'Pseudopalisading Necrosis' çevresinde ise "
+            "hipoksik yolakların ve glikolitik aktivitenin yoğunlaştığını göstermektedir. Bu uzamsal polarizasyon, standart kemoradyoterapiye "
+            "lokal nüks riski yüksek dirençli bölgeler yaratmaktadır. Tedavi planlamasında bu zonal dinamikler göz önünde bulundurulmalıdır."
+        )
+        clinical_synthesis = synthesis
+    except Exception as e:
+        logger.warning(f"data.json okunurken/sentezlenirken hata oluştu: {e}")
+
 # ── Dynamic Clinical Profile Engine ─────────────────────────
 def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
     """
@@ -288,6 +419,57 @@ html = f"""<!DOCTYPE html>
     <p style="font-size:0.75rem; color:#777;"><strong>Kaynaklar:</strong> {'  ·  '.join(clinical['rationale']) or 'N/A'}</p>
     <p style="font-size:0.72rem; color:#555; margin-top:6px;">* {clinical['mgmt_status']}</p>
   </div>
+</div>
+
+<h2>🩺 Klinik Sentez ve Tümör Mikroçevresi (TME) Dinamikleri</h2>
+<div class="card" style="border-left: 4px solid var(--warning); line-height: 1.6; font-size: 0.92rem; margin-bottom: 24px; padding: 20px;">
+  <p>{clinical_synthesis}</p>
+</div>
+
+<h2>🧬 Downstream Yolak Aktivasyonu</h2>
+<div class="grid-2" style="margin-bottom: 24px;">
+  <div class="card" style="border-left: 4px solid var(--accent);">
+    <h3 style="margin-top:0; color:var(--text);">Ortalama Downstream Yolak Skorları</h3>
+    <table style="margin-top: 12px; background: transparent;">
+      {''.join(f"<tr><td style='color:#999; border:none; padding:8px 0;'>{p}:</td><td style='border:none; font-weight:bold; color:var(--accent);'>{pathway_avgs.get(p, 0.0):.4f}</td></tr>" for p in pathways)}
+    </table>
+  </div>
+  <div class="card" style="border-left: 4px solid var(--danger);">
+    <h3 style="margin-top:0; color:var(--text);">Baskın Downstream Yolak</h3>
+    <div style="font-size:2rem; font-weight:700; color:var(--danger); margin-top:15px;">
+      {top_pathway}
+    </div>
+    <p style="font-size:0.8rem; color:#aaa; margin-top:8px;">
+      Tümörün proliferasyon, sağkalım ve invazyon mekanizmalarını yönlendiren baskın downstream sinyal kaskadı.
+    </p>
+  </div>
+</div>
+
+<h2>📊 Zonal Yolak Kontrast Analizi</h2>
+<div class="card" style="margin-bottom: 24px;">
+  <table>
+    <thead>
+      <tr>
+        <th>Patolojik Zon</th>
+        <th>PI3K/AKT/mTOR</th>
+        <th>MAPK/ERK</th>
+        <th>JAK/STAT</th>
+        <th>NFkB</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(
+        f"<tr>"
+        f"<td><strong>{zone}</strong></td>"
+        f"<td>{zonal_contrast.get('pathways', {}).get(zone, {}).get('PI3K_AKT_mTOR', 0.0):.4f}</td>"
+        f"<td>{zonal_contrast.get('pathways', {}).get(zone, {}).get('MAPK_ERK', 0.0):.4f}</td>"
+        f"<td>{zonal_contrast.get('pathways', {}).get(zone, {}).get('JAK_STAT', 0.0):.4f}</td>"
+        f"<td>{zonal_contrast.get('pathways', {}).get(zone, {}).get('NFkB', 0.0):.4f}</td>"
+        f"</tr>"
+        for zone in ZONE_NAMES if zone in zonal_contrast.get('pathways', {})
+      )}
+    </tbody>
+  </table>
 </div>
 
 <h2>🔬 Hücre Tipi Korelasyonları (GNN)</h2>

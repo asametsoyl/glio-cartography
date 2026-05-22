@@ -103,16 +103,8 @@ async def start_pipeline(req: PipelineStartRequest, background_tasks: Background
         gnn_epochs=req.gnn_epochs
     )
 
-    import threading
-    import asyncio
-    
-    def _run_in_thread():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(runner.run())
-        loop.close()
-
-    threading.Thread(target=_run_in_thread, daemon=True).start()
+    # Run pipeline in a background task instead of starting a new thread/loop
+    asyncio.create_task(runner.run())
     
     return {"message": "Pipeline başlatıldı", "output_dir": req.output_dir}
 
@@ -289,4 +281,10 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+    uvicorn.run(
+        app, 
+        host="127.0.0.1", 
+        port=args.port, 
+        log_level="info",
+        loop="asyncio"
+    )

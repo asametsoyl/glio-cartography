@@ -57,10 +57,14 @@ class PipelineRunner:
         self._cancelled = True
         if self._proc:
             try:
-                import os
-                import signal
-                # Process group'a SIGTERM gönder, böylece tüm alt süreçler (Tangram vs) kapanır
-                os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
+                if sys.platform == "win32":
+                    import subprocess
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(self._proc.pid)], capture_output=True)
+                else:
+                    import os
+                    import signal
+                    # Process group'a SIGTERM gönder, böylece tüm alt süreçler (Tangram vs) kapanır
+                    os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
             except Exception as e:
                 self.log(f"İptal edilirken hata oluştu: {e}")
 

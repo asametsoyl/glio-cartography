@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('glioAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  selectPythonPath: () => ipcRenderer.invoke('select-python-path'),
+  saveCustomPythonPath: (path) => ipcRenderer.invoke('save-custom-python-path', path),
+  getCustomPythonPath: () => ipcRenderer.invoke('get-custom-python-path'),
+  restartBackend: () => ipcRenderer.invoke('restart-backend'),
+  downloadRuntime: () => ipcRenderer.invoke('download-runtime'),
+  openLogFile: () => ipcRenderer.invoke('open-log-file'),
+  getBackendState: () => ipcRenderer.invoke('get-backend-state'),
 
   // Son kullanılan yollar (cross-session persistence)
   getLastPaths: () => ipcRenderer.invoke('get-last-paths'),
@@ -46,8 +53,16 @@ contextBridge.exposeInMainWorld('glioAPI', {
     ipcRenderer.removeAllListeners('pipeline-progress');
     ipcRenderer.on('pipeline-progress', (_, data) => cb(data));
   },
+  onDownloadProgress: (cb) => {
+    ipcRenderer.removeAllListeners('download-progress');
+    ipcRenderer.on('download-progress', (_, data) => cb(data));
+  },
   onUpdateAvailable: (cb) => {
     ipcRenderer.removeAllListeners('update-available');
     ipcRenderer.on('update-available', (_, info) => cb(info));
+  },
+  onRuntimeMissing: (cb) => {
+    ipcRenderer.removeAllListeners('runtime-missing');
+    ipcRenderer.on('runtime-missing', (_) => cb());
   },
 });
