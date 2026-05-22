@@ -166,13 +166,19 @@ jobs:
           echo "Installing conda-pack in base..."
           conda install conda-pack -y -c conda-forge
 
+          # Find the exact conda-pack binary path (bash shell doesn't have conda on PATH)
+          CONDA_BASE=$(conda info --base)
+          CONDA_PACK_BIN="${CONDA_BASE}/bin/conda-pack"
+          echo "conda-pack binary: ${CONDA_PACK_BIN}"
+
           echo "Packing gliocarto env (5-10 min)..."
-          conda-pack -n gliocarto \
+          "${CONDA_PACK_BIN}" -n gliocarto \
             -o "${{ matrix.python_env_zip }}" \
             --ignore-editable-packages
 
           ls -lh "${{ matrix.python_env_zip }}"
           echo "SUCCESS"
+
 
       # ── Electron build ───────────────────────────────────────
       # NOTE: repo root IS the desktop_app — no working-directory needed
