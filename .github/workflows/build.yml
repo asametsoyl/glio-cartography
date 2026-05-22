@@ -6,10 +6,13 @@ on:
     tags:
       - 'v*'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────
-  # JOB 1: Build Python env zip + Electron installer for each OS
-  # ─────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1: Build Python env + Electron installer per OS
+  # ─────────────────────────────────────────────────────────────
   build:
     strategy:
       fail-fast: false
@@ -18,107 +21,133 @@ jobs:
           - os: windows-latest
             platform: win
             python_env_zip: python_env_windows.zip
-            electron_cmd: npm run build:win
-            artifact_glob: "desktop_app/dist/*.exe"
 
           - os: macos-latest
             platform: mac
             python_env_zip: python_env_macos.zip
-            electron_cmd: npm run build:mac
-            artifact_glob: "desktop_app/dist/*.dmg"
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────────────────
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ── 2. Node.js ───────────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # ── 3. Conda (Miniforge) ─────────────────────────────────────────────
+      # Install Miniforge (base only — we create the env manually)
       - name: Setup Miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
-          activate-environment: gliocarto
-          python-version: "3.10"
-          auto-activate-base: false
+          auto-activate: false
+          activate-environment: ""
+          conda-remove-defaults: true
 
-      # ── 4. Install Python deps ────────────────────────────────────────────
-      - name: Install Python Dependencies
-        shell: bash -l {0}
+      # ── Create Python environment ────────────────────────────
+      - name: Create & Install Python Env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          conda install -y -c conda-forge \
-            numpy pandas scipy matplotlib seaborn \
-            scikit-learn scikit-image statsmodels \
-            networkx h5py pytables pyyaml tqdm \
-            requests pillow
-          pip install --no-cache-dir \
-            fastapi "uvicorn[standard]" \
-            "scanpy>=1.9.6" "anndata>=0.10.0" "squidpy>=1.4.0" \
-            leidenalg python-igraph \
-            "tangram-sc>=1.0.4" \
-            "torch>=2.1.0" \
-            "torch-geometric>=2.4.0" \
-            optuna \
-            "plotly>=5.18.0" \
-            pydeseq2 decoupler-py gseapy adjustText \
-            bioservices mygene gprofiler-official \
-            "openai>=1.0.0" jinja2 fpdf2 \
-            zarr "dask[dataframe]" pyarrow \
-            python-dotenv rich loguru colorama
+          conda create -n gliocarto python=3.10 -y -c conda-forge
+          # Install PyTorch CPU first (index-url doesn't work in requirements.txt on Windows reliably)
+          conda run -n gliocarto pip install torch torchvision `
+            --index-url https://download.pytorch.org/whl/cpu
+          # Install torch-geometric separately (needs torch pre-installed)
+          conda run -n gliocarto pip install torch-geometric torch-scatter torch-sparse torch-cluster
+          # Install the rest from requirements file (exclude torch lines)
+          $reqs = Get-Content desktop_app/requirements_server.txt | `
+            Where-Object { $_ -notmatch "^torch" -and $_ -notmatch "index-url" -and $_ -notmatch "^#" -and $_ -ne "" }
+          $reqs | Out-File -FilePath filtered_reqs.txt -Encoding utf8
+          conda run -n gliocarto pip install -r filtered_reqs.txt
 
-      # ── 5. Package Python env with conda-pack ────────────────────────────
-      - name: Pack Python Environment
-        shell: bash -l {0}
+      - name: Create & Install Python Env (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
         run: |
-          pip install conda-pack
-          conda pack -n gliocarto -o ${{ matrix.python_env_zip }} --ignore-editable-packages
-          echo "Packed size: $(du -sh ${{ matrix.python_env_zip }})"
+          conda create -n gliocarto python=3.10 -y -c conda-forge
+          # Install PyTorch CPU first
+          conda run -n gliocarto pip install torch torchvision \
+            --index-url https://download.pytorch.org/whl/cpu
+          # Install torch-geometric
+          conda run -n gliocarto pip install torch-geometric torch-scatter torch-sparse torch-cluster
+          # Install the rest (skip torch lines from requirements.txt)
+          grep -v "^torch" desktop_app/requirements_server.txt | \
+            grep -v "index-url" | grep -v "^#" | grep -v "^$" > filtered_reqs.txt
+          conda run -n gliocarto pip install -r filtered_reqs.txt
 
-      # ── 6. NPM install ────────────────────────────────────────────────────
+      # ── Pack with conda-pack ─────────────────────────────────
+      - name: Pack Python Environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          conda install -n gliocarto conda-pack -y -c conda-forge
+          conda run -n gliocarto conda-pack -n gliocarto `
+            -o ${{ matrix.python_env_zip }} `
+            --ignore-editable-packages
+          Get-Item ${{ matrix.python_env_zip }} | Select-Object Name, Length
+
+      - name: Pack Python Environment (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          conda install -n gliocarto conda-pack -y -c conda-forge
+          conda run -n gliocarto conda-pack -n gliocarto \
+            -o ${{ matrix.python_env_zip }} \
+            --ignore-editable-packages
+          ls -lh ${{ matrix.python_env_zip }}
+
+      # ── NPM + Electron build ─────────────────────────────────
       - name: Install NPM Dependencies
         working-directory: desktop_app
         run: npm install --ignore-scripts
 
-      # ── 7. Build Electron installer ──────────────────────────────────────
-      - name: Build Electron App
+      - name: Build Electron App (Windows)
+        if: runner.os == 'Windows'
         working-directory: desktop_app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ "${{ matrix.platform }}" = "win" ]; then
-            npx electron-builder --win --x64
-          else
-            npx electron-builder --mac --x64
-          fi
-        shell: bash
+        run: npx electron-builder --win --x64
 
-      # ── 8. Upload Python env zip as artifact ─────────────────────────────
+      - name: Build Electron App (macOS)
+        if: runner.os == 'macOS'
+        working-directory: desktop_app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac --x64
+
+      # ── Upload artifacts ─────────────────────────────────────
       - name: Upload Python Env Zip
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.python_env_zip }}
           path: ${{ matrix.python_env_zip }}
+          retention-days: 7
           if-no-files-found: error
 
-      # ── 9. Upload Electron installer as artifact ──────────────────────────
-      - name: Upload Installer
+      - name: Upload Windows Installer
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: installer-${{ matrix.platform }}
-          path: ${{ matrix.artifact_glob }}
+          name: installer-win
+          path: desktop_app/dist/*.exe
+          retention-days: 7
           if-no-files-found: warn
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # JOB 2: Create GitHub Release and attach all files
-  # Runs only when triggered by a version tag (v*)
-  # ─────────────────────────────────────────────────────────────────────────
+      - name: Upload macOS Installer
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-mac
+          path: desktop_app/dist/*.dmg
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2: Publish GitHub Release (only on version tags)
+  # ─────────────────────────────────────────────────────────────
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -134,30 +163,32 @@ jobs:
           merge-multiple: true
 
       - name: List Release Files
-        run: find release-files -type f
+        run: find release-files -type f -ls
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "Glio-Cartography ${{ github.ref_name }}"
           body: |
             ## Glio-Cartography ${{ github.ref_name }}
 
-            ### Kurulum
-            1. **Windows**: `Glio-Cartography Setup *.exe` dosyasını indirip çalıştırın.
-            2. Uygulama ilk açılışta Python bileşenlerini otomatik olarak indirir.
+            ### 🪟 Windows Kurulum
+            1. `Glio-Cartography Setup *.exe` dosyasını indirip çalıştırın
+            2. Uygulama ilk açılışta analiz bileşenlerini (~1.5 GB) otomatik indirir
+            3. İnternet bağlantısı yalnızca ilk kurulumda gereklidir
 
-            ### Dosyalar
-            | Dosya | Açıklama |
-            |---|---|
-            | `Glio-Cartography Setup *.exe` | Windows Kurulum Dosyası |
-            | `python_env_windows.zip` | Windows Python Ortamı (uygulama tarafından otomatik indirilir) |
-            | `python_env_macos.zip` | macOS Python Ortamı |
+            ### 🍎 macOS Kurulum
+            1. `Glio-Cartography*.dmg` dosyasını açın
+            2. Uygulamayı Applications klasörüne sürükleyin
+
+            > CPU-only PyTorch kullanılmaktadır. CUDA için yerel derleme yapın.
           files: |
-            release-files/**/*.exe
-            release-files/**/*.dmg
-            release-files/**/python_env_*.zip
+            release-files/*.exe
+            release-files/*.dmg
+            release-files/python_env_windows.zip
+            release-files/python_env_macos.zip
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

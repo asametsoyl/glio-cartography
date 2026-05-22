@@ -1,0 +1,80 @@
+# ================================================================
+# Glio-Cartography — Backend Server Requirements
+# All packages actually imported by the Python backend.
+# CPU-only PyTorch keeps the packed env size manageable (~1.5 GB).
+# ================================================================
+
+# --- Web server ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+
+# --- Logging ---
+loguru>=0.7.0
+
+# --- Deep learning (CPU-only to keep package size <2 GB) ---
+# Switch to https://download.pytorch.org/whl/cu121 for CUDA locally
+torch>=2.1.0 --index-url https://download.pytorch.org/whl/cpu
+torchvision>=0.16.0 --index-url https://download.pytorch.org/whl/cpu
+
+# PyTorch Geometric + dependencies
+torch-geometric>=2.4.0
+torch-scatter
+torch-sparse
+torch-cluster
+
+# --- Core single-cell analysis ---
+scanpy>=1.9.6
+anndata>=0.10.0
+squidpy>=1.4.0
+leidenalg
+python-igraph
+
+# --- Spatial deconvolution ---
+tangram-sc>=1.0.4
+
+# --- Hyperparameter optimization ---
+optuna>=3.0.0
+
+# --- Data science ---
+numpy
+pandas
+scipy
+scikit-learn
+scikit-image
+statsmodels
+networkx
+seaborn
+matplotlib
+
+# --- Data formats ---
+h5py
+tables              # pytables (needed by h5py/pandas HDF5)
+zarr
+dask[dataframe]
+pyarrow
+pyyaml
+
+# --- Bioinformatics utilities ---
+pydeseq2
+decoupler-py
+gseapy
+adjustText
+
+# --- Drug / annotation APIs ---
+bioservices
+mygene
+gprofiler-official
+
+# --- Report generation ---
+openai>=1.0.0
+jinja2
+fpdf2
+
+# --- Utilities ---
+python-dotenv
+rich
+colorama
+tqdm
+requests
+pillow
