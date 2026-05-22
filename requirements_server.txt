@@ -57,7 +57,7 @@ pyyaml
 
 # --- Bioinformatics utilities ---
 pydeseq2
-decoupler-py
+decoupler
 gseapy
 adjustText
 

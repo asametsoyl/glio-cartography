@@ -146,20 +146,48 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          Write-Host "Installing conda-pack into gliocarto env..."
           conda install -n gliocarto conda-pack -y -c conda-forge
-          conda run -n gliocarto conda-pack -n gliocarto `
-            -o "${{ matrix.python_env_zip }}" --ignore-editable-packages
-          $f = Get-Item "${{ matrix.python_env_zip }}"
-          Write-Host "Packed: $($f.Name) — $([math]::Round($f.Length/1GB,2)) GB"
+
+          Write-Host "Verifying conda-pack installation..."
+          conda run -n gliocarto conda-pack --version
+
+          Write-Host "Packing environment (this may take 5-10 minutes)..."
+          # Use conda run to ensure the correct Python is used
+          conda run -n gliocarto python -m conda_pack `
+            -n gliocarto `
+            -o "${{ matrix.python_env_zip }}" `
+            --ignore-editable-packages `
+            --ignore-missing-files
+
+          if (Test-Path "${{ matrix.python_env_zip }}") {
+            $f = Get-Item "${{ matrix.python_env_zip }}"
+            Write-Host "SUCCESS: Packed $($f.Name) — $([math]::Round($f.Length/1GB,2)) GB"
+          } else {
+            Write-Error "conda-pack output file not created!"
+            exit 1
+          }
 
       - name: Pack Python Environment (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          echo "Installing conda-pack into gliocarto env..."
           conda install -n gliocarto conda-pack -y -c conda-forge
-          conda run -n gliocarto conda-pack -n gliocarto \
-            -o "${{ matrix.python_env_zip }}" --ignore-editable-packages
-          ls -lh "${{ matrix.python_env_zip }}"
+
+          echo "Packing environment (this may take 5-10 minutes)..."
+          conda run -n gliocarto python -m conda_pack \
+            -n gliocarto \
+            -o "${{ matrix.python_env_zip }}" \
+            --ignore-editable-packages \
+            --ignore-missing-files
+
+          if [ -f "${{ matrix.python_env_zip }}" ]; then
+            ls -lh "${{ matrix.python_env_zip }}"
+          else
+            echo "ERROR: conda-pack output file not created!"
+            exit 1
+          fi
 
       # ── Electron build ───────────────────────────────────────
       # NOTE: repo root IS the desktop_app — no working-directory needed
