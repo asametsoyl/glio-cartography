@@ -8,6 +8,9 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Pin torch to a version that has PyG pre-built wheels (avoids source compilation)
+  TORCH_VERSION: "2.6.0"
+  TORCH_VISION_VERSION: "0.21.0"
 
 jobs:
   # ─────────────────────────────────────────────────────────────
@@ -37,7 +40,7 @@ jobs:
         with:
           node-version: 18
 
-      # Install Miniforge (base only — we create the env manually)
+      # Install Miniforge (base only)
       - name: Setup Miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -46,60 +49,126 @@ jobs:
           activate-environment: ""
           conda-remove-defaults: true
 
-      # ── Create Python environment ────────────────────────────
-      - name: Create & Install Python Env (Windows)
+      # ── Create Python environment & install packages ─────────
+
+      - name: Create Python Env + Install Packages (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          conda create -n gliocarto python=3.10 -y -c conda-forge
-          # Install PyTorch CPU first (index-url doesn't work in requirements.txt on Windows reliably)
-          conda run -n gliocarto pip install torch torchvision `
-            --index-url https://download.pytorch.org/whl/cpu
-          # Install torch-geometric separately (needs torch pre-installed)
-          conda run -n gliocarto pip install torch-geometric torch-scatter torch-sparse torch-cluster
-          # Install the rest from requirements file (exclude torch lines)
-          $reqs = Get-Content desktop_app/requirements_server.txt | `
-            Where-Object { $_ -notmatch "^torch" -and $_ -notmatch "index-url" -and $_ -notmatch "^#" -and $_ -ne "" }
-          $reqs | Out-File -FilePath filtered_reqs.txt -Encoding utf8
-          conda run -n gliocarto pip install -r filtered_reqs.txt
+          $TORCH_VER = "${{ env.TORCH_VERSION }}"
+          $TORCH_VISION_VER = "${{ env.TORCH_VISION_VERSION }}"
+          $PyG_URL = "https://data.pyg.org/whl/torch-${TORCH_VER}+cpu.html"
+          $reqsFile = "$env:GITHUB_WORKSPACE\desktop_app\requirements_server.txt"
 
-      - name: Create & Install Python Env (macOS)
+          Write-Host "=== Step 1: Create conda env ==="
+          conda create -n gliocarto python=3.10 -y -c conda-forge
+
+          Write-Host "=== Step 2: Install PyTorch CPU (pinned) ==="
+          conda run -n gliocarto pip install `
+            "torch==$TORCH_VER" "torchvision==$TORCH_VISION_VER" `
+            --index-url https://download.pytorch.org/whl/cpu `
+            --no-cache-dir
+
+          Write-Host "=== Step 3: Install PyG + extensions (pre-built wheels) ==="
+          conda run -n gliocarto pip install `
+            torch-geometric torch-scatter torch-sparse torch-cluster `
+            -f $PyG_URL `
+            --no-cache-dir
+
+          Write-Host "=== Step 4: Verify requirements file ==="
+          if (-Not (Test-Path $reqsFile)) {
+            Write-Error "requirements_server.txt not found at: $reqsFile"
+            exit 1
+          }
+          Write-Host "Found requirements file: $reqsFile"
+
+          Write-Host "=== Step 5: Install remaining packages ==="
+          $filtered = Get-Content $reqsFile | Where-Object {
+            $_.Trim() -ne "" -and
+            -not $_.StartsWith("#") -and
+            -not $_.StartsWith("torch") -and
+            -not $_.Contains("index-url") -and
+            -not $_.Contains("pyg.org")
+          }
+          $filtered | Out-File -FilePath "$env:TEMP\filtered_reqs.txt" -Encoding utf8
+          Write-Host "Packages to install:"
+          Get-Content "$env:TEMP\filtered_reqs.txt"
+          conda run -n gliocarto pip install -r "$env:TEMP\filtered_reqs.txt" --no-cache-dir
+
+          Write-Host "=== Installation complete! ==="
+
+      - name: Create Python Env + Install Packages (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          conda create -n gliocarto python=3.10 -y -c conda-forge
-          # Install PyTorch CPU first
-          conda run -n gliocarto pip install torch torchvision \
-            --index-url https://download.pytorch.org/whl/cpu
-          # Install torch-geometric
-          conda run -n gliocarto pip install torch-geometric torch-scatter torch-sparse torch-cluster
-          # Install the rest (skip torch lines from requirements.txt)
-          grep -v "^torch" desktop_app/requirements_server.txt | \
-            grep -v "index-url" | grep -v "^#" | grep -v "^$" > filtered_reqs.txt
-          conda run -n gliocarto pip install -r filtered_reqs.txt
+          TORCH_VER="${{ env.TORCH_VERSION }}"
+          TORCH_VISION_VER="${{ env.TORCH_VISION_VERSION }}"
+          PyG_URL="https://data.pyg.org/whl/torch-${TORCH_VER}+cpu.html"
+          REQS_FILE="${GITHUB_WORKSPACE}/desktop_app/requirements_server.txt"
 
-      # ── Pack with conda-pack ─────────────────────────────────
+          echo "=== Step 1: Create conda env ==="
+          conda create -n gliocarto python=3.10 -y -c conda-forge
+
+          echo "=== Step 2: Install PyTorch CPU (pinned) ==="
+          conda run -n gliocarto pip install \
+            "torch==${TORCH_VER}" "torchvision==${TORCH_VISION_VER}" \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --no-cache-dir
+
+          echo "=== Step 3: Install PyG + extensions (pre-built wheels) ==="
+          conda run -n gliocarto pip install \
+            torch-geometric torch-scatter torch-sparse torch-cluster \
+            -f "${PyG_URL}" \
+            --no-cache-dir
+
+          echo "=== Step 4: Verify requirements file ==="
+          if [ ! -f "$REQS_FILE" ]; then
+            echo "ERROR: requirements_server.txt not found at: $REQS_FILE"
+            exit 1
+          fi
+          echo "Found requirements file: $REQS_FILE"
+
+          echo "=== Step 5: Install remaining packages ==="
+          grep -v "^torch" "$REQS_FILE" | \
+            grep -v "index-url" | \
+            grep -v "pyg.org" | \
+            grep -v "^#" | \
+            grep -v "^$" > /tmp/filtered_reqs.txt
+          echo "Packages to install:"
+          cat /tmp/filtered_reqs.txt
+          conda run -n gliocarto pip install -r /tmp/filtered_reqs.txt --no-cache-dir
+
+          echo "=== Installation complete! ==="
+
+      # ── conda-pack the environment ───────────────────────────
+
       - name: Pack Python Environment (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          Write-Host "Installing conda-pack..."
           conda install -n gliocarto conda-pack -y -c conda-forge
+          Write-Host "Packing environment..."
           conda run -n gliocarto conda-pack -n gliocarto `
-            -o ${{ matrix.python_env_zip }} `
+            -o "${{ matrix.python_env_zip }}" `
             --ignore-editable-packages
-          Get-Item ${{ matrix.python_env_zip }} | Select-Object Name, Length
+          $item = Get-Item "${{ matrix.python_env_zip }}"
+          Write-Host "Packed: $($item.Name) — $([math]::Round($item.Length/1GB, 2)) GB"
 
       - name: Pack Python Environment (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          echo "Installing conda-pack..."
           conda install -n gliocarto conda-pack -y -c conda-forge
+          echo "Packing environment..."
           conda run -n gliocarto conda-pack -n gliocarto \
-            -o ${{ matrix.python_env_zip }} \
+            -o "${{ matrix.python_env_zip }}" \
             --ignore-editable-packages
-          ls -lh ${{ matrix.python_env_zip }}
+          ls -lh "${{ matrix.python_env_zip }}"
 
       # ── NPM + Electron build ─────────────────────────────────
+
       - name: Install NPM Dependencies
         working-directory: desktop_app
         run: npm install --ignore-scripts
@@ -119,6 +188,7 @@ jobs:
         run: npx electron-builder --mac --x64
 
       # ── Upload artifacts ─────────────────────────────────────
+
       - name: Upload Python Env Zip
         uses: actions/upload-artifact@v4
         with:
@@ -181,7 +251,7 @@ jobs:
             1. `Glio-Cartography*.dmg` dosyasını açın
             2. Uygulamayı Applications klasörüne sürükleyin
 
-            > CPU-only PyTorch kullanılmaktadır. CUDA için yerel derleme yapın.
+            > CPU-only PyTorch 2.6.0 + PyTorch Geometric 2.x kullanılmaktadır.
           files: |
             release-files/*.exe
             release-files/*.dmg
