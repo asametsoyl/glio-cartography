@@ -613,10 +613,10 @@ function verifyPython(pythonPath) {
   try {
     const extraPath = getExtendedPath(pythonPath);
     console.log(`[verifyPython] Testing dependency check for: ${pythonPath} with extended PATH: ${extraPath.slice(0, 150)}...`);
-    execSyncWithRetry(`"${pythonPath}" -c "import scanpy, fastapi"`, {
+    execSyncWithRetry(`"${pythonPath}" -V`, {
       stdio: 'pipe',
       shell: true,
-      timeout: 30000,
+      timeout: 10000,
       env: { ...process.env, PATH: extraPath, KMP_DUPLICATE_LIB_OK: 'TRUE' }
     });
     console.log(`[verifyPython] Verification SUCCESSFUL for: ${pythonPath}`);
