@@ -185,6 +185,10 @@ jobs:
           $f = Get-Item "${{ matrix.python_env_zip }}"
           Write-Host "SUCCESS: $($f.Name) — $([math]::Round($f.Length/1GB,2)) GB"
 
+          Write-Host "Copying pruned environment to python_env directory for bundling..."
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\python_env"
+          Copy-Item -Path "$envPath\*" -Destination "$env:GITHUB_WORKSPACE\python_env" -Recurse -Force
+
       - name: Pack Python Environment (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -220,6 +224,10 @@ jobs:
 
           ls -lh "${{ matrix.python_env_zip }}"
           echo "SUCCESS"
+
+          echo "Copying pruned environment to python_env directory for bundling..."
+          mkdir -p "${GITHUB_WORKSPACE}/python_env"
+          cp -R "${ENV_PATH}/"* "${GITHUB_WORKSPACE}/python_env/"
 
 
       # ── Electron build ───────────────────────────────────────

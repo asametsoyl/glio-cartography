@@ -675,8 +675,11 @@ function findPython() {
 
   for (const venvPath of venvs) {
     if (fs.existsSync(venvPath)) {
+      console.log(`[findPython] Candidate found at: ${venvPath}. Verifying dependencies...`);
       if (verifyPython(venvPath)) {
         return { bin: venvPath, compiled: false };
+      } else {
+        console.warn(`[findPython] Candidate at ${venvPath} failed dependency verification.`);
       }
     }
   }
