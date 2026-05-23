@@ -267,40 +267,80 @@ function downloadWithRedirects(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
     const startRequest = (currentUrl) => {
       const client = currentUrl.startsWith('https') ? require('https') : require('http');
-      client.get(currentUrl, (res) => {
+      
+      let timeoutTimer = null;
+      const clearTimer = () => {
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+      };
+
+      const req = client.get(currentUrl, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          clearTimer();
           startRequest(res.headers.location);
           return;
         }
         if (res.statusCode !== 200) {
+          clearTimer();
           reject(new Error(`İndirme başarısız: HTTP ${res.statusCode}`));
           return;
         }
+        
         const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
         let receivedBytes = 0;
         const fileStream = fs.createWriteStream(destPath);
         res.pipe(fileStream);
         
+        // Data inactivity timeout (45 seconds of no incoming chunks)
+        const resetInactivityTimeout = () => {
+          clearTimer();
+          timeoutTimer = setTimeout(() => {
+            console.error('[downloadWithRedirects] Data stream stalled. Timing out...');
+            res.destroy();
+            req.destroy();
+            fileStream.close();
+            fs.unlink(destPath, () => {});
+            reject(new Error('İndirme zaman aşımına uğradı (veri akışı durdu). Lütfen tekrar deneyiniz.'));
+          }, 45000);
+        };
+
+        resetInactivityTimeout();
+        
         res.on('data', (chunk) => {
           receivedBytes += chunk.length;
+          resetInactivityTimeout();
           if (totalBytes && onProgress) {
             onProgress(receivedBytes, totalBytes);
           }
         });
         
         fileStream.on('finish', () => {
+          clearTimer();
           fileStream.close();
           resolve();
         });
         
         fileStream.on('error', (err) => {
+          clearTimer();
           fileStream.close();
           fs.unlink(destPath, () => {});
           reject(err);
         });
-      }).on('error', (err) => {
+      });
+
+      req.on('error', (err) => {
+        clearTimer();
         reject(err);
       });
+
+      // Initial connection timeout (15 seconds)
+      timeoutTimer = setTimeout(() => {
+        console.error('[downloadWithRedirects] Connection timed out.');
+        req.destroy();
+        reject(new Error('Sunucuya bağlanılamadı (Bağlantı zaman aşımı). Lütfen internetinizi kontrol edin.'));
+      }, 15000);
     };
     startRequest(url);
   });
