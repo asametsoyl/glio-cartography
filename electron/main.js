@@ -650,6 +650,12 @@ function findPython() {
 
   // 2. Bundled environments (Conda-pack or standard venv structures)
   const venvs = [
+    // Automatically check the dynamic downloaded / manually placed folder in AppData (userData)
+    path.join(app.getPath('userData'), 'python_env', 'python.exe'),
+    path.join(app.getPath('userData'), 'python_env', 'Scripts', 'python.exe'),
+    path.join(app.getPath('userData'), 'python_env', 'bin', 'python3'),
+    path.join(app.getPath('userData'), 'python_env', 'bin', 'python'),
+
     // Standard virtual env on Mac/Linux
     path.join(resources, 'python_env', 'bin', 'python3'),
     path.join(resources, 'python_env', 'bin', 'python'),
