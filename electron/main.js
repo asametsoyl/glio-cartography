@@ -1073,9 +1073,9 @@ ipcMain.handle('download-runtime', async () => {
   // Decide OS platform zip URL
   let url = '';
   if (process.platform === 'win32') {
-    url = 'https://github.com/sametsoysal/glio-cartography/releases/download/v1.1.0/python_env_windows.zip';
+    url = 'https://github.com/asametsoyl/glio-cartography/releases/download/v1.1.0/python_env_windows.zip';
   } else if (process.platform === 'darwin') {
-    url = 'https://github.com/sametsoysal/glio-cartography/releases/download/v1.1.0/python_env_macos.zip';
+    url = 'https://github.com/asametsoyl/glio-cartography/releases/download/v1.1.0/python_env_macos.zip';
   } else {
     const err = new Error(`Otomatik yükleme sadece Windows ve macOS için desteklenmektedir. Platformunuz: ${process.platform}`);
     backendState.status = 'failed';
