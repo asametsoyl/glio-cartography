@@ -170,12 +170,6 @@ jobs:
           # Remove C/C++ Headers
           if (Test-Path "$envPath\include") { Remove-Item -Recurse -Force "$envPath\include" -ErrorAction SilentlyContinue }
 
-          # Remove Package Test Suites
-          if (Test-Path "$envPath\Lib\site-packages") {
-            Get-ChildItem -Path "$envPath\Lib\site-packages" -Recurse -Directory -Filter "tests" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-            Get-ChildItem -Path "$envPath\Lib\site-packages" -Recurse -Directory -Filter "test" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          }
-
           Write-Host "Packing gliocarto env (5-10 min)..."
           conda-pack -n gliocarto `
             -o "${{ matrix.python_env_zip }}" `
@@ -213,8 +207,6 @@ jobs:
           find "${ENV_PATH}" -type f -name "*.a" -delete 2>/dev/null || true
           find "${ENV_PATH}" -type f -name "*.lib" -delete 2>/dev/null || true
           rm -rf "${ENV_PATH}/include" 2>/dev/null || true
-          find "${ENV_PATH}/lib/python3.10/site-packages" -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
-          find "${ENV_PATH}/lib/python3.10/site-packages" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
 
           echo "Packing gliocarto env (5-10 min)..."
           "${CONDA_PACK_BIN}" -n gliocarto \
