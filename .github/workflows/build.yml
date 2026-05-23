@@ -189,10 +189,16 @@ jobs:
 
       - name: Build Electron App (Windows)
         if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
         run: npx electron-builder --win --x64 --publish never
 
       - name: Build Electron App (macOS)
         if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
         run: npx electron-builder --mac --x64 --publish never
 
       # ── Upload artifacts ─────────────────────────────────────

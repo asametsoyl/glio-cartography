@@ -24,7 +24,6 @@
   "build": {
     "asar": false,
     "appId": "com.gliocartography.desktop",
-    "publish": "never",
     "productName": "Glio-Cartography",
     "copyright": "Copyright © 2025 Glio-Cartography Team",
     "mac": {
