@@ -179,7 +179,8 @@ jobs:
           Write-Host "Packing gliocarto env (5-10 min)..."
           conda-pack -n gliocarto `
             -o "${{ matrix.python_env_zip }}" `
-            --ignore-editable-packages
+            --ignore-editable-packages `
+            --ignore-missing-files
 
           $f = Get-Item "${{ matrix.python_env_zip }}"
           Write-Host "SUCCESS: $($f.Name) — $([math]::Round($f.Length/1GB,2)) GB"
@@ -214,7 +215,8 @@ jobs:
           echo "Packing gliocarto env (5-10 min)..."
           "${CONDA_PACK_BIN}" -n gliocarto \
             -o "${{ matrix.python_env_zip }}" \
-            --ignore-editable-packages
+            --ignore-editable-packages \
+            --ignore-missing-files
 
           ls -lh "${{ matrix.python_env_zip }}"
           echo "SUCCESS"
