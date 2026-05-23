@@ -616,7 +616,7 @@ function verifyPython(pythonPath) {
     execSyncWithRetry(`"${pythonPath}" -c "import scanpy, fastapi"`, {
       stdio: 'pipe',
       shell: true,
-      timeout: 4500,
+      timeout: 30000,
       env: { ...process.env, PATH: extraPath, KMP_DUPLICATE_LIB_OK: 'TRUE' }
     });
     console.log(`[verifyPython] Verification SUCCESSFUL for: ${pythonPath}`);
