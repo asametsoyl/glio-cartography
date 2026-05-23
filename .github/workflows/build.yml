@@ -152,6 +152,30 @@ jobs:
           Write-Host "Installing conda-pack in base..."
           conda install conda-pack -y -c conda-forge
 
+          Write-Host "Locating environment root..."
+          $envPath = conda run -n gliocarto python -c "import sys; print(sys.prefix)"
+          Write-Host "Environment root: $envPath"
+
+          Write-Host "Aggressive pruning to reduce file size < 2 GB..."
+          # Remove pycache/pyc/pyo
+          Get-ChildItem -Path $envPath -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -Path $envPath -Recurse -File -Include "*.pyc", "*.pyo" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+          # Remove debug symbols (*.pdb)
+          Get-ChildItem -Path $envPath -Recurse -File -Filter "*.pdb" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+          # Remove static libraries (*.lib, *.a)
+          Get-ChildItem -Path $envPath -Recurse -File -Include "*.lib", "*.a" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+          # Remove C/C++ Headers
+          if (Test-Path "$envPath\include") { Remove-Item -Recurse -Force "$envPath\include" -ErrorAction SilentlyContinue }
+
+          # Remove Package Test Suites
+          if (Test-Path "$envPath\Lib\site-packages") {
+            Get-ChildItem -Path "$envPath\Lib\site-packages" -Recurse -Directory -Filter "tests" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -Path "$envPath\Lib\site-packages" -Recurse -Directory -Filter "test" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
           Write-Host "Packing gliocarto env (5-10 min)..."
           conda-pack -n gliocarto `
             -o "${{ matrix.python_env_zip }}" `
@@ -172,6 +196,20 @@ jobs:
           CONDA_BASE=$(conda info --base)
           CONDA_PACK_BIN="${CONDA_BASE}/bin/conda-pack"
           echo "conda-pack binary: ${CONDA_PACK_BIN}"
+
+          echo "Locating environment root..."
+          ENV_PATH=$(conda run -n gliocarto python -c "import sys; print(sys.prefix)")
+          echo "Environment root: ${ENV_PATH}"
+
+          echo "Aggressive pruning to reduce file size..."
+          find "${ENV_PATH}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find "${ENV_PATH}" -type f -name "*.pyc" -delete 2>/dev/null || true
+          find "${ENV_PATH}" -type f -name "*.pyo" -delete 2>/dev/null || true
+          find "${ENV_PATH}" -type f -name "*.a" -delete 2>/dev/null || true
+          find "${ENV_PATH}" -type f -name "*.lib" -delete 2>/dev/null || true
+          rm -rf "${ENV_PATH}/include" 2>/dev/null || true
+          find "${ENV_PATH}/lib/python3.10/site-packages" -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
+          find "${ENV_PATH}/lib/python3.10/site-packages" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
 
           echo "Packing gliocarto env (5-10 min)..."
           "${CONDA_PACK_BIN}" -n gliocarto \

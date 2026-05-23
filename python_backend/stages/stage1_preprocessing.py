@@ -121,8 +121,9 @@ sc.tl.umap(adata_sc)
 sc.tl.leiden(adata_sc, resolution=0.8)
 logger.info(f"   Leiden clusters: {adata_sc.obs['leiden'].nunique()}")
 
-# ── Save scRNA ───────────────────────────────────────────────
+# ── Save scRNA ───────────────────────────────────────────
 scrna_out = OUTPUT_DIR / "preprocessing" / "scRNA" / "scrna_preprocessed.h5ad"
+logger.info(f"   scRNA diske yazılıyor ({adata_sc.n_obs} hücre, {adata_sc.n_vars} gen — lütfen bekleyiniz)...")
 adata_sc.write_h5ad(scrna_out)
 logger.info(f"   ✅ scRNA kaydedildi: {scrna_out}")
 
@@ -208,8 +209,11 @@ adata_sp.obsm['X_features'] = adata_sp.obsm['X_pca']
 # Spatial veri için PCA sonrası komşuluk ağını (neighbors) ve leiden kümelerini hesapla
 # (Dekonvolüsyon ve spatial niş analizi için kritiktir)
 n_pcs_spatial = adata_sp.obsm['X_pca'].shape[1]
+logger.info(f"   Spatial neighbors hesaplanıyor ({n_pcs_spatial} PC, 15 komşu)...")
 sc.pp.neighbors(adata_sp, n_pcs=n_pcs_spatial, n_neighbors=15)
+logger.info("   Spatial UMAP hesaplanıyor...")
 sc.tl.umap(adata_sp)
+logger.info("   Spatial Leiden kümeleniyor...")
 sc.tl.leiden(adata_sp, resolution=0.8)
 logger.info(f"   Spatial Leiden clusters: {adata_sp.obs['leiden'].nunique()}")
 
@@ -223,8 +227,9 @@ score_niche(adata_sp, ['IL10', 'TGFB1', 'CD274', 'VSIG4', 'MRC1'], 'tam_polariza
 score_niche(adata_sp, ['HAVCR2', 'LAG3', 'PDCD1', 'CTLA4', 'TOX'], 'tcell_exhaustion_score')
 score_niche(adata_sp, ['VEGFA', 'ANGPT2', 'FLT1', 'KDR', 'PECAM1', 'ESM1'], 'angiogenesis_score')
 
-# ── Save Spatial ─────────────────────────────────────────────
+# ── Save Spatial ───────────────────────────────────────────
 spatial_out = OUTPUT_DIR / "preprocessing" / "spatial" / "spatial_preprocessed.h5ad"
+logger.info(f"   Spatial veri diske yazılıyor ({adata_sp.n_obs} spot, {adata_sp.n_vars} gen)...")
 adata_sp.write_h5ad(spatial_out)
 logger.info(f"   ✅ Spatial kaydedildi: {spatial_out}")
 
