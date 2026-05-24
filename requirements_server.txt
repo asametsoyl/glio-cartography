@@ -72,9 +72,11 @@ jinja2
 fpdf2
 
 # --- Utilities ---
+setuptools<82.0
 python-dotenv
 rich
 colorama
 tqdm
 requests
 pillow
+
