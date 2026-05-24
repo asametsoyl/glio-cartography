@@ -51,9 +51,9 @@ elif ext in ['.csv', '.tsv']:
     
     chunk_list = []
     try:
-        # 2000 satırlık bloklar halinde ve float32 olarak oku (peak memory'yi sıfıra indirir)
-        for chunk in pd.read_csv(SCRNA_PATH, sep=sep, index_col=0, chunksize=2000, dtype=np.float32):
-            numeric_chunk = chunk.select_dtypes(include=[np.number])
+        # 2000 satırlık bloklar halinde oku ve float32'ye dönüştür (peak memory'yi sıfıra indirir)
+        for chunk in pd.read_csv(SCRNA_PATH, sep=sep, index_col=0, chunksize=2000):
+            numeric_chunk = chunk.select_dtypes(include=[np.number]).astype(np.float32)
             chunk_list.append(numeric_chunk)
             
         logger.info("   Tüm parçalar birleştiriliyor...")
