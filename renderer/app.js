@@ -919,7 +919,7 @@ async function loadResults() {
   if (bgExists) {
     state.bgImage.onload = () => { state.bgLoaded = true; renderSpatialCanvas(); setupNewFeatures(); };
     state.bgImage.onerror = () => { state.bgLoaded = false; renderSpatialCanvas(); setupNewFeatures(); };
-    state.bgImage.src = `local://${encodeURI(bgPath)}`;
+    state.bgImage.src = `local://${encodeURI(bgPath)}?t=${Date.now()}`;
   } else {
     renderSpatialCanvas();
     setupNewFeatures();
@@ -1428,7 +1428,7 @@ async function loadFigures() {
     const item = document.createElement('div');
     item.className = 'fig-item';
     item.innerHTML = `
-      <img src="local://${encodeURI(fig.path)}" alt="${fig.name}" loading="lazy">
+      <img src="local://${encodeURI(fig.path)}?t=${Date.now()}" alt="${fig.name}" loading="lazy">
       <div class="fig-item-name">${fig.name.replace(/_/g,' ')}</div>`;
     item.onclick = () => api.openOutputFolder(fig.path);
     gallery.appendChild(item);
@@ -1451,7 +1451,7 @@ async function loadReport() {
     return;
   }
 
-  wrapper.innerHTML = `<iframe src="local://${encodeURI(htmlPath)}" title="Klinik Rapor"></iframe>`;
+  wrapper.innerHTML = `<iframe src="local://${encodeURI(htmlPath)}?t=${Date.now()}" title="Klinik Rapor"></iframe>`;
 }
 
 async function openReport() {

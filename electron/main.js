@@ -1407,6 +1407,7 @@ app.whenReady().then(async () => {
       if (urlPath.startsWith('local://')) {
         urlPath = urlPath.slice(8);
       }
+      urlPath = urlPath.split('?')[0].split('#')[0];
       let decodedPath = decodeURIComponent(urlPath);
       console.log('[Local Protocol] Decoded URL Path:', urlPath, '-> Decoded File Path:', decodedPath);
       if (process.platform !== 'win32') {
