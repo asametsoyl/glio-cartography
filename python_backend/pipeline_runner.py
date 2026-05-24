@@ -3,7 +3,17 @@
 GLIO-CARTOGRAPHY — Pipeline Runner
 Tüm analiz aşamalarını sırayla çalıştırır.
 """
-import os, sys, json, asyncio, subprocess, shutil, traceback
+import os, sys
+
+# Force UTF-8 encoding on standard streams to prevent UnicodeEncodeError on Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass # Older python versions
+
+import json, asyncio, subprocess, shutil, traceback
 from pathlib import Path
 from datetime import datetime
 from enum import Enum

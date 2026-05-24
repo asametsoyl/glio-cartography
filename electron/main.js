@@ -866,7 +866,14 @@ function startBackend() {
 
     backendProcess = spawn(spawnBin, spawnArgs, {
       cwd: path.join(__dirname, '..', '..'), // project root
-      env: { ...process.env, PYTHONUNBUFFERED: '1', PATH: extraPath, KMP_DUPLICATE_LIB_OK: 'TRUE' }
+      env: { 
+        ...process.env, 
+        PYTHONUNBUFFERED: '1', 
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+        PATH: extraPath, 
+        KMP_DUPLICATE_LIB_OK: 'TRUE' 
+      }
     });
 
     const fallbackTimeout = setTimeout(() => {

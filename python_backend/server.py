@@ -5,8 +5,17 @@ FastAPI server that orchestrates the full pipeline
 """
 
 import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import sys
+
+# Force UTF-8 encoding on standard streams to prevent UnicodeEncodeError on Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass # Older python versions
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import json
 import asyncio
 import argparse
