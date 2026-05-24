@@ -188,9 +188,12 @@ def _lr_get_gene(adata_obj, gene_name: str) -> np.ndarray:
     for candidate in [gene_name, gene_name.upper(),
                        gene_name.lower(), gene_name.capitalize()]:
         if candidate in adata_obj.var_names:
-            e = adata_obj[:, candidate].X
+            idx = adata_obj.var_names.get_loc(candidate)
+            e = adata_obj.X[:, idx]
             if hasattr(e, 'toarray'):
                 e = e.toarray()
+            elif hasattr(e, 'A'):
+                e = e.A
             return np.asarray(e).flatten().astype(np.float32)
     return np.zeros(adata_obj.n_obs, dtype=np.float32)
 
@@ -505,8 +508,10 @@ def bh_fdr(pvals: np.ndarray) -> np.ndarray:
 def get_gene(adata, name: str) -> np.ndarray:
     for n in [name, name.upper(), name.lower(), name.capitalize()]:
         if n in adata.var_names:
-            e = adata[:, n].X
+            idx = adata.var_names.get_loc(n)
+            e = adata.X[:, idx]
             if hasattr(e, 'toarray'): e = e.toarray()
+            elif hasattr(e, 'A'): e = e.A
             return np.asarray(e).flatten()
     return np.zeros(adata.n_obs)
 
