@@ -104,6 +104,8 @@ function getAllowedBaseDirs() {
   return [
     app.getPath('userData'),
     app.getPath('documents'),
+    app.getPath('desktop'),
+    app.getPath('home'),
     app.getPath('temp'),
     os.tmpdir()
   ].map(d => path.resolve(d));
