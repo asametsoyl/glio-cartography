@@ -112,7 +112,11 @@ def compute_morans_i(adata, genes, k_neighbors=6):
     for g in genes:
         if g not in adata.var_names:
             continue
-        e = adata[:, g].X
+        try:
+            col_idx = adata.var_names.get_loc(g)
+            e = adata.X[:, col_idx]
+        except Exception:
+            e = adata[:, g].X
         e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
         z = e - e.mean()
         denom = float(np.dot(z, z))

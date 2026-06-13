@@ -350,7 +350,11 @@ def build_graph_data(adata, k_neighbors: int = 6) -> Data:
         if name_lower not in gene_cache:
             exact_name = var_names_lower.get(name_lower)
             if exact_name is not None:
-                e = adata[:, exact_name].X
+                try:
+                    col_idx = adata.var_names.get_loc(exact_name)
+                    e = adata.X[:, col_idx]
+                except Exception:
+                    e = adata[:, exact_name].X
                 e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
                 gene_cache[name_lower] = e.astype(np.float32)
             else:
@@ -1118,7 +1122,11 @@ def compute_pathway_scores(adata) -> dict[str, np.ndarray]:
         if name_lower not in gene_cache:
             exact_name = var_names_lower.get(name_lower)
             if exact_name is not None:
-                e = adata[:, exact_name].X
+                try:
+                    col_idx = adata.var_names.get_loc(exact_name)
+                    e = adata.X[:, col_idx]
+                except Exception:
+                    e = adata[:, exact_name].X
                 e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
                 gene_cache[name_lower] = e.astype(np.float32)
             else:
@@ -1234,7 +1242,11 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
         if name_lower not in gene_cache:
             exact_name = var_names_lower.get(name_lower)
             if exact_name is not None:
-                e = adata[:, exact_name].X
+                try:
+                    col_idx = adata.var_names.get_loc(exact_name)
+                    e = adata.X[:, col_idx]
+                except Exception:
+                    e = adata[:, exact_name].X
                 e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
                 gene_cache[name_lower] = e.astype(np.float32)
             else:

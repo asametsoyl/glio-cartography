@@ -282,7 +282,11 @@ def main():
         candidates = [gene, gene.upper(), gene.lower(), gene.capitalize(), gene.title()]
         for name in candidates:
             if name in adata.var_names:
-                e = adata[:, name].X
+                try:
+                    col_idx = adata.var_names.get_loc(name)
+                    e = adata.X[:, col_idx]
+                except Exception:
+                    e = adata[:, name].X
                 arr = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
                 arr = arr.astype(np.float32)
                 if np.std(arr) < 1e-8:  # zero or near-zero variance

@@ -90,9 +90,19 @@ def compute_lr_activity(adata, ligand: str, receptor: str, data_json_path = None
         logger.warning("Ligand '%s' veya reseptör '%s' dataset içinde bulunamadı.", ligand, receptor)
         return None
 
-    # Get expressions
-    X_lig = adata[:, lig_gene].X
-    X_rec = adata[:, rec_gene].X
+    # Get expressions directly from adata.X to avoid costly slicing of the AnnData object (and its raw attribute)
+    try:
+        col_idx_lig = adata.var_names.get_loc(lig_gene)
+        X_lig = adata.X[:, col_idx_lig]
+    except Exception:
+        X_lig = adata[:, lig_gene].X
+
+    try:
+        col_idx_rec = adata.var_names.get_loc(rec_gene)
+        X_rec = adata.X[:, col_idx_rec]
+    except Exception:
+        X_rec = adata[:, rec_gene].X
+
     expr_lig = X_lig.toarray().flatten() if hasattr(X_lig, "toarray") else np.asarray(X_lig).flatten()
     expr_rec = X_rec.toarray().flatten() if hasattr(X_rec, "toarray") else np.asarray(X_rec).flatten()
 

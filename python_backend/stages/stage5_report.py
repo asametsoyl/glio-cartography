@@ -220,7 +220,11 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
             candidates = ["MGMT", "mgmt", "Mgmt"]
             for c in candidates:
                 if c in adata.var_names:
-                    e = adata[:, c].X
+                    try:
+                        col_idx = adata.var_names.get_loc(c)
+                        e = adata.X[:, col_idx]
+                    except Exception:
+                        e = adata[:, c].X
                     mgmt_expr = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
                     break
         except Exception as e_load:
