@@ -64,7 +64,7 @@ pyyaml
 
 # --- Bioinformatics utilities ---
 pydeseq2
-decoupler-py           # decoupler (correct PyPI name: decoupler-py)
+decoupler              # decoupler (correct PyPI name: decoupler)
 gseapy>=1.0.4          # GSEA enrichment (used by pathway analysis)
 adjustText
 biopython>=1.83        # Seq utilities (used by ncbi fetch / bioservices)
