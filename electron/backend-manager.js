@@ -290,9 +290,9 @@ function startBackend(mainWindow, store, app) {
 
     console.log(`[startBackend] Spawning: ${pythonInfo.bin} (compiled: ${pythonInfo.compiled})`);
 
-    // Use process.resourcesPath in packaged app to find server.py outside ASAR
+    // Use app.getAppPath() in packaged app to find server.py (which is in files, not extraResources)
     const serverScript = app.isPackaged
-      ? path.join(process.resourcesPath, 'python_backend', 'server.py')
+      ? path.join(app.getAppPath(), 'python_backend', 'server.py')
       : path.join(__dirname, '..', 'python_backend', 'server.py');
 
     const extraPath = getExtendedPath(pythonInfo.bin);
