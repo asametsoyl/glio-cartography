@@ -39,14 +39,15 @@ STAGES = [
 class PipelineRunner:
     def __init__(self, spatial_dir, scrna_path, output_dir,
                  patient_id="Patient_A", run_optuna=False,
-                 optuna_trials=5, gnn_epochs=100):
-        self.spatial_dir   = Path(spatial_dir)
-        self.scrna_path    = Path(scrna_path)
-        self.output_dir    = Path(output_dir)
-        self.patient_id    = patient_id
-        self.run_optuna    = run_optuna
-        self.optuna_trials = optuna_trials
-        self.gnn_epochs    = gnn_epochs
+                 optuna_trials=5, gnn_epochs=100, deconv_method="tangram"):
+        self.spatial_dir    = Path(spatial_dir)
+        self.scrna_path     = Path(scrna_path)
+        self.output_dir     = Path(output_dir)
+        self.patient_id     = patient_id
+        self.run_optuna     = run_optuna
+        self.optuna_trials  = optuna_trials
+        self.gnn_epochs     = gnn_epochs
+        self.deconv_method  = deconv_method
 
         self.status        = PipelineStatus.IDLE
         self.current_stage = ""
@@ -60,7 +61,7 @@ class PipelineRunner:
             "status":  self.status,
             "stage":   self.current_stage,
             "progress": self.progress,
-            "logs":    self.logs[-100:],
+            "logs":    self.logs,
         }
 
     def cancel(self):
@@ -133,7 +134,19 @@ class PipelineRunner:
     async def _run_script(self, script_path, args=None, env_extra=None):
         """Python scriptini subprocess olarak çalıştırır."""
         python = sys.executable
-        cmd = [python, str(script_path)] + (args or [])
+        if getattr(sys, 'frozen', False):
+            stage_map = {
+                "stage1_preprocessing.py": "preprocessing",
+                "stage2_deconvolution.py": "deconvolution",
+                "stage3_gnn.py": "gnn",
+                "stage4_visualization.py": "visualization",
+                "stage5_report.py": "report"
+            }
+            stage_arg = stage_map.get(script_path.name, script_path.stem)
+            cmd = [python, "--stage", stage_arg] + (args or [])
+        else:
+            cmd = [python, str(script_path)] + (args or [])
+            
         env = {**os.environ, **(env_extra or {})}
 
         self._proc = await asyncio.create_subprocess_exec(
@@ -144,11 +157,50 @@ class PipelineRunner:
             env=env,
             start_new_session=True # process group oluşturur (cancel için)
         )
-        async for line in self._proc.stdout:
-            self.log(line.decode(errors='replace').rstrip())
+        
+        stage_keys = [s[0] for s in STAGES]
+        
+        async for line_bytes in self._proc.stdout:
+            line_str = line_bytes.decode(errors='replace').rstrip()
+            if not line_str:
+                continue
+            
+            # Check for JSON progress message
+            is_progress_report = False
+            if line_str.startswith("{") and line_str.endswith("}"):
+                try:
+                    data = json.loads(line_str)
+                    if isinstance(data, dict) and data.get("status") == "running" and "progress" in data:
+                        stage_pct = float(data["progress"]) / 100.0
+                        stage_name_lower = script_path.name.lower()
+                        stage_id = "preprocessing"
+                        if "preprocessing" in stage_name_lower:
+                            stage_id = "preprocessing"
+                        elif "deconvolution" in stage_name_lower:
+                            stage_id = "deconvolution"
+                        elif "gnn" in stage_name_lower:
+                            stage_id = "gnn_training"
+                        elif "visualization" in stage_name_lower:
+                            stage_id = "visualization"
+                        elif "report" in stage_name_lower:
+                            stage_id = "report"
+                        
+                        if stage_id in stage_keys:
+                            i = stage_keys.index(stage_id)
+                            total = len(STAGES)
+                            global_pct = (i + stage_pct) * (100.0 / total)
+                            self.progress = int(min(max(global_pct, 0), 100))
+                            is_progress_report = True
+                except Exception:
+                    pass
+            
+            if not is_progress_report:
+                self.log(line_str)
+                
         await self._proc.wait()
         if self._proc.returncode != 0 and not self._cancelled:
             raise RuntimeError(f"Script hata kodu: {self._proc.returncode}")
+
 
     async def _run_preprocessing(self):
         script = Path(__file__).parent / "stages" / "stage1_preprocessing.py"
@@ -163,8 +215,9 @@ class PipelineRunner:
     async def _run_deconvolution(self):
         script = Path(__file__).parent / "stages" / "stage2_deconvolution.py"
         env = {
-            "GLIO_OUTPUT_DIR": str(self.output_dir),
-            "GLIO_PATIENT_ID": self.patient_id,
+            "GLIO_OUTPUT_DIR":    str(self.output_dir),
+            "GLIO_PATIENT_ID":    self.patient_id,
+            "GLIO_DECONV_METHOD": self.deconv_method,
         }
         await self._run_script(script, env_extra=env)
 

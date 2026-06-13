@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('glioAPI', {
   // License
   getMachineId: () => ipcRenderer.invoke('get-machine-id'),
   validateLicense: (key) => ipcRenderer.invoke('validate-license', key),
-  saveLicense: (key, expiry) => ipcRenderer.invoke('save-license', key, expiry),
+  saveLicense: (key) => ipcRenderer.invoke('save-license', key),
   getStoredLicense: () => ipcRenderer.invoke('get-stored-license'),
 
   // File system
@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('glioAPI', {
 
   // Backend
   backendRequest: (endpoint, method, body) => ipcRenderer.invoke('backend-request', endpoint, method, body),
+  getBackendUrl: () => 'http://127.0.0.1:8765',
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
@@ -35,17 +36,21 @@ contextBridge.exposeInMainWorld('glioAPI', {
   getLastPaths: () => ipcRenderer.invoke('get-last-paths'),
   saveLastPaths: (paths) => ipcRenderer.invoke('save-last-paths', paths),
 
-  // Events
-  // NOT: ipcRenderer.on() her çağrıda yeni listener ekler.
-  // Pencere yeniden yüklenirse listener'lar birikir (memory leak).
-  // removeAllListeners() ile her kayıt öncesinde eski listener'lar temizlenir.
-  // Bu pattern ipcRenderer.once()'a tercih edilir çünkü birden fazla
-  // event tetiklendiğinde de doğru çalışır.
+  // Veri Seti Profilleri
+  getProfiles: () => ipcRenderer.invoke('get-profiles'),
+  saveProfile: (profile) => ipcRenderer.invoke('save-profile', profile),
+  deleteProfile: (id) => ipcRenderer.invoke('delete-profile', id),
+
   onBackendReady: (cb) => {
+    // Remove any previous once() listener before adding a new one.
+    // This is necessary when the user manually restarts the backend:
+    // the renderer re-calls onBackendReady(), and without removeAllListeners
+    // the old once() would still be queued and consume the event first.
     ipcRenderer.removeAllListeners('backend-ready');
-    ipcRenderer.on('backend-ready', (_, val) => cb(val));
+    ipcRenderer.once('backend-ready', (_, val) => cb(val));
   },
   onBackendLog: (cb) => {
+    // Recurring: replace previous handler cleanly using a named reference.
     ipcRenderer.removeAllListeners('backend-log');
     ipcRenderer.on('backend-log', (_, msg) => cb(msg));
   },
@@ -58,11 +63,18 @@ contextBridge.exposeInMainWorld('glioAPI', {
     ipcRenderer.on('download-progress', (_, data) => cb(data));
   },
   onUpdateAvailable: (cb) => {
-    ipcRenderer.removeAllListeners('update-available');
-    ipcRenderer.on('update-available', (_, info) => cb(info));
+    // One-shot: show update banner once per session.
+    ipcRenderer.once('update-available', (_, info) => cb(info));
   },
   onRuntimeMissing: (cb) => {
-    ipcRenderer.removeAllListeners('runtime-missing');
-    ipcRenderer.on('runtime-missing', (_) => cb());
+    // One-shot: only shown once on startup.
+    ipcRenderer.once('runtime-missing', (_) => cb());
+  },
+  focusWindow: () => ipcRenderer.invoke('focus-window'),
+  showNotification: (title, body) => ipcRenderer.send('show-notification', { title, body }),
+  // Cleanup helper: renderer pages should call this on unmount
+  // to avoid handler accumulation between hot-reloads in dev mode.
+  removeAllListeners: (channel) => {
+    ipcRenderer.removeAllListeners(channel);
   },
 });

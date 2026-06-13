@@ -8,6 +8,8 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.0.0
+aiohttp>=3.9.0          # Async HTTP (used by some scvi/liana internals)
+httpx>=0.27.0            # Modern sync/async HTTP client
 
 # --- Logging ---
 loguru>=0.7.0
@@ -30,8 +32,13 @@ squidpy>=1.4.0
 leidenalg
 python-igraph
 
+# --- Cell-cell communication ---
+liana>=1.0.0             # L-R analysis (LIANA+)
+
 # --- Spatial deconvolution ---
 tangram-sc>=1.0.4
+cell2location>=0.1.3
+scvi-tools>=1.0.0
 
 # --- Hyperparameter optimization ---
 optuna>=3.0.0
@@ -57,19 +64,29 @@ pyyaml
 
 # --- Bioinformatics utilities ---
 pydeseq2
-decoupler
-gseapy
+decoupler-py           # decoupler (correct PyPI name: decoupler-py)
+gseapy>=1.0.4          # GSEA enrichment (used by pathway analysis)
 adjustText
+biopython>=1.83        # Seq utilities (used by ncbi fetch / bioservices)
+
+# --- Pathway Enrichment (pathway_mapper.py) ---
+# scipy, numpy, pandas already covered above
+# pillow already covered below
 
 # --- Drug / annotation APIs ---
-bioservices
-mygene
+bioservices>=1.11.0
+mygene>=3.2.2
 gprofiler-official
 
 # --- Report generation ---
 openai>=1.0.0
 jinja2
 fpdf2
+weasyprint>=61.0       # HTML→PDF conversion (fallback for clinical report PDF)
+
+# --- Visualization extras ---
+plotly>=5.18.0         # Interactive plots used in notebooks and optional views
+distinctipy>=1.3.4     # Perceptually distinct color palettes for cell types
 
 # --- Utilities ---
 setuptools<82.0
@@ -78,5 +95,6 @@ rich
 colorama
 tqdm
 requests
-pillow
+pillow>=10.0.0         # PIL (used by pathway_mapper KEGG image overlay)
+psutil>=5.9.0          # System resource monitoring
 

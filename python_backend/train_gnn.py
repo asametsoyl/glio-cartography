@@ -1,32 +1,10 @@
 #!/usr/bin/env python3
-"""
-GLIO-CARTOGRAPHY — GNN Training Pipeline v3.0
-==============================================
-v2.0'dan v3.0'a düzeltmeler:
-
-  [BUG-1]  CT_TO_COARSE_IDX artık build_graph_data içinde doldurulyor
-  [BUG-2]  coarse_props: adata.obs → adata.obsm['celltype_proportions'] (sütun toplama)
-  [BUG-3]  InfoNCE: diyagonal (öz-benzerlik) pos_mask'tan çıkarıldı
-  [BUG-4]  Attention weight'ler main() içinde export edilip JSON'a yazılıyor
-  [BUG-5]  counterfactual_knockout: ct_start artık dinamik (PCA boyutundan)
-  [BUG-6]  Reciprocal (çift yönlü) kenarlar oluşturuluyor (L-R yönlülük)
-
-  [BIO-1]  NLGN3-NRXN1 çifti kaldırıldı → NLGN3-EGFR eklendi (doğru eksen)
-  [BIO-2]  FASLG-FAS kategorisi apoptosis → immunosuppression olarak düzeltildi
-  [BIO-3]  SPP1-ITGAV invasion çifti eklendi
-  [BIO-4]  Zone signature'larına eksik GBM markerleri eklendi
-           (LDHA, PDK1, PCNA, CDK4, MMP9, TWIST1, ZEB1, TIMP1)
-
-  [FEAT-1] Drug scoring head eklendi (L-R aktivite skoru bazlı)
-  [FEAT-2] Survival regression head eklendi (TCGA risk)
-  [FEAT-3] Pseudotime/velocity vektörleri scVelo'dan okunuyor (opsiyonel)
-  [FEAT-4] Tam JSON export: spots.drug_score, drug, tcga_risk, survival_months,
-           pseudotime, vec_x, vec_y, edges (GNN attention)
-"""
-
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+import sys
+import gc
 import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -38,16 +16,32 @@ from torch_geometric.nn import GATv2Conv, SAGEConv, TransformerConv, BatchNorm
 from scipy.spatial import cKDTree
 from scipy.stats import pearsonr, spearmanr
 from loguru import logger
-import optuna
-from optuna.trial import Trial
+try:
+    import optuna
+    from optuna.trial import Trial
+except ImportError:
+    optuna = None
+    Trial = None
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
 
-OUT_DIR = "outputs/gnn"
-os.makedirs(OUT_DIR, exist_ok=True)
+GLIO_OUTPUT_DIR = os.environ.get("GLIO_OUTPUT_DIR", "outputs")
+OUT_DIR = os.path.join(GLIO_OUTPUT_DIR, "gnn")
 
-SPATIAL_PATH = "data/processed/spatial_deconvolved.h5ad"
+# SPATIAL_PATH fallback checking
+default_spatial = os.path.join(GLIO_OUTPUT_DIR, "preprocessing", "spatial", "spatial_deconvolved.h5ad")
+if not os.path.exists(default_spatial):
+    default_spatial = "data/processed/spatial_deconvolved.h5ad"
+SPATIAL_PATH = os.environ.get("GLIO_SPATIAL_PATH", default_spatial)
+
+def exit_with_error(message: str) -> None:
+    logger.error(message)
+    print(json.dumps({"stage": "gnn_training", "status": "error", "message": message}))
+    sys.exit(1)
+
 
 # ============================================================
 # L-R KATALOG (lowercase)
@@ -56,70 +50,172 @@ SPATIAL_PATH = "data/processed/spatial_deconvolved.h5ad"
 # [BIO-3] SPP1-ITGAV eklendi (ECM remodeling / invasion)
 # ============================================================
 LR_PAIRS = [
-    # Angiogenesis
+    # ── ANGIOGENESIS & VASCULAR ──────────────────────────────────
     ('vegfa',  'kdr',     'angiogenesis'),
     ('vegfa',  'flt1',    'angiogenesis'),
+    ('vegfb',  'flt1',    'angiogenesis'),
+    ('pgf',    'flt1',    'angiogenesis'),
     ('angpt1', 'tek',     'angiogenesis'),
     ('angpt2', 'tek',     'angiogenesis'),
     ('pdgfa',  'pdgfra',  'angiogenesis'),
     ('pdgfb',  'pdgfrb',  'angiogenesis'),
+    ('pdgfc',  'pdgfra',  'angiogenesis'),
     ('fgf2',   'fgfr1',   'angiogenesis'),
+    ('fgf2',   'fgfr2',   'angiogenesis'),
     ('dll4',   'notch1',  'angiogenesis'),
+    ('dll4',   'notch4',  'angiogenesis'),
+    ('jag1',   'notch1',  'angiogenesis'),
 
-    # Immunosuppression
-    ('tgfb1',  'tgfbr1',  'immonosuppression'),
-    ('tgfb1',  'tgfbr2',  'immonosuppression'),
-    ('spp1',   'cd44',    'immonosuppression'),
-    ('csf1',   'csf1r',   'immonosuppression'),
-    ('cd274',  'pdcd1',   'immonosuppression'),
-    ('ccl2',   'ccr2',    'immonosuppression'),
-    ('mif',    'cd74',    'immonosuppression'),
-    ('il6',    'il6r',    'immonosuppression'),
-    ('faslg',  'fas',     'immonosuppression'),
-    ('lgals9', 'havcr2',  'immonosuppression'),
-    ('il10',   'il10ra',  'immonosuppression'),
-    ('il10',   'il10rb',  'immonosuppression'),
-    ('cd47',   'sirpa',   'immonosuppression'),
-    ('pdcd1lg2','pdcd1',  'immonosuppression'),
-    ('fgl1',   'lag3',    'immonosuppression'),
+    # ── IMMUNOSUPPRESSION & CHECKPOINTS ─────────────────────────
+    ('cd274',  'pdcd1',   'immunosuppression'),
+    ('pdcd1lg2','pdcd1',  'immunosuppression'),
+    ('cd80',   'cd28',    'immunosuppression'),
+    ('cd80',   'ctla4',   'immunosuppression'),
+    ('cd86',   'ctla4',   'immunosuppression'),
+    ('cd86',   'cd28',    'immunosuppression'),
+    ('lgals9', 'havcr2',  'immunosuppression'),
+    ('lgals9', 'ptprc',   'immunosuppression'),  # CD45 is PTPRC
+    ('fgl1',   'lag3',    'immunosuppression'),
+    ('tgfb1',  'tgfbr1',  'immunosuppression'),
+    ('tgfb1',  'tgfbr2',  'immunosuppression'),
+    ('tgfb2',  'tgfbr1',  'immunosuppression'),
+    ('tgfb2',  'tgfbr2',  'immunosuppression'),
+    ('spp1',   'cd44',    'immunosuppression'),
+    ('csf1',   'csf1r',   'immunosuppression'),
+    ('il10',   'il10ra',  'immunosuppression'),
+    ('cd47',   'sirpa',   'immunosuppression'),
+    ('cd47',   'thbs1',   'immunosuppression'),
+    ('mif',    'cd74',    'immunosuppression'),
+    ('mif',    'cxcr4',   'immunosuppression'),
+    ('mif',    'ackr3',   'immunosuppression'),
+    ('ccl2',   'ccr2',    'immunosuppression'),
+    ('ccl5',   'ccr5',    'immunosuppression'),
+    ('anxa1',  'fpr1',    'immunosuppression'),
+    ('anxa1',  'fpr2',    'immunosuppression'),
 
-    # Invasion
-    ('fn1',    'itga5',   'invasion'),
+    # ── INVASION & EMT & MIGRATION ──────────────────────────────
     ('hgf',    'met',     'invasion'),
     ('egf',    'egfr',    'invasion'),
-    ('cxcl12', 'cxcr4',   'invasion'),
+    ('areg',   'egfr',    'invasion'),
+    ('tgfa',   'egfr',    'invasion'),
+    ('nrg1',   'erbb3',   'invasion'),
+    ('nrg1',   'erbb4',   'invasion'),
     ('ptn',    'ptprz1',  'invasion'),
-    ('spp1',   'itgav',   'invasion'),
+    ('ptn',    'sdc1',    'invasion'),
+    ('ptn',    'sdc4',    'invasion'),
+    ('mdk',    'ptprz1',  'invasion'),
+    ('mdk',    'sdc1',    'invasion'),
+    ('mdk',    'sdc4',    'invasion'),
+    ('gas6',   'axl',     'invasion'),
+    ('pros1',  'tyro3',   'invasion'),
     ('sema4d', 'plxnb1',  'invasion'),
+    ('sema4d', 'plxnb2',  'invasion'),
+    ('slit2',  'robo1',   'invasion'),
+    ('slit2',  'robo2',   'invasion'),
+    ('postn',  'itgav',   'invasion'),
+    ('postn',  'itgb3',   'invasion'),
 
-    # Stemness
-    ('dll1',   'notch1',  'stemness'),
-    ('dll4',   'notch2',  'stemness'),
-    ('wnt5a',  'fzd2',    'stemness'),
-    ('postn',  'itgav',   'stemness'),
+    # ── CHEMOKINES & CYTOKINES (OmniPath) ─────────────────────────
+    ('cxcl12', 'cxcr4',   'chemokine'),
+    ('cxcl12', 'ackr3',   'chemokine'),
+    ('cxcl8',  'cxcr1',   'chemokine'),
+    ('cxcl8',  'cxcr2',   'chemokine'),
+    ('cxcl1',  'cxcr2',   'chemokine'),
+    ('cxcl2',  'cxcr2',   'chemokine'),
+    ('cxcl3',  'cxcr2',   'chemokine'),
+    ('cxcl5',  'cxcr2',   'chemokine'),
+    ('cxcl6',  'cxcr2',   'chemokine'),
+    ('cxcl9',  'cxcr3',   'chemokine'),
+    ('cxcl10', 'cxcr3',   'chemokine'),
+    ('cxcl11', 'cxcr3',   'chemokine'),
+    ('cxcl16', 'cxcr6',   'chemokine'),
+    ('ccl2',   'ccr2',    'chemokine'),
+    ('ccl3',   'ccr1',    'chemokine'),
+    ('ccl3',   'ccr5',    'chemokine'),
+    ('ccl4',   'ccr5',    'chemokine'),
+    ('ccl5',   'ccr1',    'chemokine'),
+    ('ccl5',   'ccr3',    'chemokine'),
+    ('ccl5',   'ccr5',    'chemokine'),
+    ('ccl7',   'ccr2',    'chemokine'),
+    ('ccl8',   'ccr2',    'chemokine'),
+    ('ccl20',  'ccr6',    'chemokine'),
+    ('ccl22',  'ccr4',    'chemokine'),
+    ('ccl28',  'ccr10',   'chemokine'),
+    ('cx3cl1', 'cx3cr1',  'chemokine'),
+    ('il1a',   'il1r1',   'chemokine'),
+    ('il1b',   'il1r1',   'chemokine'),
+    ('il6',    'il6r',    'chemokine'),
+    ('il6',    'il6st',   'chemokine'),  # GP130 is IL6ST
+    ('tnf',    'tnfrsf1a','chemokine'),
+    ('tnf',    'tnfrsf1b','chemokine'),
 
-    # Neuro-glioma
-    ('nlgn3',  'egfr',    'neuro_glioma'),
-    ('bdnf',   'ntrk2',   'neuro_glioma'),
+    # ── ECM & INTEGRIN & ADHESION (OmniPath) ──────────────────────
+    ('fn1',    'itga5',   'ecm_integrin'),
+    ('fn1',    'itgav',   'ecm_integrin'),
+    ('fn1',    'itgb1',   'ecm_integrin'),
+    ('fn1',    'itga8',   'ecm_integrin'),
+    ('fn1',    'itgb6',   'ecm_integrin'),
+    ('col1a1', 'itga1',   'ecm_integrin'),
+    ('col1a1', 'itga2',   'ecm_integrin'),
+    ('col1a1', 'itgb1',   'ecm_integrin'),
+    ('col4a1', 'itga1',   'ecm_integrin'),
+    ('col4a1', 'itga2',   'ecm_integrin'),
+    ('col4a1', 'itgb1',   'ecm_integrin'),
+    ('lama1',  'itga3',   'ecm_integrin'),
+    ('lama1',  'itga6',   'ecm_integrin'),
+    ('lama1',  'itgb1',   'ecm_integrin'),
+    ('lamb1',  'itga3',   'ecm_integrin'),
+    ('lamb1',  'itga6',   'ecm_integrin'),
+    ('lamb1',  'itgb1',   'ecm_integrin'),
+    ('lamc1',  'itga3',   'ecm_integrin'),
+    ('lamc1',  'itga6',   'ecm_integrin'),
+    ('lamc1',  'itgb1',   'ecm_integrin'),
+    ('vcan',   'cd44',    'ecm_integrin'),
+    ('vcan',   'itgb1',   'ecm_integrin'),
+    ('tnc',    'itgav',   'ecm_integrin'),
+    ('tnc',    'itgb1',   'ecm_integrin'),
+    ('tnc',    'itga9',   'ecm_integrin'),
+    ('spp1',   'itgav',   'ecm_integrin'),
+    ('spp1',   'itga5',   'ecm_integrin'),
+    ('spp1',   'itgb1',   'ecm_integrin'),
+    ('spp1',   'itgb3',   'ecm_integrin'),
+    ('spp1',   'itgb5',   'ecm_integrin'),
+    ('thbs1',  'itgav',   'ecm_integrin'),
+    ('thbs1',  'itgb1',   'ecm_integrin'),
+    ('thbs1',  'cd47',    'ecm_integrin'),
+    ('thbs1',  'cd36',    'ecm_integrin'),
+    ('cd44',   'itgb1',   'ecm_integrin'),
+    ('hsp90aa1','itgae',  'ecm_integrin'),
+    ('vtn',    'itgav',   'ecm_integrin'),
+    ('vtn',    'itgb3',   'ecm_integrin'),
 
-    # Guidance
-    ('sema3a', 'nrp1',    'guidance'),
-    ('efna1',  'epha2',   'guidance'),
+    # ── NEURO-GLIOMA SYNAPTIC CROSSTALK ──────────────────────────
+    ('nlgn3',  'nrxn1',   'neuro_synaptic'),
+    ('nlgn3',  'nrxn3',   'neuro_synaptic'),
+    ('nlgn3',  'egfr',    'neuro_synaptic'),
+    ('bdnf',   'ntrk2',   'neuro_synaptic'),
+    ('bdnf',   'ngfr',    'neuro_synaptic'),
+    ('ntf3',   'ntrk3',   'neuro_synaptic'),
+    ('ntf3',   'ntrk2',   'neuro_synaptic'),
+    ('gdnf',   'gfra1',   'neuro_synaptic'),
+    ('gdnf',   'ret',     'neuro_synaptic'),
+    ('cntf',   'cntfr',   'neuro_synaptic'),
+    ('lgi1',   'adam22',  'neuro_synaptic'),
+    ('lgi1',   'adam23',  'neuro_synaptic'),
 
-    # Inflammation / Crosstalk
-    ('il1b',   'il1r1',   'inflammation'),
-    ('ccl5',   'ccr5',    'inflammation'),
-    ('cx3cl1', 'cx3cr1',  'inflammation'),
-    ('il34',   'csf1r',   'inflammation'),
-    ('cd80',   'cd28',    'dc_crosstalk'),
-    ('cd80',   'ctla4',   'dc_crosstalk'),
-    ('cd86',   'ctla4',   'dc_crosstalk'),
-    ('ccl19',  'ccr7',    'dc_crosstalk'),
-    ('ccl21',  'ccr7',    'dc_crosstalk'),
-    ('xcl1',   'xcr1',    'dc_crosstalk'),
-    ('cxcl9',  'cxcr3',   'dc_crosstalk'),
-    ('cxcl10', 'cxcr3',   'dc_crosstalk'),
-    ('cxcl11', 'cxcr3',   'dc_crosstalk'),
+    # ── STEMNESS & WNT & NOTCH ──────────────────────────────────
+    ('dll1',   'notch1',  'stemness_wnt_notch'),
+    ('dll3',   'notch1',  'stemness_wnt_notch'),
+    ('dll4',   'notch2',  'stemness_wnt_notch'),
+    ('jag1',   'notch2',  'stemness_wnt_notch'),
+    ('jag1',   'notch3',  'stemness_wnt_notch'),
+    ('wnt5a',  'fzd2',    'stemness_wnt_notch'),
+    ('wnt5a',  'fzd4',    'stemness_wnt_notch'),
+    ('wnt5a',  'ror2',    'stemness_wnt_notch'),
+    ('wnt3a',  'fzd1',    'stemness_wnt_notch'),
+    ('wnt3a',  'lrp5',    'stemness_wnt_notch'),
+    ('dkk1',   'lrp6',    'stemness_wnt_notch'),
+    ('postn',  'itgav',   'stemness_wnt_notch')
 ]
 
 # ============================================================
@@ -153,12 +249,37 @@ ZONE_SIGNATURES = {
 }
 ZONE_NAMES = list(ZONE_SIGNATURES.keys())
 
-PATHWAY_SIGNATURES = {
+# ── Pathway signatures: dinamik olarak pathway_db.json'dan yükle ───────────────
+# GNN, data.json'a her spot için pathway skoru yazar.
+# pathway_db.json bulunursa 42 KEGG/GO pathway yüklenir;
+# bulunamazsa 4 temel GBM pathway kullanılır.
+_PATHWAY_DB_PATH = Path(__file__).parent / "pathway_db.json"
+_FALLBACK_SIGNATURES = {
     'PI3K_AKT_mTOR': ['akt1', 'akt2', 'pik3ca', 'mtor', 'pten', 'rps6kb1'],
     'MAPK_ERK': ['mapk1', 'mapk3', 'map2k1', 'raf1', 'fos', 'jun'],
     'JAK_STAT': ['jak1', 'jak2', 'stat1', 'stat3', 'stat5a', 'stat5b'],
     'NFkB': ['nfkb1', 'nfkb2', 'rela', 'relb', 'chuk', 'ikbkb']
 }
+
+def _load_pathway_signatures() -> dict:
+    """Load pathway gene signatures from pathway_db.json (lowercase gene names)."""
+    if _PATHWAY_DB_PATH.exists():
+        try:
+            import json as _json
+            with open(_PATHWAY_DB_PATH, "r", encoding="utf-8") as _f:
+                _db = _json.load(_f)
+            _sigs = {}
+            for _p in _db.get("pathways", []):
+                # key: pathway ID (e.g. hsa04370, GO:0001525)
+                _sigs[_p["id"]] = [g.lower() for g in _p.get("genes", [])]
+            if _sigs:
+                return _sigs
+        except Exception as _e:
+            pass  # Fallback aşağıda
+    return _FALLBACK_SIGNATURES
+
+PATHWAY_SIGNATURES = _load_pathway_signatures()
+
 
 # Coarse hücre kategorileri
 COARSE_COLS = ['Tumor', 'Myeloid', 'T_Cell', 'Stromal']
@@ -177,7 +298,7 @@ GBM_DRUG_DB = {
     "MIF-CD74":      {"drug": "Ibudilast",     "mechanism": "MIF/CD74 Eksen İnhibitörü"},
     "TGFB1-TGFBR1":  {"drug": "Galunisertib",  "mechanism": "TGFβRI Kinaz İnhibitörü"},
     "TGFB1-TGFBR2":  {"drug": "Galunisertib",  "mechanism": "TGFβRI/II Kinaz İnhibitörü"},
-    "EGFR-EGFR":     {"drug": "Erlotinib",     "mechanism": "EGFR TKI"},
+    "AREG-EGFR":     {"drug": "Erlotinib",     "mechanism": "EGFR TKI — Amphiregulin-driven"},
     "EGF-EGFR":      {"drug": "Erlotinib",     "mechanism": "EGFR TKI"},
     "NLGN3-EGFR":    {"drug": "Erlotinib",     "mechanism": "EGFR TKI — Nörogliomal Eksen"},
     "HGF-MET":       {"drug": "Crizotinib",    "mechanism": "MET/ALK Reseptör İnhibitörü"},
@@ -189,7 +310,14 @@ GBM_DRUG_DB = {
     "CD47-SIRPA":    {"drug": "Magrolimab",    "mechanism": "Anti-CD47 'Beni Yeme' Sinyal İnhibitörü"},
     "CD80-CTLA4":    {"drug": "Ipilimumab",    "mechanism": "Anti-CTLA-4 Checkpoint İnhibitörü"},
     "CD86-CTLA4":    {"drug": "Ipilimumab",    "mechanism": "Anti-CTLA-4 Checkpoint İnhibitörü"},
-    "PDGFB-PDGFRB":  {"drug": "Imatinib",      "mechanism": "PDGFR/c-Kit Reseptör Tirozin Kinaz İnhibitörü"},
+    "PDGFB-PDGFRB":  {"drug": "Imatinib",      "mechanism": "PDGFR/c-Kit Tirozin Kinaz İnhibitörü"},
+    "SPP1-ITGAV":    {"drug": "Cilengitide",   "mechanism": "Integrin αvβ3/αvβ5 İnhibitörü (ECM Remodeling)"},
+    "SPP1-ITGB1":    {"drug": "Cilengitide",   "mechanism": "Integrin β1 İnhibitörü (İnvazyon Bloke Edici)"},
+    "TNC-ITGAV":     {"drug": "Cilengitide",   "mechanism": "Integrin αv Sinyalleşme İnhibitörü"},
+    "FN1-ITGA5":     {"drug": "Volociximab",   "mechanism": "Anti-Integrin α5β1 Monoklonal Antikor"},
+    "CXCL8-CXCR2":   {"drug": "Reparixin",     "mechanism": "CXCR1/CXCR2 Alseptör İnhibitörü (Kemotaksi Bloke)"},
+    "IL6-IL6R":      {"drug": "Tocilizumab",   "mechanism": "Anti-IL-6R Monoklonal Antikor (Anti-Enflamatuar)"},
+    "TNF-TNFRSF1A":  {"drug": "Infliximab",    "mechanism": "Anti-TNFα Antikoru (NFkB Baskılayıcı)"},
     # Single target fallback keys
     "EGFR":          {"drug": "Erlotinib",     "mechanism": "EGFR Reseptör Tirozin Kinaz İnhibitörü"},
     "MET":           {"drug": "Crizotinib",    "mechanism": "MET Reseptör Tirozin Kinaz İnhibitörü"},
@@ -214,37 +342,54 @@ def build_graph_data(adata, k_neighbors: int = 6) -> Data:
     n_spots = adata.n_obs
 
     # --- Gene expression cache ---
+    var_names_lower = {g.lower(): g for g in adata.var_names}
     gene_cache: dict[str, np.ndarray | None] = {}
 
     def get_gene(name: str) -> np.ndarray | None:
-        if name not in gene_cache:
-            if name in adata.var_names:
-                e = adata[:, name].X
+        name_lower = name.lower()
+        if name_lower not in gene_cache:
+            exact_name = var_names_lower.get(name_lower)
+            if exact_name is not None:
+                e = adata[:, exact_name].X
                 e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
-                gene_cache[name] = e.astype(np.float32)
+                gene_cache[name_lower] = e.astype(np.float32)
             else:
-                gene_cache[name] = None
-        return gene_cache[name]
+                gene_cache[name_lower] = None
+        return gene_cache[name_lower]
 
     # ============ NODE FEATURES ============
     # (A) PCA — z-score
-    pca = adata.obsm['X_pca'][:, :50].copy().astype(np.float32)
+    if 'X_pca' not in adata.obsm:
+        raise KeyError("adata.obsm['X_pca'] bulunamadı. Stage 1 (preprocessing) tamamlanmış mı?")
+    pca_dim = min(50, adata.obsm['X_pca'].shape[1])
+    pca = adata.obsm['X_pca'][:, :pca_dim].copy().astype(np.float32)
     pca = (pca - pca.mean(axis=0)) / (pca.std(axis=0) + 1e-8)
-    pca_dim = pca.shape[1]  # [BUG-5] counterfactual için dinamik boyut
 
     # (B) Cell type proportions
     ct_df = adata.obsm['celltype_proportions']
     ct_prop = ct_df.values.copy().astype(np.float32)
     ct_names = list(ct_df.columns)
 
-    # [BUG-1] CT_TO_COARSE_IDX doldur
-    CT_TO_COARSE_IDX.clear()
+    # Helper to map cell types to coarse categories
+    def get_coarse_group(ct_name: str) -> str | None:
+        ct_lower = ct_name.lower()
+        if any(x in ct_lower for x in ['tumor', 'glioma', 'ac', 'mes', 'opc']):
+            return 'Tumor'
+        if any(x in ct_lower for x in ['myeloid', 'tam', 'macrophage', 'microglia', 'mono']):
+            return 'Myeloid'
+        if any(x in ct_lower for x in ['t_cell', 'tcell', 't-cell', 'lymphocyte', 'cd3', 'cd8', 'cd4']):
+            return 'T_Cell'
+        if any(x in ct_lower for x in ['stromal', 'endothelial', 'oligodendrocyte', 'astrocyte', 'fibroblast']):
+            return 'Stromal'
+        return None
+
+    # [BUG-1] ct_to_coarse_idx doldur (local dictionary for thread safety)
+    ct_to_coarse_idx = {}
     coarse_map = {'Tumor': 0, 'Myeloid': 1, 'T_Cell': 2, 'Stromal': 3}
     for i, ct in enumerate(ct_names):
-        for coarse_key, coarse_idx in coarse_map.items():
-            if coarse_key in ct:
-                CT_TO_COARSE_IDX[ct] = coarse_idx
-                break
+        group = get_coarse_group(ct)
+        if group is not None:
+            ct_to_coarse_idx[ct] = coarse_map[group]
 
     # (C) Pathway/Niche scores — z-score
     niche_cols = ['hypoxia_score', 'myeloid_suppression_score',
@@ -262,13 +407,14 @@ def build_graph_data(adata, k_neighbors: int = 6) -> Data:
     # ============ COARSE PROPORTIONS ============
     # [BUG-2] FIX: adata.obsm'dan al, sütun topla
     coarse_props = np.zeros((n_spots, 4), dtype=np.float32)
-    for coarse_key, coarse_idx in coarse_map.items():
-        match_cols = [c for c in ct_names if coarse_key in c]
-        if match_cols:
-            coarse_props[:, coarse_idx] = ct_df[match_cols].values.sum(axis=1)
+    for i, ct in enumerate(ct_names):
+        group = get_coarse_group(ct)
+        if group is not None:
+            coarse_idx = coarse_map[group]
+            coarse_props[:, coarse_idx] += ct_df[ct].values
 
-    tumor_indices  = [i for i, n in enumerate(ct_names) if 'Tumor'   in n]
-    myeloid_indices= [i for i, n in enumerate(ct_names) if n in ('TAM', 'Microglia')]
+    tumor_indices  = [i for i, n in enumerate(ct_names) if get_coarse_group(n) == 'Tumor']
+    myeloid_indices= [i for i, n in enumerate(ct_names) if get_coarse_group(n) == 'Myeloid']
 
     # ============ EDGE INDEX (kNN spatial + reciprocal) ============
     # [BUG-6] Her kenar için ters yönü de oluştur (L-R yönlülük)
@@ -393,6 +539,7 @@ def build_graph_data(adata, k_neighbors: int = 6) -> Data:
         test_mask      = test_mask,
     )
     data.ct_names       = ct_names
+    data.ct_to_coarse_idx = ct_to_coarse_idx
     data.tumor_indices  = tumor_indices
     data.myeloid_indices= myeloid_indices
     data.pca_dim        = pca_dim           # [BUG-5] counterfactual için
@@ -421,6 +568,12 @@ class GlioCartographyGNN(nn.Module):
         super().__init__()
         self.drop = drop
         self.use_transformer = use_transformer
+        
+        # Save variables for backward-compatible dynamic GATv1 re-initialization
+        self.gats_in_dim = hidden
+        self.gats_out_dim = hidden // heads
+        self.gats_heads = heads
+        self.gats_edge_dim = hidden
 
         self.node_enc = nn.Sequential(
             nn.Linear(in_ch, hidden), nn.ELU(), nn.Dropout(drop))
@@ -517,6 +670,26 @@ class GlioCartographyGNN(nn.Module):
             return ct, zone, survival, drug_sc, emb, attn_weights_per_layer
         return ct, zone, survival, drug_sc, emb
 
+    def load_state_dict(self, state_dict, strict=True):
+        has_gatv1 = False
+        for key in state_dict.keys():
+            if "gats" in key and ("lin_src" in key or "lin_dst" in key or "att_src" in key or "att_dst" in key):
+                has_gatv1 = True
+                break
+                
+        if has_gatv1:
+            logger.info("⚠️ Eski GATConv (v1) checkpoint'i tespit edildi. Model GATConv layer'ları ile re-initialize ediliyor...")
+            from torch_geometric.nn import GATConv
+            self.gats = nn.ModuleList()
+            for _ in range(len(self.gat_norms)):
+                self.gats.append(GATConv(
+                    self.gats_in_dim, self.gats_out_dim, heads=self.gats_heads,
+                    edge_dim=self.gats_edge_dim, dropout=self.drop,
+                    concat=True, add_self_loops=True
+                ))
+                
+        return super().load_state_dict(state_dict, strict=strict)
+
 
 # ============================================================
 # LOSS v3 — InfoNCE diyagonal fix dahil
@@ -527,7 +700,8 @@ def compute_loss(ct_pred, ct_true,
                  emb, coarse_y, mask, edge_index,
                  lam_ct: float = 1.0, lam_zone: float = 0.5,
                  lam_contr: float = 0.3, lam_smooth: float = 0.2,
-                 lam_surv: float = 0.3):
+                 lam_surv: float = 0.3,
+                 survival_mean: float = 0.0, survival_std: float = 1.0):
 
     m = mask
 
@@ -541,8 +715,7 @@ def compute_loss(ct_pred, ct_true,
 
     # L3: Survival MSE [FEAT-2]
     if survival_true[m].abs().sum() > 0:
-        surv_norm = (survival_true[m] - survival_true[m].mean()) / \
-                    (survival_true[m].std() + 1e-8)
+        surv_norm = (survival_true[m] - survival_mean) / (survival_std + 1e-8)
         loss_surv = F.mse_loss(survival_pred[m], surv_norm)
     else:
         loss_surv = torch.tensor(0.0, device=ct_pred.device)
@@ -571,7 +744,13 @@ def compute_loss(ct_pred, ct_true,
             exp_sim  = torch.exp(sim / temp)
             pos_sum  = (exp_sim * pos_mask).sum(dim=1)
             neg_sum  = (exp_sim * neg_mask).sum(dim=1)
-            loss_contr = -torch.log(pos_sum / (pos_sum + neg_sum + 1e-8)).mean()
+            
+            # Guard against pos_sum = 0
+            valid_mask = pos_sum > 1e-8
+            if valid_mask.any():
+                loss_contr = -torch.log(pos_sum[valid_mask] / (pos_sum[valid_mask] + neg_sum[valid_mask] + 1e-8)).mean()
+            else:
+                loss_contr = torch.tensor(0.0, device=ct_pred.device)
 
     # L5: Spatial smoothness
     s_idx, d_idx = edge_index
@@ -593,7 +772,7 @@ def compute_loss(ct_pred, ct_true,
 # ============================================================
 # TRAINING
 # ============================================================
-def train_model(data: Data, trial=None, cfg: dict | None = None):
+def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=None):
     if cfg is None:
         cfg = {}
 
@@ -613,9 +792,20 @@ def train_model(data: Data, trial=None, cfg: dict | None = None):
     wd          = cfg.get('wd', 1e-4)
     patience    = cfg.get('patience', 40)
 
-    device = 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Training on device: {device}")
+    
     n_ct   = data.y.shape[1]
     n_zones= data.zone_y.shape[1]
+
+    # Pre-calculate global survival mean/std on train mask to prevent target drift
+    train_surv = data.survival_y[data.train_mask]
+    if train_surv.abs().sum() > 0:
+        survival_mean = float(train_surv.mean().item())
+        survival_std = float(train_surv.std().item())
+    else:
+        survival_mean = 0.0
+        survival_std = 1.0
 
     model = GlioCartographyGNN(
         data.x.shape[1], data.edge_attr.shape[1],
@@ -637,7 +827,8 @@ def train_model(data: Data, trial=None, cfg: dict | None = None):
         loss, comp = compute_loss(
             ct_p, data.y, zone_p, data.zone_y, surv_p, data.survival_y,
             emb, data.coarse_y, data.train_mask, data.edge_index,
-            lam_ct, lam_zone, lam_contr, lam_smooth, lam_surv)
+            lam_ct, lam_zone, lam_contr, lam_smooth, lam_surv,
+            survival_mean=survival_mean, survival_std=survival_std)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step(); sched.step()
@@ -648,7 +839,8 @@ def train_model(data: Data, trial=None, cfg: dict | None = None):
             vloss, _ = compute_loss(
                 ct_v, data.y, zone_v, data.zone_y, surv_v, data.survival_y,
                 emb_v, data.coarse_y, data.val_mask, data.edge_index,
-                lam_ct, lam_zone, lam_contr, lam_smooth, lam_surv)
+                lam_ct, lam_zone, lam_contr, lam_smooth, lam_surv,
+                survival_mean=survival_mean, survival_std=survival_std)
 
         hist['train'].append(comp['total'])
         hist['val'].append(vloss.item())
@@ -668,8 +860,13 @@ def train_model(data: Data, trial=None, cfg: dict | None = None):
                 f"C={comp['contr']:.4f} S={comp['smooth']:.4f} "
                 f"Surv={comp['surv']:.4f}) | V={vloss.item():.4f}")
 
+        if epoch_callback and (ep % 10 == 0 or ep == 1 or ep == epochs):
+            epoch_callback(ep, epochs)
+
         if pat_cnt >= patience:
             logger.info(f"   ⏹ Early stop @ ep {ep}")
+            if epoch_callback:
+                epoch_callback(epochs, epochs)  # Send completion on early stop
             break
 
         if trial:
@@ -679,13 +876,15 @@ def train_model(data: Data, trial=None, cfg: dict | None = None):
 
     if best_state:
         model.load_state_dict(best_state)
+        
+    gc.collect()
     return model, hist, best_val
 
 
 # ============================================================
 # OPTUNA
 # ============================================================
-def objective(trial: Trial, data: Data) -> float:
+def objective(trial, data: Data, epoch_callback=None) -> float:
     cfg = {
         'hidden':         trial.suggest_categorical('hidden', [64, 128, 256]),
         'heads':          trial.suggest_categorical('heads', [2, 4]),
@@ -702,7 +901,7 @@ def objective(trial: Trial, data: Data) -> float:
         'wd':             trial.suggest_float('wd', 1e-5, 1e-3, log=True),
         'epochs': 200, 'patience': 30,
     }
-    _, _, bv = train_model(data, trial=trial, cfg=cfg)
+    _, _, bv = train_model(data, trial=trial, cfg=cfg, epoch_callback=epoch_callback)
     return bv
 
 
@@ -716,6 +915,7 @@ def counterfactual_knockout(model: nn.Module, data: Data,
     """
     model.eval()
     data_mod = data.clone()
+    n_spots = data.x.shape[0]
 
     # Dinamik offset
     ct_start = data.pca_dim
@@ -726,12 +926,13 @@ def counterfactual_knockout(model: nn.Module, data: Data,
         return None
 
     # Hedef hücrelerin yoğun olduğu spotları (lokal müdahale alanı) seç
-    # Koşul: Bu hücre tipinin toplam oranı > 0.05. Eğer hiç yoksa en yüksek %10 spotu seç.
+    # Use adaptive threshold: pick top 5% or top 50 spots, whichever is smaller, but at least 1 spot
     ko_sum = data.x[:, [ct_start + idx for idx in ko_indices]].sum(dim=1)
-    mask_abundant = ko_sum > 0.05
-    if mask_abundant.sum() == 0:
-        threshold = torch.quantile(ko_sum, 0.90)
-        mask_abundant = ko_sum >= threshold
+    min_spots = max(1, min(50, int(0.05 * n_spots)))
+    q_val = 1.0 - (min_spots / n_spots)
+    q_val = max(0.0, min(1.0, q_val))
+    threshold = torch.quantile(ko_sum, q_val)
+    mask_abundant = ko_sum >= threshold
 
     target_spots = torch.where(mask_abundant)[0]
     n_targets = len(target_spots)
@@ -760,25 +961,29 @@ def counterfactual_knockout(model: nn.Module, data: Data,
     edge_index = data.edge_index
     src, dst = edge_index[0], edge_index[1]
     
-    target_set = set(target_spots.tolist())
-    one_hop = set()
-    for s_idx, d_idx in zip(src.tolist(), dst.tolist()):
-        if s_idx in target_set and d_idx not in target_set:
-            one_hop.add(d_idx)
-            
-    two_hop = set()
-    for s_idx, d_idx in zip(src.tolist(), dst.tolist()):
-        if s_idx in one_hop and d_idx not in target_set and d_idx not in one_hop:
-            two_hop.add(d_idx)
-            
-    one_hop_arr = list(one_hop)
-    two_hop_arr = list(two_hop)
+    src_arr = src.cpu().numpy()
+    dst_arr = dst.cpu().numpy()
+    target_arr = target_spots.cpu().numpy()
+    
+    src_in_target = np.isin(src_arr, target_arr)
+    dst_in_target = np.isin(dst_arr, target_arr)
+    
+    # 1-hop komşular: target'tan çıkan ama target olmayan düğümler
+    one_hop_arr = np.unique(dst_arr[src_in_target & ~dst_in_target])
+    
+    # 2-hop komşular: 1-hop'tan çıkan ama target veya 1-hop olmayan düğümler
+    if len(one_hop_arr) > 0:
+        src_in_one_hop = np.isin(src_arr, one_hop_arr)
+        dst_in_one_hop = np.isin(dst_arr, one_hop_arr)
+        two_hop_arr = np.unique(dst_arr[src_in_one_hop & ~dst_in_target & ~dst_in_one_hop])
+    else:
+        two_hop_arr = np.array([], dtype=np.int64)
 
     delta_zone = zone_ko - zone_orig
     delta_np = delta_zone.cpu().numpy()
     abs_delta = np.abs(delta_np)
     
-    target_effect = abs_delta[target_spots.cpu().numpy()].mean() if len(target_spots) > 0 else 0.0
+    target_effect = abs_delta[target_arr].mean() if len(target_arr) > 0 else 0.0
     one_hop_effect = abs_delta[one_hop_arr].mean() if len(one_hop_arr) > 0 else 0.0
     two_hop_effect = abs_delta[two_hop_arr].mean() if len(two_hop_arr) > 0 else 0.0
     
@@ -791,19 +996,134 @@ def counterfactual_knockout(model: nn.Module, data: Data,
 
 
 # ============================================================
+# L-R & GENE REGULATION COUNTERFACTUAL SIMULATORS
+# ============================================================
+def counterfactual_lr_blockade(model: nn.Module, data: Data,
+                              lr_names: list[str], lr_target: str,
+                              inhibition_rate: float = 1.0) -> np.ndarray | None:
+    """
+    Simulate target L-R ligand-receptor pair blockade on the GNN graph.
+    Modifies edge_attr columns representing the target pair and evaluates predicted zone delta.
+    """
+    model.eval()
+    data_mod = data.clone()
+    
+    # 1. Find the index of the target L-R pair
+    lr_idx = -1
+    # Check both case-sensitive and case-insensitive
+    target_clean = lr_target.replace('-', '_').lower()
+    for i, name in enumerate(lr_names):
+        name_clean = name.replace('-', '_').lower()
+        if name_clean == target_clean:
+            lr_idx = i
+            break
+            
+    if lr_idx == -1:
+        logger.warning(f"   '{lr_target}' lr_names içinde bulunamadı")
+        return None
+            
+    # 2. Modify edge_attr column corresponding to this L-R pair
+    # In build_graph_data: edge_attr = np.hstack([spatial_prox, lr_scores, cell_compat])
+    # The L-R scores start at index 1 and span len(LR_PAIRS) columns.
+    col_idx = 1 + lr_idx
+    
+    if col_idx >= data_mod.edge_attr.shape[1]:
+        logger.warning(f"   L-R index {col_idx} edge_attr dim {data_mod.edge_attr.shape[1]} dışında")
+        return None
+        
+    # Original forward pass
+    with torch.no_grad():
+        _, zone_orig, _, _, _ = model(data)
+        zone_orig = F.softmax(zone_orig, dim=-1)
+        
+    # Perform blockade: set expression of target L-R pair to its minimum value across all edges
+    # (representing total block) or reduce it proportionally
+    current_col = data_mod.edge_attr[:, col_idx].clone()
+    min_val = float(torch.min(current_col))
+    
+    # Apply inhibition
+    data_mod.edge_attr = data_mod.edge_attr.clone()
+    data_mod.edge_attr[:, col_idx] = current_col * (1.0 - inhibition_rate) + min_val * inhibition_rate
+    
+    # Counterfactual forward pass
+    with torch.no_grad():
+        _, zone_ko, _, _, _ = model(data_mod)
+        zone_ko = F.softmax(zone_ko, dim=-1)
+        
+    delta_zone = zone_ko - zone_orig
+    return delta_zone.cpu().numpy()
+
+
+def counterfactual_gene_regulation(model: nn.Module, data: Data,
+                                  lr_names: list[str], lr_pairs: list[tuple[str, str, str]],
+                                  gene_target: str, reg_type: str = 'knockdown',
+                                  rate: float = 1.0) -> np.ndarray | None:
+    """
+    Simulate target gene regulation (knockdown or overexpression) on the GNN graph.
+    Modifies edge_attr columns representing all L-R pairs containing the target gene.
+    """
+    model.eval()
+    data_mod = data.clone()
+    
+    # 1. Find all L-R pairs containing the target gene
+    affected_indices = []
+    gene_target_lower = gene_target.lower()
+    for i, (lig, rec, _) in enumerate(lr_pairs):
+        if lig.lower() == gene_target_lower or rec.lower() == gene_target_lower:
+            affected_indices.append(i)
+            
+    if not affected_indices:
+        logger.warning(f"   Gene '{gene_target}' L-R kataloğunda bulunamadı")
+        return None
+        
+    logger.info(f"   Simulating {reg_type} of '{gene_target}' on {len(affected_indices)} affected L-R axes...")
+        
+    # Original forward pass
+    with torch.no_grad():
+        _, zone_orig, _, _, _ = model(data)
+        zone_orig = F.softmax(zone_orig, dim=-1)
+        
+    # 2. Modify edge_attr columns for all affected L-R pairs
+    data_mod.edge_attr = data_mod.edge_attr.clone()
+    for lr_idx in affected_indices:
+        col_idx = 1 + lr_idx
+        if col_idx < data_mod.edge_attr.shape[1]:
+            current_col = data_mod.edge_attr[:, col_idx].clone()
+            if reg_type == 'knockdown':
+                min_val = float(torch.min(current_col))
+                # Push values toward the minimum representing suppression
+                data_mod.edge_attr[:, col_idx] = current_col * (1.0 - rate) + min_val * rate
+            else: # overexpression
+                max_val = float(torch.max(current_col))
+                # Push values toward the maximum representing activation
+                data_mod.edge_attr[:, col_idx] = current_col * (1.0 - rate) + max_val * rate
+                
+    # Counterfactual forward pass
+    with torch.no_grad():
+        _, zone_ko, _, _, _ = model(data_mod)
+        zone_ko = F.softmax(zone_ko, dim=-1)
+        
+    delta_zone = zone_ko - zone_orig
+    return delta_zone.cpu().numpy()
+
+
+# ============================================================
 # PATHWAY SCORING
 # ============================================================
 def compute_pathway_scores(adata) -> dict[str, np.ndarray]:
+    var_names_lower = {g.lower(): g for g in adata.var_names}
     gene_cache = {}
     def get_gene(name: str):
-        if name not in gene_cache:
-            if name in adata.var_names:
-                e = adata[:, name].X
+        name_lower = name.lower()
+        if name_lower not in gene_cache:
+            exact_name = var_names_lower.get(name_lower)
+            if exact_name is not None:
+                e = adata[:, exact_name].X
                 e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
-                gene_cache[name] = e.astype(np.float32)
+                gene_cache[name_lower] = e.astype(np.float32)
             else:
-                gene_cache[name] = None
-        return gene_cache[name]
+                gene_cache[name_lower] = None
+        return gene_cache[name_lower]
     
     pathway_scores = {}
     for path_name, genes in PATHWAY_SIGNATURES.items():
@@ -823,7 +1143,8 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
                               zone_preds: np.ndarray,
                               drug_scores: np.ndarray,
                               survival_preds: np.ndarray,
-                              out_path: str) -> None:
+                              out_path: str,
+                              ct_preds: np.ndarray | None = None) -> None:
     """
     [BUG-4] FIX: GATv2 attention weight'lerini hesapla, her spot için
     en yüksek 10 komşuyu JSON'a yaz.
@@ -874,8 +1195,9 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
     spot_lr_sum = np.zeros((n_spots, len(LR_PAIRS)), dtype=np.float32)
     spot_lr_cnt = np.zeros(n_spots, dtype=np.int32)
     ea = data.edge_attr.cpu().numpy()
+    edge_index_np = data.edge_index.cpu().numpy()
     for e_idx in range(ea.shape[0]):
-        di = int(data.dst_arr[e_idx]) if hasattr(data, 'dst_arr') else int(data.edge_index[1, e_idx])
+        di = int(edge_index_np[1, e_idx])
         spot_lr_sum[di] += ea[e_idx, lr_cols_start:lr_cols_end]
         spot_lr_cnt[di] += 1
     spot_lr_avg = spot_lr_sum / (spot_lr_cnt[:, None] + 1e-8)
@@ -898,19 +1220,26 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
     src_nodes = data.src_arr if hasattr(data, 'src_arr') else data.edge_index[0].cpu().numpy()
     dst_nodes = data.dst_arr if hasattr(data, 'dst_arr') else data.edge_index[1].cpu().numpy()
     W_edges = np.array([attn_map.get((u, v), 0.0) for u, v in zip(src_nodes, dst_nodes)], dtype=np.float32)
-    y_np = data.y.cpu().numpy() if isinstance(data.y, torch.Tensor) else data.y
+    
+    if ct_preds is not None:
+        y_np = ct_preds
+    else:
+        y_np = data.y.cpu().numpy() if isinstance(data.y, torch.Tensor) else data.y
 
     # Helper function to load genes dynamically in export
+    var_names_lower = {g.lower(): g for g in adata.var_names}
     gene_cache = {}
     def get_gene(name: str):
-        if name not in gene_cache:
-            if name in adata.var_names:
-                e = adata[:, name].X
+        name_lower = name.lower()
+        if name_lower not in gene_cache:
+            exact_name = var_names_lower.get(name_lower)
+            if exact_name is not None:
+                e = adata[:, exact_name].X
                 e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
-                gene_cache[name] = e.astype(np.float32)
+                gene_cache[name_lower] = e.astype(np.float32)
             else:
-                gene_cache[name] = None
-        return gene_cache[name]
+                gene_cache[name_lower] = None
+        return gene_cache[name_lower]
 
     for p_idx, (lig, rec, _) in enumerate(LR_PAIRS):
         lr_key = f"{lig.upper()}-{rec.upper()}"
@@ -920,11 +1249,16 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
             lr_edges = np.log1p(le[src_nodes] * re[dst_nodes])
             weight_e = W_edges * lr_edges
             
-            comm_matrix = np.zeros((n_ct, n_ct), dtype=np.float32)
-            for A_idx in range(n_ct):
-                for B_idx in range(n_ct):
-                    val = np.sum(y_np[src_nodes, A_idx] * y_np[dst_nodes, B_idx] * weight_e)
-                    comm_matrix[A_idx, B_idx] = float(val)
+            try:
+                sender_ct = y_np[src_nodes]
+                receiver_ct = y_np[dst_nodes]
+                comm_matrix = np.einsum('ei,ej,e->ij', sender_ct, receiver_ct, weight_e)
+            except Exception as e_einsum:
+                comm_matrix = np.zeros((n_ct, n_ct), dtype=np.float32)
+                for A_idx in range(n_ct):
+                    for B_idx in range(n_ct):
+                        val = np.sum(y_np[src_nodes, A_idx] * y_np[dst_nodes, B_idx] * weight_e)
+                        comm_matrix[A_idx, B_idx] = float(val)
             
             cell_cell_communication[lr_key] = {
                 f"{ct_names[A]}->{ct_names[B]}": float(comm_matrix[A, B])
@@ -979,7 +1313,7 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
         ct_pred_row = {}
         if hasattr(data, 'ct_names'):
             for ci, cn in enumerate(data.ct_names):
-                ct_pred_row[cn] = float(data.y[si, ci]) if data.y is not None else 0.0
+                ct_pred_row[cn] = float(y_np[si, ci]) if y_np is not None else 0.0
 
         # Zone dict
         zone_dict = {}
@@ -1028,16 +1362,57 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
 
     logger.info(f"   ✅ JSON export: {out_path} ({n_spots} spot)")
 
+    # ── Write lr_detailed_summary.json ──
+    try:
+        mean_intensities = spot_lr_avg.mean(axis=0)
+        lr_detailed = []
+        for p_idx, (lig, rec, cat) in enumerate(LR_PAIRS):
+            lr_key = f"{lig.upper()}-{rec.upper()}"
+            drug_entry = GBM_DRUG_DB.get(lr_key, None)
+            drug_name = drug_entry['drug'] if drug_entry else "Yok / Araştırma Safhası"
+            drug_mech = drug_entry['mechanism'] if drug_entry else "—"
+            lr_detailed.append({
+                "pair": lr_key,
+                "ligand": lig.upper(),
+                "receptor": rec.upper(),
+                "category": cat.capitalize(),
+                "mean_intensity": float(np.clip(mean_intensities[p_idx], 0, None)),
+                "drug": drug_name,
+                "drug_mechanism": drug_mech
+            })
+        
+        # Sort by mean_intensity descending
+        lr_detailed.sort(key=lambda x: x["mean_intensity"], reverse=True)
+        
+        lr_summary_path = Path(out_path).parent / "lr_detailed_summary.json"
+        with open(lr_summary_path, 'w', encoding='utf-8') as f:
+            json.dump(lr_detailed, f, ensure_ascii=False, indent=2)
+        logger.info(f"   ✅ L-R detailed summary export: {lr_summary_path}")
+    except Exception as e_lr_sum:
+        logger.warning(f"   L-R detailed summary oluşturulamadı: {e_lr_sum}")
+
 
 # ============================================================
 # MAIN
 # ============================================================
 def main() -> None:
+    os.makedirs(OUT_DIR, exist_ok=True)
     logger.info("=" * 70)
     logger.info("GLIO-CARTOGRAPHY — GNN Training Pipeline v3.0")
     logger.info("=" * 70)
 
+    # ── Reproducibility seeds ─────────────────────────────────────
+    torch.manual_seed(42)
+    np.random.seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Running main on device: {device}")
+
     logger.info("1. Veri yükleniyor...")
+    if not os.path.exists(SPATIAL_PATH):
+        exit_with_error(f"Spatial deconvolution data not found at: {SPATIAL_PATH}. Stage 2 tamamlandı mı?")
     adata = ad.read_h5ad(SPATIAL_PATH)
 
     logger.info("2. Graph oluşturuluyor...")
@@ -1046,6 +1421,9 @@ def main() -> None:
 
     # ── Optuna ──────────────────────────────────────────────
     logger.info("3. Optuna hiperparametre araması (2 trial)...")
+    if optuna is None:
+        exit_with_error("Optuna kütüphanesi yüklü değil! Lütfen 'pip install optuna' ile kurun.")
+        
     study = optuna.create_study(
         direction='minimize', study_name='glio_gnn_v3',
         pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30))
@@ -1064,6 +1442,8 @@ def main() -> None:
 
     # ── Test ────────────────────────────────────────────────
     logger.info("\n5. Test değerlendirmesi...")
+    model = model.to(device)
+    data = data.to(device)
     model.eval()
     with torch.no_grad():
         ct_pred, zone_pred, surv_pred, drug_pred, emb = model(data)
@@ -1077,12 +1457,27 @@ def main() -> None:
     corrs   = {}
     logger.info("   Per-celltype korelasyonlar:")
     for i, ct in enumerate(ct_names):
-        r,  p  = pearsonr(ct_p_np[:, i], ct_t_np[:, i])
-        rs, ps = spearmanr(ct_p_np[:, i], ct_t_np[:, i])
-        corrs[ct] = {'pearson_r': round(float(r), 4),
-                     'spearman_r': round(float(rs), 4)}
-        sig = "✅" if p < 0.05 else "⚠️"
-        logger.info(f"     {ct:25s}: Pearson r={r:.4f} | Spearman ρ={rs:.4f} {sig}")
+        pred_vec = ct_p_np[:, i]
+        true_vec = ct_t_np[:, i]
+        # Guard against zero-variance to prevent Pearson/Spearman correlation exceptions
+        if np.std(pred_vec) < 1e-8 or np.std(true_vec) < 1e-8:
+            logger.warning(f"     {ct:25s}: Pearson/Spearman hesaplanamadı — sıfır/sabit varyans.")
+            corrs[ct] = {'pearson_r': 0.0, 'spearman_r': 0.0}
+            continue
+
+        try:
+            r,  p  = pearsonr(pred_vec, true_vec)
+            rs, ps = spearmanr(pred_vec, true_vec)
+            r = r if np.isfinite(r) else 0.0
+            rs = rs if np.isfinite(rs) else 0.0
+            p = p if np.isfinite(p) else 1.0
+            corrs[ct] = {'pearson_r': round(float(r), 4),
+                         'spearman_r': round(float(rs), 4)}
+            sig = "✅" if p < 0.05 else "⚠️"
+            logger.info(f"     {ct:25s}: Pearson r={r:.4f} | Spearman ρ={rs:.4f} {sig}")
+        except Exception as e_corr:
+            logger.warning(f"     {ct:25s}: Korelasyon hatası ({e_corr})")
+            corrs[ct] = {'pearson_r': 0.0, 'spearman_r': 0.0}
 
     # ── Counterfactual ───────────────────────────────────────
     logger.info("\n6. Counterfactual simülasyonlar...")
@@ -1092,6 +1487,21 @@ def main() -> None:
             logger.info(f"   {ko_type} kaldırıldığında zone değişimleri:")
             for z_idx, zn in enumerate(ZONE_NAMES):
                 logger.info(f"     {zn:35s}: Δ = {delta[:, z_idx].mean():+.4f}")
+
+    # ── Additional Counterfactual blockade and regulation simulations ──
+    logger.info("\n6b. L-R blockade ve Gen Regülasyonu simülasyonları...")
+    lr_names = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
+    delta_lr = counterfactual_lr_blockade(model, data, lr_names, "VEGFA-KDR", inhibition_rate=1.0)
+    if delta_lr is not None:
+        logger.info("   VEGFA-KDR bloke edildiğinde ortalama zone değişimleri:")
+        for z_idx, zn in enumerate(ZONE_NAMES):
+            logger.info(f"     {zn:35s}: Δ = {delta_lr[:, z_idx].mean():+.4f}")
+            
+    delta_gene = counterfactual_gene_regulation(model, data, lr_names, LR_PAIRS, "EGFR", reg_type="knockdown", rate=1.0)
+    if delta_gene is not None:
+        logger.info("   EGFR susturulduğunda (knockdown) ortalama zone değişimleri:")
+        for z_idx, zn in enumerate(ZONE_NAMES):
+            logger.info(f"     {zn:35s}: Δ = {delta_gene[:, z_idx].mean():+.4f}")
 
     # ── Kayıt ───────────────────────────────────────────────
     logger.info("\n7. Kayıt...")
@@ -1113,6 +1523,7 @@ def main() -> None:
         drug_scores     = drug_np,
         survival_preds  = surv_np,
         out_path        = f'{OUT_DIR}/data.json',
+        ct_preds        = ct_pred.cpu().numpy()
     )
 
     summary_info = {
