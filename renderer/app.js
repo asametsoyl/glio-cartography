@@ -53,29 +53,78 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Sync backend state now to avoid race conditions
   await syncBackendState();
 
+  if (api.onUpdateDownloadProgress) {
+    api.onUpdateDownloadProgress((data) => {
+      const statusEl = document.getElementById('update-download-status');
+      const percentEl = document.getElementById('update-download-percent');
+      const barFillEl = document.getElementById('update-download-bar-fill');
+      const infoEl = document.getElementById('update-download-info');
+      
+      if (data.status === 'downloading') {
+        if (statusEl) statusEl.textContent = 'İndiriliyor...';
+        if (percentEl) percentEl.textContent = `${data.percent}%`;
+        if (barFillEl) barFillEl.style.width = `${data.percent}%`;
+        if (infoEl) {
+          infoEl.textContent = `${data.received} MB / ${data.total} MB · ${data.speed} MB/s`;
+        }
+      } else if (data.status === 'completed') {
+        if (statusEl) statusEl.textContent = 'Tamamlandı! Kuruluyor...';
+        if (percentEl) percentEl.textContent = '100%';
+        if (barFillEl) barFillEl.style.width = '100%';
+      } else if (data.status === 'failed') {
+        if (statusEl) statusEl.textContent = `Hata: ${data.error || 'İndirme başarısız'}`;
+        const btnStart = document.getElementById('btn-start-update-download');
+        const btnSnooze = document.getElementById('btn-snooze-update');
+        if (btnStart) btnStart.disabled = false;
+        if (btnSnooze) btnSnooze.disabled = false;
+      }
+    });
+  }
+
   // Güncelleme bildirimi dinle
   api.onUpdateAvailable((info) => {
     if (info.upToDate) {
       // Manuel kontrol istedi, güncel mesajı
       const banner = document.getElementById('update-banner');
-      document.getElementById('update-banner-text').textContent =
-        `✅ Güncel! Mevcut sürüm: ${info.current}`;
-      document.getElementById('update-banner-link').style.display = 'none';
-      banner.style.background = 'rgba(16,185,129,0.15)';
-      banner.style.borderColor = 'rgba(16,185,129,0.4)';
-      banner.classList.remove('hidden');
-      setTimeout(() => banner.classList.add('hidden'), 4000);
+      if (banner) {
+        document.getElementById('update-banner-text').textContent =
+          `✅ Güncel! Mevcut sürüm: ${info.current}`;
+        document.getElementById('update-banner-link').style.display = 'none';
+        banner.style.background = 'rgba(16,185,129,0.15)';
+        banner.style.borderColor = 'rgba(16,185,129,0.4)';
+        banner.classList.remove('hidden');
+        setTimeout(() => banner.classList.add('hidden'), 4000);
+      }
       return;
     }
-    _updateUrl = info.url || '';
-    document.getElementById('update-banner-text').textContent =
-      `🆕 Yeni sürüm: ${info.latest} (Mevcut: ${info.current})`;
-    const link = document.getElementById('update-banner-link');
-    link.style.display = '';
-    const banner = document.getElementById('update-banner');
-    banner.style.background = '';
-    banner.style.borderColor = '';
-    banner.classList.remove('hidden');
+    
+    // Yeni sürüm mevcut, modalı göster
+    const updateModal = document.getElementById('update-modal');
+    if (updateModal) {
+      document.getElementById('update-modal-version-info').textContent =
+        `Yeni Sürüm: ${info.latest} (Mevcut: ${info.current})`;
+      
+      const notesEl = document.getElementById('update-modal-notes');
+      if (notesEl) {
+        notesEl.textContent = info.notes || 'Herhangi bir detaylı sürüm notu bulunmuyor.';
+      }
+      
+      // Reset progress elements
+      const progressContainer = document.getElementById('update-download-container');
+      if (progressContainer) progressContainer.classList.add('hidden');
+      
+      const btnStart = document.getElementById('btn-start-update-download');
+      if (btnStart) {
+        btnStart.disabled = false;
+        state.updateLatestVersion = info.latest;
+      }
+      
+      const btnSnooze = document.getElementById('btn-snooze-update');
+      if (btnSnooze) btnSnooze.disabled = false;
+      
+      updateModal.classList.remove('hidden');
+      updateModal.classList.add('active');
+    }
   });
 
   // Also poll backend health every 2s in case event was missed
@@ -185,6 +234,55 @@ function makeRow(label, value) {
 // CENTRALIZED EVENT LISTENERS
 // ══════════════════════════════════════════════════════════════
 function initEventListeners() {
+  // Update Modal Control Listeners
+  const btnCloseUpdateModal = document.getElementById('btn-close-update-modal');
+  if (btnCloseUpdateModal) {
+    btnCloseUpdateModal.addEventListener('click', () => {
+      const modal = document.getElementById('update-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('active');
+      }
+    });
+  }
+
+  const btnSnoozeUpdate = document.getElementById('btn-snooze-update');
+  if (btnSnoozeUpdate) {
+    btnSnoozeUpdate.addEventListener('click', () => {
+      const modal = document.getElementById('update-modal');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('active');
+      }
+    });
+  }
+
+  const btnStartUpdateDownload = document.getElementById('btn-start-update-download');
+  if (btnStartUpdateDownload) {
+    btnStartUpdateDownload.addEventListener('click', async () => {
+      if (!state.updateLatestVersion) return;
+      
+      btnStartUpdateDownload.disabled = true;
+      const btnSnooze = document.getElementById('btn-snooze-update');
+      if (btnSnooze) btnSnooze.disabled = true;
+      
+      const progressContainer = document.getElementById('update-download-container');
+      if (progressContainer) progressContainer.classList.remove('hidden');
+      
+      const statusEl = document.getElementById('update-download-status');
+      if (statusEl) statusEl.textContent = 'İndirme başlıyor...';
+      
+      try {
+        await api.startUpdateDownload(state.updateLatestVersion);
+      } catch (err) {
+        console.error('Güncelleme indirme hatası:', err);
+        if (statusEl) statusEl.textContent = `Hata: ${err.message}`;
+        btnStartUpdateDownload.disabled = false;
+        if (btnSnooze) btnSnooze.disabled = false;
+      }
+    });
+  }
+
   // Sidebar Navigation Panel Control
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {

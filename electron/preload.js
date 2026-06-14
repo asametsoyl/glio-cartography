@@ -66,6 +66,11 @@ contextBridge.exposeInMainWorld('glioAPI', {
     // One-shot: show update banner once per session.
     ipcRenderer.once('update-available', (_, info) => cb(info));
   },
+  startUpdateDownload: (version) => ipcRenderer.invoke('start-update-download', version),
+  onUpdateDownloadProgress: (cb) => {
+    ipcRenderer.removeAllListeners('update-download-progress');
+    ipcRenderer.on('update-download-progress', (_, data) => cb(data));
+  },
   onRuntimeMissing: (cb) => {
     // One-shot: only shown once on startup.
     ipcRenderer.once('runtime-missing', (_) => cb());

@@ -24,7 +24,7 @@ const {
   BACKEND_PORT, BACKEND_HOST
 } = require('./backend-manager');
 const { downloadWithRedirects, extractZip, ensureVcRuntime } = require('./runtime-manager');
-const { checkForUpdates } = require('./updater');
+const { checkForUpdates, startUpdateDownload } = require('./updater');
 
 let _store = null;
 let _mainWindow = null;
@@ -350,6 +350,7 @@ function registerIpcHandlers() {
 
   // ── Misc ─────────────────────────────────────────────────────
   ipcMain.handle('check-for-updates', () => checkForUpdates(_mainWindow, false));
+  ipcMain.handle('start-update-download', (_, version) => startUpdateDownload(_mainWindow, version));
   ipcMain.handle('open-external', (_, url) => {
     const allowedHosts = ['github.com', 'glio-cartography.com'];
     try {

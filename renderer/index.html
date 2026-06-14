@@ -9,6 +9,44 @@
 
 <body>
 
+  <!-- ─── UPDATE OVERLAY ─────────────────────────────────── -->
+  <div id="update-modal" class="overlay hidden">
+    <div class="overlay-content update-modal-content">
+      <button class="overlay-close" id="btn-close-update-modal" title="Kapat">✕</button>
+      <div class="logo-block">
+        <div class="logo-icon">🧠</div>
+        <h2>Glio-Cartography Güncelleme</h2>
+        <p class="logo-sub" id="update-modal-version-info">Yeni sürüm mevcut!</p>
+      </div>
+
+      <div class="update-notes-container" style="text-align: left; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 15px; max-height: 150px; overflow-y: auto;">
+        <h4 style="margin-top: 0; margin-bottom: 8px; font-size: 0.85rem; color: var(--text);">Sürüm Notları</h4>
+        <div id="update-modal-notes" class="update-notes-content" style="font-size: 0.76rem; color: var(--text-muted); line-height: 1.5; white-space: pre-wrap; word-break: break-word;">Sürüm notları yükleniyor...</div>
+      </div>
+
+      <!-- Progress bar section -->
+      <div id="update-download-container" class="download-progress-container hidden u-mt-15 u-mb-15" style="text-align: left;">
+        <div class="u-flex-space-between u-mb-6 u-font-sm" style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.8rem;">
+          <span id="update-download-status" class="u-color-accent u-font-bold" style="color: var(--accent); font-weight: bold;">Hazırlanıyor...</span>
+          <span id="update-download-percent" class="u-font-mono" style="font-family: var(--mono);">0%</span>
+        </div>
+        <div class="progress-bar-bg" style="background: var(--bg-deep); border-radius: 4px; height: 8px; overflow: hidden; position: relative; width: 100%;">
+          <div id="update-download-bar-fill" class="progress-bar-fill" style="width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-bright)); height: 100%; border-radius: 4px; transition: width 0.1s ease;"></div>
+        </div>
+        <div id="update-download-info" class="u-font-xs u-color-muted u-text-right" style="font-size: 0.7rem; color: var(--text-muted); text-align: right; margin-top: 4px;">0 MB / 0 MB</div>
+      </div>
+
+      <div class="u-flex-row u-gap-10 u-mt-15" style="display: flex; gap: 10px; margin-top: 15px;">
+        <button class="btn-premium btn-full" id="btn-start-update-download" style="flex: 1;">
+          <span>⬇️ İndir ve Yükle</span>
+        </button>
+        <button class="btn-secondary btn-full" id="btn-snooze-update" style="flex: 1;">
+          <span>Daha Sonra</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── LICENSE OVERLAY ─────────────────────────────────── -->
   <div id="license-overlay" class="overlay active">
     <div class="overlay-content">
