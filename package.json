@@ -1,6 +1,6 @@
 {
   "name": "glio-cartography",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Glio-Cartography — Spatial Tumor Microenvironment Atlas for Glioblastoma",
   "main": "electron/main.js",
   "author": "Glio-Cartography Team",
