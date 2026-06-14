@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Stage 4: Visualization and Publication Figures"""
 import os, sys, json, traceback, tempfile, urllib.request
+import ssl
+
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
 from pathlib import Path
 
 # ── Set up error handling first so import/initialization errors are cleanly caught as JSON ──

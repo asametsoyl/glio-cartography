@@ -2,6 +2,13 @@ import os
 import re
 import json
 import urllib.request
+import ssl
+
+# Bypass SSL certificate verification for dynamic web downloads (KEGG, Cytoscape, etc.)
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
 import numpy as np
 import pandas as pd
 from pathlib import Path
