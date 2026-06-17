@@ -28,6 +28,33 @@ async function startPipeline() {
   const optunaT    = parseInt(document.getElementById('optuna-trials')?.value) || 10;
   const deconvMethod = document.getElementById('deconv-method')?.value || 'tangram';
 
+  // ── Klinik Metadata (FAZ 1 — JSON payload, env race condition yok) ──
+  const clinicalAgeRaw  = document.getElementById('clinical-age')?.value?.trim();
+  const clinicalMgmtRaw = document.getElementById('clinical-mgmt')?.value?.trim();
+  const clinicalIdhRaw  = document.getElementById('clinical-idh')?.value?.trim();
+  const clinicalKpsRaw  = document.getElementById('clinical-kps')?.value?.trim();
+  const imputationMode  = document.getElementById('imputation-mode')?.value || 'worst';
+
+  // Boş alanlar null iletilir → backend imputation stratejisine devredilir
+  const clinicalAge  = clinicalAgeRaw  ? parseInt(clinicalAgeRaw)   : null;
+  const clinicalMgmt = clinicalMgmtRaw ? parseFloat(clinicalMgmtRaw) : null;
+  const clinicalIdh  = clinicalIdhRaw  ? parseFloat(clinicalIdhRaw)  : null;
+  const clinicalKps  = clinicalKpsRaw  ? parseInt(clinicalKpsRaw)   : null;
+
+  // Validasyon: klinik alanlar girilmişse geçerlilik kontrolü
+  if (clinicalAge !== null && (clinicalAge < 0 || clinicalAge > 120)) {
+    showWarningToast('Hasta yaşı 0–120 arasında olmalıdır.'); return;
+  }
+  if (clinicalMgmt !== null && (clinicalMgmt < 0 || clinicalMgmt > 1)) {
+    showWarningToast('MGMT skoru 0.0–1.0 arasında olmalıdır.'); return;
+  }
+  if (clinicalIdh !== null && (clinicalIdh < 0 || clinicalIdh > 1)) {
+    showWarningToast('IDH skoru 0.0–1.0 arasında olmalıdır.'); return;
+  }
+  if (clinicalKps !== null && (clinicalKps < 0 || clinicalKps > 100)) {
+    showWarningToast('KPS 0–100 arasında olmalıdır.'); return;
+  }
+
   if (!spatialDir) { showWarningToast('Spatial veri klasörü seçin!'); return; }
   if (!scrnaPath)  { showWarningToast('scRNA-seq dosyası seçin!'); return; }
   if (!outputDir)  { showWarningToast('Çıktı klasörü seçin!'); return; }
@@ -53,14 +80,20 @@ async function startPipeline() {
   // Seçilen yolları ve ayarları electron-store'a kaydet (sonraki oturum için)
   try {
     await api.saveLastPaths({
-      spatial:      spatialDir,
-      scrna:        scrnaPath,
-      output:       outputDir,
-      patientId:    safePatientId,
-      epochs:       epochs,
-      runOptuna:    runOptuna,
-      optunaTrials: optunaT,
-      deconvMethod: deconvMethod
+      spatial:        spatialDir,
+      scrna:          scrnaPath,
+      output:         outputDir,
+      patientId:      safePatientId,
+      epochs:         epochs,
+      runOptuna:      runOptuna,
+      optunaTrials:   optunaT,
+      deconvMethod:   deconvMethod,
+      // Klinik verileri de kaydet (null → boş bırakılmış demek)
+      clinicalAge:    clinicalAge,
+      clinicalMgmt:   clinicalMgmt,
+      clinicalIdh:    clinicalIdh,
+      clinicalKps:    clinicalKps,
+      imputationMode: imputationMode,
     });
   } catch (_) { /* kayıt hatası kritik değil */ }
 
@@ -71,6 +104,13 @@ async function startPipeline() {
   resetStages();
   clearLog();
   appendLog('🚀 Pipeline başlatılıyor...');
+
+  // Klinik meta log
+  if (clinicalAge || clinicalMgmt || clinicalIdh || clinicalKps) {
+    appendLog(`📋 Klinik: Yaş=${clinicalAge ?? 'auto'}, MGMT=${clinicalMgmt ?? 'auto'}, IDH=${clinicalIdh ?? 'auto'}, KPS=${clinicalKps ?? 'auto'} [${imputationMode}-case]`);
+  } else {
+    appendLog(`📋 Klinik: Veri girilmedi → ${imputationMode === 'median' ? 'Medyan' : 'En Kötü Senaryo'} imputation uygulanacak`);
+  }
 
   state.pipelineRunning = true;
   state.startTime = Date.now();
@@ -97,14 +137,20 @@ async function startPipeline() {
   // Call backend
   try {
     const res = await api.backendRequest('/pipeline/start', 'POST', {
-      spatial_dir: spatialDir,
-      scrna_path: scrnaPath,
-      output_dir: outputDir,
-      patient_id: safePatientId,
-      run_optuna: runOptuna,
-      optuna_trials: optunaT,
-      gnn_epochs: epochs,
-      deconv_method: deconvMethod
+      spatial_dir:     spatialDir,
+      scrna_path:      scrnaPath,
+      output_dir:      outputDir,
+      patient_id:      safePatientId,
+      run_optuna:      runOptuna,
+      optuna_trials:   optunaT,
+      gnn_epochs:      epochs,
+      deconv_method:   deconvMethod,
+      // Klinik metadata JSON payload (env yerine — FAZ 1 güvenlik gereksinimi)
+      clinical_age:    clinicalAge,
+      clinical_mgmt:   clinicalMgmt,
+      clinical_idh:    clinicalIdh,
+      clinical_kps:    clinicalKps,
+      imputation_mode: imputationMode,
     });
     appendLog(`ℹ️ ${res.message || 'Başlatıldı'}`);
     startPolling();
@@ -113,6 +159,7 @@ async function startPipeline() {
     pipelineDone(false);
   }
 }
+
 
 async function cancelPipeline() {
   const ok = await customConfirm('⚠️ Analizi İptal Et', 'Analiz iptal edilsin mi?');

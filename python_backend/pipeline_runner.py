@@ -36,10 +36,19 @@ STAGES = [
     ("report",         "📄 Rapor Oluşturma"),
 ]
 
+# Imputation varsayılanları (Plan 1.7)
+WORST_CASE_DEFAULTS = {"age": 60,  "mgmt": 0.0,  "idh": 0.0,  "kps": 70}
+MEDIAN_CASE_DEFAULTS = {"age": 55, "mgmt": 0.45, "idh": 0.08, "kps": 80}
+
+
 class PipelineRunner:
     def __init__(self, spatial_dir, scrna_path, output_dir,
                  patient_id="Patient_A", run_optuna=False,
-                 optuna_trials=5, gnn_epochs=100, deconv_method="tangram"):
+                 optuna_trials=5, gnn_epochs=100, deconv_method="tangram",
+                 # ── Klinik metadata (FAZ 1 — JSON payload, env race condition yok) ──
+                 clinical_age=None, clinical_mgmt=None,
+                 clinical_idh=None, clinical_kps=None,
+                 imputation_mode="worst"):
         self.spatial_dir    = Path(spatial_dir)
         self.scrna_path     = Path(scrna_path)
         self.output_dir     = Path(output_dir)
@@ -48,6 +57,14 @@ class PipelineRunner:
         self.optuna_trials  = optuna_trials
         self.gnn_epochs     = gnn_epochs
         self.deconv_method  = deconv_method
+
+        # Klinik veri imputation çözümü
+        defaults = WORST_CASE_DEFAULTS if (imputation_mode or "worst") == "worst" else MEDIAN_CASE_DEFAULTS
+        self.clinical_age   = clinical_age  if clinical_age  is not None else defaults["age"]
+        self.clinical_mgmt  = clinical_mgmt if clinical_mgmt is not None else defaults["mgmt"]
+        self.clinical_idh   = clinical_idh  if clinical_idh  is not None else defaults["idh"]
+        self.clinical_kps   = clinical_kps  if clinical_kps  is not None else defaults["kps"]
+        self.imputation_mode = imputation_mode or "worst"
 
         self.status        = PipelineStatus.IDLE
         self.current_stage = ""
@@ -224,12 +241,24 @@ class PipelineRunner:
     async def _run_gnn(self):
         script = Path(__file__).parent / "stages" / "stage3_gnn.py"
         env = {
-            "GLIO_OUTPUT_DIR": str(self.output_dir),
-            "GLIO_GNN_EPOCHS": str(self.gnn_epochs),
-            "GLIO_RUN_OPTUNA": "1" if self.run_optuna else "0",
+            "GLIO_OUTPUT_DIR":    str(self.output_dir),
+            "GLIO_GNN_EPOCHS":    str(self.gnn_epochs),
+            "GLIO_RUN_OPTUNA":    "1" if self.run_optuna else "0",
             "GLIO_OPTUNA_TRIALS": str(self.optuna_trials),
         }
-        await self._run_script(script, env_extra=env)
+        # Klinik metadata komut satırı argümanlarıyla iletilir (env isolation)
+        # Her paralel analiz kendi parametrelerini güvenle taşır
+        clinical_args = [
+            "--clinical-age",   str(self.clinical_age),
+            "--clinical-mgmt",  str(self.clinical_mgmt),
+            "--clinical-idh",   str(self.clinical_idh),
+            "--clinical-kps",   str(self.clinical_kps),
+            "--imputation-mode", self.imputation_mode,
+        ]
+        self.log(f"📋 Klinik metadata: Yaş={self.clinical_age}, MGMT={self.clinical_mgmt}, "
+                 f"IDH={self.clinical_idh}, KPS={self.clinical_kps} "
+                 f"[{self.imputation_mode}-case imputation]")
+        await self._run_script(script, args=clinical_args, env_extra=env)
 
     async def _run_visualization(self):
         script = Path(__file__).parent / "stages" / "stage4_visualization.py"
@@ -245,4 +274,12 @@ class PipelineRunner:
             "GLIO_OUTPUT_DIR": str(self.output_dir),
             "GLIO_PATIENT_ID": self.patient_id,
         }
-        await self._run_script(script, env_extra=env)
+        # Rapor için de klinik metadata komut satırından iletilir
+        clinical_args = [
+            "--clinical-age",   str(self.clinical_age),
+            "--clinical-mgmt",  str(self.clinical_mgmt),
+            "--clinical-idh",   str(self.clinical_idh),
+            "--clinical-kps",   str(self.clinical_kps),
+            "--imputation-mode", self.imputation_mode,
+        ]
+        await self._run_script(script, args=clinical_args, env_extra=env)

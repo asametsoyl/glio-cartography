@@ -37,6 +37,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('optuna-trials-row').style.display = e.target.checked ? 'flex' : 'none';
   });
 
+  // ── Klinik form: imputation modu değişince hint güncelle ──
+  const imputationSelect = document.getElementById('imputation-mode');
+  const imputationHint   = document.getElementById('imputation-hint');
+  const IMPUTATION_HINTS = {
+    worst:  'Yaş: 60 · MGMT: 0.0 (unmethylated) · IDH: 0.0 (wildtype) · KPS: 70%',
+    median: 'Yaş: 55 · MGMT: 0.45 (±GBM prevalansı) · IDH: 0.08 (±mutant) · KPS: 80%',
+  };
+  if (imputationSelect && imputationHint) {
+    imputationSelect.addEventListener('change', () => {
+      const mode = imputationSelect.value;
+      imputationHint.textContent = IMPUTATION_HINTS[mode] || '';
+      // Fallback etiketleri güncelle
+      const fallbacks = {
+        'fb-age':  { worst: 'Boş → 60', median: 'Boş → 55' },
+        'fb-mgmt': { worst: 'Boş → 0.0 (unmethylated)', median: 'Boş → 0.45' },
+        'fb-idh':  { worst: 'Boş → 0.0 (wildtype)', median: 'Boş → 0.08' },
+        'fb-kps':  { worst: 'Boş → 70%', median: 'Boş → 80%' },
+      };
+      Object.entries(fallbacks).forEach(([id, texts]) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = texts[mode] || texts.worst;
+      });
+    });
+  }
+
+
   // Backend events — listen before polling so we don't miss it
   api.onBackendReady((ready) => setBackendStatus(ready));
   api.onBackendLog((msg) => handleBackendLog(msg));

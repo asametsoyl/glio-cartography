@@ -356,8 +356,99 @@
               </div>
             </div>
           </div>
+
+          <!-- ⚕️ Klinik Bilgi Formu (FAZ 1 — GNN Survival Füzyon Modeli) -->
+          <div class="setup-card u-grid-span-2 clinical-card">
+            <div class="card-icon">⚕️</div>
+            <h3>Klinik Hasta Bilgileri <span class="optional-badge">İsteğe Bağlı</span></h3>
+            <p class="card-desc">
+              GNN'nin sağkalım tahminini iyileştirmek için hasta klinik verilerini girin.
+              Boş bırakılan alanlar seçilen imputation stratejisine göre otomatik atanır.
+            </p>
+
+            <!-- Imputation Modu Seçici -->
+            <div class="imputation-selector">
+              <span class="imputation-label">Eksik Veri Stratejisi:</span>
+              <select id="imputation-mode" class="imputation-select">
+                <option value="worst" selected>⚠️ En Kötü Senaryo (Muhafazakâr)</option>
+                <option value="median">📊 Medyan Değer (Dengeli)</option>
+              </select>
+              <div class="imputation-hint" id="imputation-hint">
+                Yaş: 60 · MGMT: 0.0 (unmethylated) · IDH: 0.0 (wildtype) · KPS: 70%
+              </div>
+            </div>
+
+            <div class="clinical-form-grid">
+              <!-- Hasta Yaşı -->
+              <div class="clinical-field">
+                <label class="clinical-label" for="clinical-age">
+                  Hasta Yaşı
+                  <span class="clinical-unit">yıl</span>
+                </label>
+                <div class="clinical-input-wrap">
+                  <input type="number" id="clinical-age" class="clinical-input"
+                         min="0" max="120" placeholder="ör. 55"
+                         title="Hastanın tanı anındaki yaşı">
+                  <div class="clinical-bar" id="bar-age"></div>
+                </div>
+                <span class="clinical-fallback" id="fb-age">Boş → 60</span>
+              </div>
+
+              <!-- MGMT Metilasyon -->
+              <div class="clinical-field">
+                <label class="clinical-label" for="clinical-mgmt">
+                  MGMT Metilasyonu
+                  <span class="clinical-unit">0.0–1.0</span>
+                </label>
+                <div class="clinical-input-wrap">
+                  <input type="number" id="clinical-mgmt" class="clinical-input"
+                         min="0" max="1" step="0.01" placeholder="ör. 0.42"
+                         title="MGMT promoter metilasyon skoru (0=unmethylated, 1=fully methylated)">
+                  <div class="clinical-bar" id="bar-mgmt"></div>
+                </div>
+                <span class="clinical-fallback" id="fb-mgmt">Boş → 0.0 (unmethylated)</span>
+              </div>
+
+              <!-- IDH Mutasyon -->
+              <div class="clinical-field">
+                <label class="clinical-label" for="clinical-idh">
+                  IDH Mutasyon Skoru
+                  <span class="clinical-unit">0.0–1.0</span>
+                </label>
+                <div class="clinical-input-wrap">
+                  <input type="number" id="clinical-idh" class="clinical-input"
+                         min="0" max="1" step="0.01" placeholder="ör. 0.08"
+                         title="IDH mutasyon olasılık skoru (0=wildtype, 1=mutant)">
+                  <div class="clinical-bar" id="bar-idh"></div>
+                </div>
+                <span class="clinical-fallback" id="fb-idh">Boş → 0.0 (wildtype)</span>
+              </div>
+
+              <!-- KPS Performans Skoru -->
+              <div class="clinical-field">
+                <label class="clinical-label" for="clinical-kps">
+                  Karnofsky (KPS)
+                  <span class="clinical-unit">%</span>
+                </label>
+                <div class="clinical-input-wrap">
+                  <input type="number" id="clinical-kps" class="clinical-input"
+                         min="0" max="100" step="10" placeholder="ör. 80"
+                         title="Karnofsky Performance Score (0=ölüm, 100=tam sağlıklı)">
+                  <div class="clinical-bar" id="bar-kps"></div>
+                </div>
+                <span class="clinical-fallback" id="fb-kps">Boş → 70%</span>
+              </div>
+            </div>
+
+            <div class="clinical-disclaimer">
+              🔒 Klinik veriler yalnızca GNN sağkalım modelinin tahmin kalitesini artırmak amacıyla kullanılır.
+              Hiçbir veri sunuculara iletilmez.
+            </div>
+          </div>
+
         </div>
       </div>
+
 
       <!-- ── MONITOR PANEL ─────────────────────────────────── -->
       <div id="panel-monitor" class="panel">

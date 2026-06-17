@@ -204,6 +204,34 @@ async function restoreLastPaths() {
       }
     }
 
+    // ── Klinik metadata alanlarını son oturumdan geri yükle ──
+    const clinicalFields = [
+      { key: 'clinicalAge',  id: 'clinical-age'  },
+      { key: 'clinicalMgmt', id: 'clinical-mgmt' },
+      { key: 'clinicalIdh',  id: 'clinical-idh'  },
+      { key: 'clinicalKps',  id: 'clinical-kps'  },
+    ];
+    clinicalFields.forEach(({ key, id }) => {
+      if (last[key] !== null && last[key] !== undefined) {
+        const el = document.getElementById(id);
+        if (el) el.value = last[key];
+      }
+    });
+
+    if (last.imputationMode) {
+      const el = document.getElementById('imputation-mode');
+      if (el) {
+        el.value = last.imputationMode;
+        // Hint metnini güncelle
+        const hintEl = document.getElementById('imputation-hint');
+        const HINTS = {
+          worst:  'Yaş: 60 · MGMT: 0.0 (unmethylated) · IDH: 0.0 (wildtype) · KPS: 70%',
+          median: 'Yaş: 55 · MGMT: 0.45 (±GBM prevalansı) · IDH: 0.08 (±mutant) · KPS: 80%',
+        };
+        if (hintEl) hintEl.textContent = HINTS[last.imputationMode] || HINTS.worst;
+      }
+    }
+
   } catch (e) {
     console.warn('restoreLastPaths:', e);
   }

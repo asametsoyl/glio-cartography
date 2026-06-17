@@ -171,6 +171,12 @@ class PipelineStartRequest(BaseModel):
     optuna_trials: Optional[int] = 5
     gnn_epochs: Optional[int] = 100
     deconv_method: Optional[str] = "tangram"  # tangram | cell2location | stereoscope
+    # ── Klinik Metadata (FAZ 1 — Race Condition Önleme: env yerine JSON payload) ──
+    clinical_age: Optional[int] = None          # Hasta yaşı (yıl); None → imputation
+    clinical_mgmt: Optional[float] = None       # MGMT metilasyon skoru [0.0–1.0]; None → imputation
+    clinical_idh: Optional[float] = None        # IDH mutasyon skoru [0.0–1.0]; None → imputation
+    clinical_kps: Optional[int] = None          # Karnofsky Performance Score [0–100]; None → imputation
+    imputation_mode: Optional[str] = "worst"    # "worst" | "median"
 
 
 class LicenseCheckRequest(BaseModel):
@@ -226,6 +232,12 @@ async def start_pipeline(req: PipelineStartRequest):
             optuna_trials=req.optuna_trials,
             gnn_epochs=req.gnn_epochs,
             deconv_method=req.deconv_method or "tangram",
+            # Klinik metadata — JSON payload ile güvenli iletim (env race condition yok)
+            clinical_age=req.clinical_age,
+            clinical_mgmt=req.clinical_mgmt,
+            clinical_idh=req.clinical_idh,
+            clinical_kps=req.clinical_kps,
+            imputation_mode=req.imputation_mode or "worst",
         )
 
     # Start pipeline task; store reference to prevent GC
