@@ -215,12 +215,13 @@ jobs:
           find "${ENV_PATH}" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
           rm -rf "${ENV_PATH}/share" 2>/dev/null || true
           if [ "$(uname)" = "Linux" ]; then
-            echo "Stripping debug symbols on Linux..."
+            echo "Stripping debug symbols on Linux (safe — no Gatekeeper)..."
             find "${ENV_PATH}" -name "*.so" -exec strip --strip-unneeded {} + 2>/dev/null || true
           elif [ "$(uname)" = "Darwin" ]; then
-            echo "Stripping debug symbols on macOS..."
-            find "${ENV_PATH}" -name "*.dylib" -exec strip -S {} + 2>/dev/null || true
-            find "${ENV_PATH}" -name "*.so" -exec strip -S {} + 2>/dev/null || true
+            echo "macOS: skipping strip (would break Gatekeeper code signatures)."
+            echo "Removing large locale/charset data files instead..."
+            find "${ENV_PATH}" -name "*.dat" -path "*/tzdata/*" -delete 2>/dev/null || true
+            find "${ENV_PATH}" -name "icudt*.dat" -delete 2>/dev/null || true
           fi
 
           echo "Packing gliocarto env (5-10 min)..."
