@@ -216,7 +216,8 @@ jobs:
           "${CONDA_PACK_BIN}" -n gliocarto \
             -o "${{ matrix.python_env_zip }}" \
             --ignore-editable-packages \
-            --ignore-missing-files
+            --ignore-missing-files \
+            --zip-symlinks
 
           ls -lh "${{ matrix.python_env_zip }}"
           echo "SUCCESS"
