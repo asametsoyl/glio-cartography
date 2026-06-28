@@ -27,6 +27,10 @@ jobs:
             platform: mac
             python_env_zip: python_env_macos.zip
 
+          - os: ubuntu-latest
+            platform: linux
+            python_env_zip: python_env_linux.zip
+
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -101,9 +105,9 @@ jobs:
           conda run -n gliocarto pip install -r "$env:TEMP\filtered_reqs.txt" --no-cache-dir
           Write-Host "=== Done! ==="
 
-      # ── Install Python packages (macOS) ──────────────────────
-      - name: Create & Install Python Env (macOS)
-        if: runner.os == 'macOS'
+      # ── Install Python packages (macOS/Linux) ────────────────
+      - name: Create & Install Python Env (macOS/Linux)
+        if: runner.os == 'macOS' || runner.os == 'Linux'
         shell: bash
         run: |
           TORCH_VER="${{ env.TORCH_VERSION }}"
@@ -183,8 +187,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\python_env"
           Copy-Item -Path "$envPath\*" -Destination "$env:GITHUB_WORKSPACE\python_env" -Recurse -Force
 
-      - name: Pack Python Environment (macOS)
-        if: runner.os == 'macOS'
+      - name: Pack Python Environment (macOS/Linux)
+        if: runner.os == 'macOS' || runner.os == 'Linux'
         shell: bash
         run: |
           # Install conda-pack in BASE env (recommended approach)
@@ -241,6 +245,13 @@ jobs:
           GITHUB_TOKEN: ""
         run: npx electron-builder --mac --x64 --publish never
 
+      - name: Build Electron App (Linux)
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ""
+          GITHUB_TOKEN: ""
+        run: npx electron-builder --linux --x64 --publish never
+
       # ── Upload artifacts ─────────────────────────────────────
       - name: Upload Python Env Zip
         uses: actions/upload-artifact@v4
@@ -265,6 +276,15 @@ jobs:
         with:
           name: installer-mac
           path: dist/*.dmg
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload Linux Installer
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-linux
+          path: dist/*.AppImage
           retention-days: 7
           if-no-files-found: warn
 
@@ -304,8 +324,10 @@ jobs:
           files: |
             release-files/*.exe
             release-files/*.dmg
+            release-files/*.AppImage
             release-files/python_env_windows.zip
             release-files/python_env_macos.zip
+            release-files/python_env_linux.zip
           draft: false
           prerelease: false
           fail_on_unmatched_files: false

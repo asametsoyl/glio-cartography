@@ -16,91 +16,116 @@ const { safeSend } = require('./utils');
 
 // ── Download Helper ───────────────────────────────────────────
 function downloadWithRedirects(url, destPath, onProgress) {
-  return new Promise((resolve, reject) => {
-    const startRequest = (currentUrl, redirectCount = 0) => {
-      // Prevent infinite redirect loops
-      if (redirectCount > 10) {
-        reject(new Error('Çok fazla yönlendirme (>10). Lütfen ağ bağlantınızı kontrol edin.'));
-        return;
-      }
+  const maxRetries = 3;
+  let attempt = 0;
 
-      const client = currentUrl.startsWith('https')
-        ? require('https')
-        : require('http');
-
-      let timeoutTimer = null;
-      const clearTimer = () => {
-        if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
-      };
-
-      const req = client.get(currentUrl, (res) => {
-        // Follow redirects
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          clearTimer();
-          startRequest(res.headers.location, redirectCount + 1);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          clearTimer();
-          reject(new Error(`İndirme başarısız: HTTP ${res.statusCode}`));
+  const run = () => {
+    return new Promise((resolve, reject) => {
+      const startRequest = (currentUrl, redirectCount = 0) => {
+        // Prevent infinite redirect loops
+        if (redirectCount > 10) {
+          reject(new Error('Çok fazla yönlendirme (>10). Lütfen ağ bağlantınızı kontrol edin.'));
           return;
         }
 
-        const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
-        let receivedBytes = 0;
-        const fileStream = fs.createWriteStream(destPath);
-        res.pipe(fileStream);
+        const client = currentUrl.startsWith('https')
+          ? require('https')
+          : require('http');
 
-        const resetInactivityTimeout = () => {
-          clearTimer();
-          timeoutTimer = setTimeout(() => {
-            console.error('[downloadWithRedirects] Data stream stalled. Timing out...');
-            res.destroy();
-            req.destroy();
-            fileStream.destroy(); // destroy > close on error paths
-            fs.unlink(destPath, () => { });
-            reject(new Error(
-              'İndirme zaman aşımına uğradı (veri akışı durdu). Lütfen tekrar deneyiniz.'
-            ));
-          }, 45000);
+        let timeoutTimer = null;
+        const clearTimer = () => {
+          if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
         };
 
-        resetInactivityTimeout();
+        const req = client.get(currentUrl, (res) => {
+          // Follow redirects
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            clearTimer();
+            startRequest(res.headers.location, redirectCount + 1);
+            return;
+          }
+          if (res.statusCode !== 200) {
+            clearTimer();
+            reject(new Error(`İndirme başarısız: HTTP ${res.statusCode}`));
+            return;
+          }
 
-        res.on('data', (chunk) => {
-          receivedBytes += chunk.length;
+          const totalBytes = parseInt(res.headers['content-length'], 10) || 0;
+          let receivedBytes = 0;
+          const fileStream = fs.createWriteStream(destPath);
+          res.pipe(fileStream);
+
+          const resetInactivityTimeout = () => {
+            clearTimer();
+            timeoutTimer = setTimeout(() => {
+              console.error(`[downloadWithRedirects] Data stream stalled (attempt ${attempt + 1}). Timing out...`);
+              res.destroy();
+              req.destroy();
+              fileStream.destroy(); // destroy > close on error paths
+              fs.unlink(destPath, () => { });
+              reject(new Error(
+                'İndirme zaman aşımına uğradı (veri akışı durdu). Lütfen tekrar deneyiniz.'
+              ));
+            }, 90000); // 90 seconds
+          };
+
           resetInactivityTimeout();
-          if (totalBytes && onProgress) onProgress(receivedBytes, totalBytes);
+
+          res.on('data', (chunk) => {
+            receivedBytes += chunk.length;
+            resetInactivityTimeout();
+            if (totalBytes && onProgress) onProgress(receivedBytes, totalBytes);
+          });
+
+          fileStream.on('finish', () => {
+            clearTimer();
+            fileStream.close();
+            resolve();
+          });
+
+          fileStream.on('error', (err) => {
+            clearTimer();
+            fileStream.destroy();
+            fs.unlink(destPath, () => { });
+            reject(err);
+          });
         });
 
-        fileStream.on('finish', () => {
-          clearTimer();
-          fileStream.close();
-          resolve();
-        });
+        req.on('error', (err) => { clearTimer(); reject(err); });
 
-        fileStream.on('error', (err) => {
-          clearTimer();
-          fileStream.destroy();
-          fs.unlink(destPath, () => { });
-          reject(err);
-        });
-      });
+        // Initial connection timeout (30 seconds)
+        timeoutTimer = setTimeout(() => {
+          console.error('[downloadWithRedirects] Connection timed out.');
+          req.destroy();
+          reject(new Error(
+            'Sunucuya bağlanılamadı (Bağlantı zaman aşımı). Lütfen internetinizi kontrol edin.'
+          ));
+        }, 30000);
+      };
 
-      req.on('error', (err) => { clearTimer(); reject(err); });
+      startRequest(url, 0);
+    });
+  };
 
-      // Initial connection timeout (15 seconds)
-      timeoutTimer = setTimeout(() => {
-        console.error('[downloadWithRedirects] Connection timed out.');
-        req.destroy();
-        reject(new Error(
-          'Sunucuya bağlanılamadı (Bağlantı zaman aşımı). Lütfen internetinizi kontrol edin.'
-        ));
-      }, 15000);
-    };
+  const tryDownload = () => {
+    return run().catch((err) => {
+      attempt++;
+      if (attempt < maxRetries) {
+        const backoffMs = attempt * 3000; // 3s, 6s...
+        console.warn(`[downloadWithRedirects] Download failed (attempt ${attempt}/${maxRetries}): ${err.message}. Retrying in ${backoffMs}ms...`);
+        // Clean up partial file before retry
+        try {
+          if (fs.existsSync(destPath)) {
+            fs.unlinkSync(destPath);
+          }
+        } catch (e) {}
+        return new Promise(resolve => setTimeout(resolve, backoffMs)).then(tryDownload);
+      }
+      throw err;
+    });
+  };
 
-    startRequest(url, 0);
-  });
+  return tryDownload();
 }
 
 // ── Zip Extraction ────────────────────────────────────────────

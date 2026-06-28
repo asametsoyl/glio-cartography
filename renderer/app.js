@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // App version
   const ver = await api.getAppVersion();
   document.getElementById('app-version').textContent = `v${ver}`;
+  const licVer = document.getElementById('license-app-version');
+  if (licVer) licVer.textContent = `v${ver}`;
 
   // Machine ID
   const mid = await api.getMachineId();

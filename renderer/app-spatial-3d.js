@@ -73,7 +73,7 @@ class Spatial3DExplorer {
   }
 
   initThree() {
-    if (this.scene) return;
+    if (this.scene) return true;
 
     const width = this.canvasContainer.clientWidth || 800;
     const height = this.canvasContainer.clientHeight || 500;
@@ -84,7 +84,13 @@ class Spatial3DExplorer {
     this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 5000);
     this.camera.position.set(0, -350, 300);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    try {
+      this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    } catch (e) {
+      console.error("Failed to create WebGL context:", e);
+      this.showWebGLFallbackMessage();
+      return false;
+    }
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.canvasContainer.appendChild(this.renderer.domElement);
@@ -112,6 +118,7 @@ class Spatial3DExplorer {
 
     window.addEventListener('resize', () => this.onWindowResize());
     this.animate();
+    return true;
   }
 
   onWindowResize() {
@@ -135,7 +142,9 @@ class Spatial3DExplorer {
     this.spotsData = spots;
     this.totalSpotsCount = spots.length * 3;
 
-    this.initThree();
+    if (!this.initThree()) {
+      return;
+    }
 
     if (this.instancedMesh) {
       this.scene.remove(this.instancedMesh);
@@ -232,6 +241,25 @@ class Spatial3DExplorer {
   hide() {
     this.isActive = false;
     this.container.classList.add('hidden');
+  }
+
+  showWebGLFallbackMessage() {
+    const isTr = (window.i18n && window.i18n.language === 'tr') || (window.i18n && typeof window.i18n.t === 'function' && window.i18n.t('common.retry') === 'Yeniden Dene');
+    
+    const title = isTr ? 'WebGL Başlatılamadı' : 'WebGL Initialization Failed';
+    const desc = isTr 
+      ? 'Sisteminiz veya grafik sürücünüz WebGL2 donanım hızlandırmasını desteklemiyor. Lütfen grafik sürücülerinizi güncelleyin ve donanım hızlandırmanın etkin olduğundan emin olun.' 
+      : 'Your system or graphics driver does not support WebGL2 hardware acceleration. Please update your graphics drivers and verify that hardware acceleration is enabled.';
+
+    this.canvasContainer.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#a5b4fc; font-family:var(--font, sans-serif); text-align:center; padding:20px; box-sizing:border-box; background:#020509;">
+        <span style="font-size:3rem; margin-bottom:15px;">⚠️</span>
+        <h3 style="margin-bottom:10px; font-weight:600;">${title}</h3>
+        <p style="font-size:0.9rem; color:#94a3b8; max-width:400px; line-height:1.5; margin:0;">
+          ${desc}
+        </p>
+      </div>
+    `;
   }
 }
 

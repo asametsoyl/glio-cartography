@@ -557,7 +557,7 @@ async function loadCompareData(side, profile) {
     let data;
     try {
       // Encode with encodeURI to prevent path character parsing vulnerabilities
-      const res = await fetch(`local://${encodeURI(dataPath)}`);
+      const res = await fetch(api.toLocalUrl(dataPath));
       if (!res.ok) throw new Error('Fetch failed');
       data = await res.json();
     } catch (e) {
@@ -674,7 +674,7 @@ async function loadCompareData(side, profile) {
           else state.bgLoadedRight = false;
           resolve(false);
         };
-        bgImage.src = `local://${encodeURI(bgPath)}?t=${Date.now()}`;
+        bgImage.src = `${api.toLocalUrl(bgPath)}?t=${Date.now()}`;
       } else {
         resolve(false);
       }

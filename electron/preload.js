@@ -97,6 +97,17 @@ contextBridge.exposeInMainWorld('glioAPI', {
   isLanguageLocked: () => ipcRenderer.invoke('is-language-locked'),
   setLanguageLocked: (locked) => ipcRenderer.invoke('set-language-locked', locked),
   printReportToPDF: (htmlContent) => ipcRenderer.invoke('print-report-to-pdf', htmlContent),
+  toLocalUrl: (filePath) => {
+    if (!filePath) return '';
+    let normalized = filePath.replace(/\\/g, '/');
+    let url;
+    if (process.platform === 'win32' || (normalized.length >= 2 && normalized.charCodeAt(1) === 58)) {
+      url = `local:///${normalized}`;
+    } else {
+      url = `local://${normalized.startsWith('/') ? '' : '/'}${normalized}`;
+    }
+    return encodeURI(url);
+  },
 
   // Cleanup helper: renderer pages should call this on unmount
   // to avoid handler accumulation between hot-reloads in dev mode.

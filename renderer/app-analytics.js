@@ -97,7 +97,7 @@ async function setKmCohort(cohort) {
       const imgEl = document.getElementById('km-plot-img');
       if (imgEl) {
         if (exists && isPathSafeLocal(imgPath)) {
-          imgEl.src = `local://${encodeURI(imgPath)}?t=${Date.now()}`;
+          imgEl.src = `${api.toLocalUrl(imgPath)}?t=${Date.now()}`;
         } else {
           imgEl.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         }
@@ -234,7 +234,7 @@ async function loadFigures() {
         item.title = `${item.title} (${window.i18n.t('figures.analysis_incomplete')})`;
       };
       // Set src after binding onerror
-      img.src = `local://${encodeURI(fig.path)}?t=${Date.now()}`;
+      img.src = `${api.toLocalUrl(fig.path)}?t=${Date.now()}`;
 
       const icon = FIGURE_ICONS[fig.name] || '📄';
       const label = FIGURE_LABELS[fig.name] || fig.name.replace(/_/g, ' ');
@@ -294,7 +294,7 @@ async function loadReport() {
 
   wrapper.innerHTML = '';
   const iframe = document.createElement('iframe');
-  iframe.src = `local://${encodeURI(htmlPath)}?t=${Date.now()}`;
+  iframe.src = `${api.toLocalUrl(htmlPath)}?t=${Date.now()}`;
   iframe.title = 'Klinik Rapor';
   iframe.sandbox = 'allow-same-origin allow-scripts';
   wrapper.appendChild(iframe);

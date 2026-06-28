@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' local: http://localhost:8765 http://127.0.0.1:8765 ws://localhost:8765 ws://127.0.0.1:8765; img-src 'self' data: local: blob:; media-src 'self' local: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' local: http://localhost:8765 http://127.0.0.1:8765 ws://localhost:8765 ws://127.0.0.1:8765; img-src 'self' data: local: blob: http://127.0.0.1:8765 http://localhost:8765; media-src 'self' local: blob:;">
   <title>Glio-Cartography — Desktop</title>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
@@ -64,7 +64,7 @@
         <div class="logo-icon">🧠</div>
         <h1 data-i18n="app.title">Glio-Cartography</h1>
         <p class="logo-sub" data-i18n="app.subtitle">Spatial Tumor Microenvironment Analysis Platform</p>
-        <span class="version-badge">v2.2 · <span data-i18n="license.licensed">Lisanslı</span></span>
+        <span class="version-badge"><span id="license-app-version">v3.1</span> · <span data-i18n="license.licensed">Lisanslı</span></span>
       </div>
 
       <!-- Başlangıç / Yükleme Durumu -->
@@ -143,8 +143,8 @@
           <span data-i18n="license.activate">Lisansı Etkinleştir</span>
         </button>
         <div class="license-contact">
-          <span data-i18n="license.contact">Lisans anahtarı almak için e-posta atınız:</span>
-          <a href="mailto:sametsoy.l28@gmail.com" class="license-contact-link">sametsoy.l28@gmail.com</a>
+          <span data-i18n="license.contact">Lisans anahtarı almak için web sitemizi ziyaret edin:</span>
+          <a href="#" onclick="window.glioAPI.openExternal('https://gliocartography.com/login.html?next=checkout'); return false;" class="license-contact-link">gliocartography.com</a>
         </div>
       </div>
     </div>

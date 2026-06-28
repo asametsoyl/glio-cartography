@@ -344,7 +344,7 @@
     "machine_id": "Machine ID",
     "key": "License Key",
     "activate": "Activate License",
-    "contact": "To obtain a license key, please email:",
+    "contact": "To obtain a license key, please visit our website:",
     "enter_key": "Please enter license key.",
     "invalid_format": "Invalid license key format. Example: GCARTO-XXXX-XXXX",
     "invalid_key": "Invalid license",

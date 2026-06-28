@@ -162,7 +162,7 @@ async function reloadBackground() {
         renderSpatialCanvas();
         resolve(false);
       };
-      state.bgImage.src = `local://${encodeURI(bgPath)}?t=${Date.now()}`;
+      state.bgImage.src = `${api.toLocalUrl(bgPath)}?t=${Date.now()}`;
     } else {
       renderSpatialCanvas();
       resolve(false);
@@ -190,7 +190,7 @@ async function loadResults() {
   await new Promise(r => setTimeout(r, 50));
 
   try {
-    const res = await fetch(`local://${encodeURI(dataPath)}`);
+    const res = await fetch(api.toLocalUrl(dataPath));
     if (!res.ok) throw new Error('Fetch failed');
     state.gnnData = await res.json();
   } catch (e) {
@@ -1046,12 +1046,18 @@ function renderSpatialCanvasWebGL() {
 
   // Initialize ThreeJS if not already done
   if (!glRenderer) {
-    glRenderer = new THREE.WebGLRenderer({
-      canvas: canvas,
-      antialias: true,
-      alpha: false,
-      preserveDrawingBuffer: true
-    });
+    try {
+      glRenderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        antialias: true,
+        alpha: false,
+        preserveDrawingBuffer: true
+      });
+    } catch (e) {
+      console.error("Failed to create WebGL context in glRenderer:", e);
+      showWebGLFallbackMessage(canvas.parentElement || canvas);
+      return;
+    }
 
     canvas.addEventListener('webglcontextlost', (event) => {
       event.preventDefault();
@@ -2176,12 +2182,18 @@ function initCompareWebGL(side) {
       glRendererLeft = null;
     }
     if (!glRendererLeft) {
-      glRendererLeft = new THREE.WebGLRenderer({
-        canvas: canvas,
-        antialias: true,
-        alpha: false,
-        preserveDrawingBuffer: true
-      });
+      try {
+        glRendererLeft = new THREE.WebGLRenderer({
+          canvas: canvas,
+          antialias: true,
+          alpha: false,
+          preserveDrawingBuffer: true
+        });
+      } catch (e) {
+        console.error("Failed to create WebGL context (left):", e);
+        showWebGLFallbackMessage(canvas.parentElement || canvas);
+        return;
+      }
 
       canvas.addEventListener('webglcontextlost', (event) => {
         event.preventDefault();
@@ -2213,12 +2225,18 @@ function initCompareWebGL(side) {
       glRendererRight = null;
     }
     if (!glRendererRight) {
-      glRendererRight = new THREE.WebGLRenderer({
-        canvas: canvas,
-        antialias: true,
-        alpha: false,
-        preserveDrawingBuffer: true
-      });
+      try {
+        glRendererRight = new THREE.WebGLRenderer({
+          canvas: canvas,
+          antialias: true,
+          alpha: false,
+          preserveDrawingBuffer: true
+        });
+      } catch (e) {
+        console.error("Failed to create WebGL context (right):", e);
+        showWebGLFallbackMessage(canvas.parentElement || canvas);
+        return;
+      }
 
       canvas.addEventListener('webglcontextlost', (event) => {
         event.preventDefault();
@@ -3186,4 +3204,24 @@ function verifyCompareMetadata() {
   }
 
   banner.classList.remove('hidden');
+}
+
+function showWebGLFallbackMessage(container) {
+  if (!container) return;
+  const isTr = (window.i18n && window.i18n.language === 'tr') || (window.i18n && typeof window.i18n.t === 'function' && window.i18n.t('common.retry') === 'Yeniden Dene');
+  
+  const title = isTr ? 'WebGL Başlatılamadı' : 'WebGL Initialization Failed';
+  const desc = isTr 
+    ? 'Sisteminiz veya grafik sürücünüz WebGL2 donanım hızlandırmasını desteklemiyor. Lütfen grafik sürücülerinizi güncelleyin ve donanım hızlandırmanın etkin olduğundan emin olun.' 
+    : 'Your system or graphics driver does not support WebGL2 hardware acceleration. Please update your graphics drivers and verify that hardware acceleration is enabled.';
+
+  container.innerHTML = `
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; height:100%; min-height:300px; color:#a5b4fc; font-family:var(--font, sans-serif); text-align:center; padding:20px; box-sizing:border-box; background:#020509; border-radius:8px;">
+      <span style="font-size:2.5rem; margin-bottom:12px;">⚠️</span>
+      <h4 style="margin-bottom:8px; font-weight:600; color:#e0e7ff;">${title}</h4>
+      <p style="font-size:0.85rem; color:#94a3b8; max-width:350px; line-height:1.5; margin:0;">
+        ${desc}
+      </p>
+    </div>
+  `;
 }
