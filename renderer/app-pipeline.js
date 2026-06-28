@@ -43,29 +43,29 @@ async function startPipeline() {
 
   // Validasyon: klinik alanlar girilmişse geçerlilik kontrolü
   if (clinicalAge !== null && (clinicalAge < 0 || clinicalAge > 120)) {
-    showWarningToast('Hasta yaşı 0–120 arasında olmalıdır.'); return;
+    showWarningToast(window.i18n.t('pipeline.warn_age')); return;
   }
   if (clinicalMgmt !== null && (clinicalMgmt < 0 || clinicalMgmt > 1)) {
-    showWarningToast('MGMT skoru 0.0–1.0 arasında olmalıdır.'); return;
+    showWarningToast(window.i18n.t('pipeline.warn_mgmt')); return;
   }
   if (clinicalIdh !== null && (clinicalIdh < 0 || clinicalIdh > 1)) {
-    showWarningToast('IDH skoru 0.0–1.0 arasında olmalıdır.'); return;
+    showWarningToast(window.i18n.t('pipeline.warn_idh')); return;
   }
   if (clinicalKps !== null && (clinicalKps < 0 || clinicalKps > 100)) {
-    showWarningToast('KPS 0–100 arasında olmalıdır.'); return;
+    showWarningToast(window.i18n.t('pipeline.warn_kps')); return;
   }
 
-  if (!spatialDir) { showWarningToast('Spatial veri klasörü seçin!'); return; }
-  if (!scrnaPath)  { showWarningToast('scRNA-seq dosyası seçin!'); return; }
-  if (!outputDir)  { showWarningToast('Çıktı klasörü seçin!'); return; }
+  if (!spatialDir) { showWarningToast(window.i18n.t('pipeline.warn_spatial')); return; }
+  if (!scrnaPath)  { showWarningToast(window.i18n.t('pipeline.warn_scrna')); return; }
+  if (!outputDir)  { showWarningToast(window.i18n.t('pipeline.warn_output')); return; }
 
   if (!isPathSafeLocal(spatialDir) || !isPathSafeLocal(scrnaPath) || !isPathSafeLocal(outputDir)) {
-    showWarningToast('Seçilen yollar geçersiz veya güvenli olmayan karakterler içeriyor.');
+    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
     return;
   }
 
   if (!state.backendReady) {
-    showWarningToast('Glio-Cartography bileşenleri henüz hazır değil, lütfen bekleyin.');
+    showWarningToast(window.i18n.t('pipeline.warn_backend_not_ready'));
     return;
   }
 
@@ -103,13 +103,13 @@ async function startPipeline() {
   // Reset stages
   resetStages();
   clearLog();
-  appendLog('🚀 Pipeline başlatılıyor...');
+  appendLog(window.i18n.t('pipeline.log_starting'));
 
   // Klinik meta log
   if (clinicalAge || clinicalMgmt || clinicalIdh || clinicalKps) {
-    appendLog(`📋 Klinik: Yaş=${clinicalAge ?? 'auto'}, MGMT=${clinicalMgmt ?? 'auto'}, IDH=${clinicalIdh ?? 'auto'}, KPS=${clinicalKps ?? 'auto'} [${imputationMode}-case]`);
+    appendLog(window.i18n.t('pipeline.log_clinical_data', { age: clinicalAge ?? 'auto', mgmt: clinicalMgmt ?? 'auto', idh: clinicalIdh ?? 'auto', kps: clinicalKps ?? 'auto', mode: imputationMode }));
   } else {
-    appendLog(`📋 Klinik: Veri girilmedi → ${imputationMode === 'median' ? 'Medyan' : 'En Kötü Senaryo'} imputation uygulanacak`);
+    appendLog(window.i18n.t('pipeline.log_clinical_imputation', { strategy: imputationMode === 'median' ? window.i18n.t('clinical.imputation_median') : window.i18n.t('clinical.imputation_worst') }));
   }
 
   state.pipelineRunning = true;
@@ -121,6 +121,9 @@ async function startPipeline() {
   
   const cancelBtn = document.getElementById('cancel-btn');
   if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+  
+  const returnSetupBtn = document.getElementById('return-setup-btn');
+  if (returnSetupBtn) returnSetupBtn.style.display = 'none';
 
   // Start elapsed timer (clear existing first)
   if (state.elapsedInterval) {
@@ -151,25 +154,32 @@ async function startPipeline() {
       clinical_idh:    clinicalIdh,
       clinical_kps:    clinicalKps,
       imputation_mode: imputationMode,
+      lang:            (window.i18n && window.i18n.lang) || 'tr',
     });
-    appendLog(`ℹ️ ${res.message || 'Başlatıldı'}`);
+    appendLog(`ℹ️ ${res.message || window.i18n.t('pipeline.log_started_status')}`);
     startPolling();
   } catch (e) {
-    appendLog(`❌ Backend başlatma hatası: ${e.message}`);
+    appendLog(`❌ ${window.i18n.t('pipeline.log_backend_error')}: ${e.message}`);
     pipelineDone(false);
   }
 }
 
 
 async function cancelPipeline() {
-  const ok = await customConfirm('⚠️ Analizi İptal Et', 'Analiz iptal edilsin mi?');
+  const isTr = (window.i18n && window.i18n.lang === 'tr');
+  const ok = await customConfirm(
+    window.i18n.t('pipeline.confirm_cancel_title'),
+    window.i18n.t('pipeline.confirm_cancel_desc'),
+    isTr ? 'Evet, İptal Et' : 'Yes, Cancel',
+    window.i18n.t('common.cancel')
+  );
   if (!ok) return;
   
   try {
     await api.backendRequest('/pipeline/cancel', 'POST', {});
-    appendLog('⛔ İptal isteği gönderildi');
+    appendLog(window.i18n.t('pipeline.log_cancel_sent'));
   } catch (e) {
-    appendLog(`❌ İptal hatası: ${e.message}`);
+    appendLog(`❌ ${window.i18n.t('pipeline.log_cancel_error')}: ${e.message}`);
   }
   pipelineDone(false);
 }
@@ -231,8 +241,8 @@ function startPolling() {
       if (pollErrorCount >= 10) {
         clearInterval(state.pollInterval);
         state.pollInterval = null;
-        appendLog(`❌ Bağlantı hatası: Sunucudan yanıt alınamadığı için izleme durduruldu.`);
-        showErrorToast('Sunucu bağlantısı koptu.');
+        appendLog(window.i18n.t('pipeline.log_connection_error'));
+        showErrorToast(window.i18n.t('pipeline.toast_connection_lost'));
         pipelineDone(false);
       }
     } finally {
@@ -251,10 +261,10 @@ async function showPipelineSummary() {
     if (!summary) return;
 
     // Build a compact summary string for the monitor
-    const cells   = summary.scrna_cells   ? `${summary.scrna_cells.toLocaleString()} hücre` : '';
-    const genes   = summary.scrna_genes   ? `${summary.scrna_genes.toLocaleString()} gen` : '';
-    const clusters= summary.scrna_clusters? `${summary.scrna_clusters} küme` : '';
-    const spots   = summary.spatial_spots ? `${summary.spatial_spots.toLocaleString()} spot` : '';
+    const cells   = summary.scrna_cells   ? window.i18n.t('pipeline.summary_cells', { count: summary.scrna_cells.toLocaleString() }) : '';
+    const genes   = summary.scrna_genes   ? window.i18n.t('pipeline.summary_genes', { count: summary.scrna_genes.toLocaleString() }) : '';
+    const clusters= summary.scrna_clusters? window.i18n.t('pipeline.summary_clusters', { count: summary.scrna_clusters }) : '';
+    const spots   = summary.spatial_spots ? window.i18n.t('pipeline.summary_spots', { count: summary.spatial_spots.toLocaleString() }) : '';
 
     const parts = [cells, genes, clusters, spots].filter(Boolean);
     if (parts.length === 0) return;
@@ -265,8 +275,33 @@ async function showPipelineSummary() {
       const statusEl = el.querySelector('.stage-status');
       if (statusEl) statusEl.textContent = `✅ ${parts.join(' · ')}`;
     }
-    appendLog(`📊 Ön İşleme Özeti: scRNA: ${cells} ${genes} ${clusters} | Spatial: ${spots}`);
+    appendLog(window.i18n.t('pipeline.log_preprocessing_summary', { cells, genes, clusters, spots }));
   } catch (_) { /* özet gösterme hatası kritik değil */ }
+}
+
+function findLogOverlap(renderedLines, newLines) {
+  if (renderedLines.length === 0 || newLines.length === 0) return null;
+  const lastRendered = renderedLines[renderedLines.length - 1];
+  let searchIdx = newLines.length - 1;
+  
+  while (searchIdx >= 0) {
+    searchIdx = newLines.lastIndexOf(lastRendered, searchIdx);
+    if (searchIdx === -1) break;
+    
+    let match = true;
+    const checkLength = Math.min(renderedLines.length, searchIdx + 1);
+    for (let i = 0; i < checkLength; i++) {
+      if (renderedLines[renderedLines.length - 1 - i] !== newLines[searchIdx - i]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return searchIdx;
+    }
+    searchIdx--;
+  }
+  return null;
 }
 
 function updateLogs(logs) {
@@ -281,21 +316,48 @@ function updateLogs(logs) {
     return;
   }
 
-  body.innerHTML = '';
-  const fragment = document.createDocumentFragment();
-  
-  logsToRender.forEach(l => {
-    const div = document.createElement('div');
-    div.className = 'log-line' +
-      (l.includes('❌') || l.includes('[ERR]') ? ' error' :
-       l.includes('⚠') ? ' warn' :
-       l.includes('✅') ? ' info' : '');
-    div.textContent = l;
-    fragment.appendChild(div);
-  });
-  
-  body.appendChild(fragment);
-  body.scrollTop = body.scrollHeight;
+  const renderedLines = Array.from(body.children).map(child => child.textContent);
+  const overlapIdx = findLogOverlap(renderedLines, logsToRender);
+
+  if (overlapIdx !== null) {
+    const linesToKeep = overlapIdx + 1;
+    const linesToRemove = renderedLines.length - linesToKeep;
+    for (let i = 0; i < linesToRemove; i++) {
+      if (body.firstChild) {
+        body.removeChild(body.firstChild);
+      }
+    }
+
+    const newLines = logsToRender.slice(overlapIdx + 1);
+    if (newLines.length > 0) {
+      const fragment = document.createDocumentFragment();
+      newLines.forEach(l => {
+        const div = document.createElement('div');
+        div.className = 'log-line' +
+          (l.includes('❌') || l.includes('[ERR]') ? ' error' :
+           l.includes('⚠') ? ' warn' :
+           l.includes('✅') ? ' info' : '');
+        div.textContent = l;
+        fragment.appendChild(div);
+      });
+      body.appendChild(fragment);
+      body.scrollTop = body.scrollHeight;
+    }
+  } else {
+    body.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    logsToRender.forEach(l => {
+      const div = document.createElement('div');
+      div.className = 'log-line' +
+        (l.includes('❌') || l.includes('[ERR]') ? ' error' :
+         l.includes('⚠') ? ' warn' :
+         l.includes('✅') ? ' info' : '');
+      div.textContent = l;
+      fragment.appendChild(div);
+    });
+    body.appendChild(fragment);
+    body.scrollTop = body.scrollHeight;
+  }
 }
 
 function updateMonitor(status) {
@@ -307,14 +369,11 @@ function updateMonitor(status) {
   
   const progressPct = document.getElementById('progress-pct');
   if (progressPct) progressPct.textContent = pct + '%';
-  
-  const progressStageLabel = document.getElementById('progress-stage-label');
-  if (progressStageLabel) progressStageLabel.textContent = status.stage || '';
 
   // Render logs incrementally
   updateLogs(status.logs || []);
 
-  // Stage indicators
+  // Stage indicators — detect active stage first so we can i18n the progress label
   const stageMapping = {
     preprocessing: ['Ön İşleme', 'preprocessing', 'preprocess', 'ön'],
     deconvolution: ['Dekonvolüsyon', 'deconvolution', 'deconv', 'dekonvolüsyon'],
@@ -333,6 +392,22 @@ function updateMonitor(status) {
     }
   }
 
+  // Update progress-stage-label with the i18n-translated stage name
+  // (avoids showing the Python backend's raw language string in the UI)
+  const progressStageLabel = document.getElementById('progress-stage-label');
+  if (progressStageLabel) {
+    const stageI18nKeys = {
+      preprocessing: 'pipeline.stage_preprocessing',
+      deconvolution: 'pipeline.stage_deconvolution',
+      gnn: 'pipeline.stage_gnn',
+      viz: 'pipeline.stage_viz',
+      report: 'pipeline.stage_report'
+    };
+    progressStageLabel.textContent = activeStageId && stageI18nKeys[activeStageId]
+      ? window.i18n.t(stageI18nKeys[activeStageId])
+      : (status.stage || '');
+  }
+
   let foundActive = false;
   const stages = ['preprocessing', 'deconvolution', 'gnn', 'viz', 'report'];
   
@@ -345,13 +420,13 @@ function updateMonitor(status) {
     if (id === activeStageId) {
       foundActive = true;
       el.className = 'stage-item active';
-      if (statusEl) statusEl.textContent = 'Çalışıyor...';
+      if (statusEl) statusEl.textContent = window.i18n.t('pipeline.running');
     } else if (!foundActive) {
       el.className = 'stage-item done';
-      if (statusEl) statusEl.textContent = '✅ Tamamlandı';
+      if (statusEl) statusEl.textContent = window.i18n.t('pipeline.completed_log');
     } else {
       el.className = 'stage-item';
-      if (statusEl) statusEl.textContent = 'Bekliyor';
+      if (statusEl) statusEl.textContent = window.i18n.t('diagnostics.waiting');
     }
   });
 }
@@ -374,21 +449,24 @@ function pipelineDone(success) {
   const cancelBtn = document.getElementById('cancel-btn');
   if (cancelBtn) cancelBtn.style.display = 'none';
   
+  const returnSetupBtn = document.getElementById('return-setup-btn');
+  if (returnSetupBtn) returnSetupBtn.style.display = 'inline-flex';
+  
   const progressBar = document.getElementById('progress-bar');
   if (progressBar) {
     progressBar.style.width = success ? '100%' : progressBar.style.width;
   }
 
   if (success) {
-    appendLog('\n✅ TÜM AŞAMALAR TAMAMLANDI!');
-    appendLog(`📂 Çıktılar: ${state.outputDir}`);
+    appendLog(window.i18n.t('pipeline.log_all_stages_completed'));
+    appendLog(window.i18n.t('pipeline.log_outputs_path', { path: state.outputDir }));
     // Mark all stages done
     ['preprocessing','deconvolution','gnn','viz','report'].forEach(id => {
       const el = document.getElementById(`stage-${id}`);
       if (el) {
         el.className = 'stage-item done';
         const statusEl = el.querySelector('.stage-status');
-        if (statusEl) statusEl.textContent = '✅ Tamamlandı';
+        if (statusEl) statusEl.textContent = window.i18n.t('pipeline.completed_log');
       }
     });
     
@@ -396,19 +474,19 @@ function pipelineDone(success) {
     if (progressPct) progressPct.textContent = '100%';
     
     const progressStageLabel = document.getElementById('progress-stage-label');
-    if (progressStageLabel) progressStageLabel.textContent = '✅ Tamamlandı';
+    if (progressStageLabel) progressStageLabel.textContent = window.i18n.t('pipeline.completed_log');
 
     // Premium Toast success notification instead of confirm popup block
-    showToast('Analiz başarıyla tamamlandı!', 'success');
+    showToast(window.i18n.t('pipeline.toast_analysis_success'), 'success');
   }
 
   console.log(`[Glio] pipelineDone called. success=${success}, document.hidden=${document.hidden}, hasFocus=${document.hasFocus()}`);
 
   // Trigger system notification
   if (success) {
-    sendSystemNotification('Glio-Cartography', 'Analiz başarıyla tamamlandı! Çıktılar ve klinik rapor hazır.');
+    sendSystemNotification('Glio-Cartography', window.i18n.t('pipeline.notify_success'));
   } else {
-    sendSystemNotification('Glio-Cartography', 'Analiz sırasında bir hata oluştu veya işlem durduruldu.');
+    sendSystemNotification('Glio-Cartography', window.i18n.t('pipeline.notify_error'));
   }
 }
 
@@ -418,7 +496,7 @@ function resetStages() {
     if (el) {
       el.className = 'stage-item';
       const statusEl = el.querySelector('.stage-status');
-      if (statusEl) statusEl.textContent = 'Bekliyor';
+      if (statusEl) statusEl.textContent = window.i18n.t('diagnostics.waiting');
     }
   });
   
@@ -429,7 +507,7 @@ function resetStages() {
   if (progressPct) progressPct.textContent = '0%';
   
   const progressStageLabel = document.getElementById('progress-stage-label');
-  if (progressStageLabel) progressStageLabel.textContent = 'Hazır';
+  if (progressStageLabel) progressStageLabel.textContent = window.i18n.t('pipeline.idle');
   
   const elapsedTime = document.getElementById('elapsed-time');
   if (elapsedTime) elapsedTime.textContent = '';
@@ -478,6 +556,11 @@ function selectDeconvMethod(method) {
   // Log label for readability
   const labels = { tangram: 'Tangram', cell2location: 'Cell2Location', stereoscope: 'Stereoscope' };
   console.log(`[Glio] Yöntem seçildi: ${labels[method]}`);
+
+  // Save changes immediately
+  if (typeof saveCurrentSettings === 'function') {
+    saveCurrentSettings();
+  }
 }
 
 // Centralized System Notification Helper (OS-level)

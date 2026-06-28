@@ -1,14 +1,6 @@
 // =============================================================
 // GLIO-CARTOGRAPHY — Backend Process Manager
 // =============================================================
-// Fixes:
-//  - killBackend: SIGTERM → 5s → SIGKILL graceful shutdown.
-//  - killBackend sets backendProcess=null immediately to
-//    prevent double-kill across multiple event handlers.
-//  - killProcessOnPort: uses /R regex on Windows to avoid
-//    matching :58765 when targeting :8765.
-//  - startBackend: uses app.isPackaged to find server.py.
-// =============================================================
 'use strict';
 
 const path = require('path');
@@ -248,12 +240,10 @@ function findPython(store, app) {
 function killProcessOnPort(port) {
   try {
     if (process.platform === 'win32') {
-      // Use /R with a regex pattern that includes a trailing space to prevent
-      // matching port 58765 when looking for port 8765.
-      const output = execSync(`netstat -ano | findstr /R ":${port} "`, { timeout: 3000 })
-        .toString();
+      const output = execSync('netstat -ano', { timeout: 3000 }).toString();
+      const portRegex = new RegExp(`[:\\]]${port}\\s+`);
       for (const line of output.split('\n')) {
-        if (line.includes('LISTENING')) {
+        if (line.includes('LISTENING') && portRegex.test(line)) {
           const parts = line.trim().split(/\s+/);
           const pid = parts[parts.length - 1];
           if (pid && pid !== '0') {
@@ -274,6 +264,73 @@ function killProcessOnPort(port) {
   } catch { /* Port not in use or command not available — normal */ }
 }
 
+// ── Sistem Tanılama (check_env.py) ───────────────────────────
+/**
+ * check_env.py'yi çalıştırır ve sonuçları JSON olarak döndürür.
+ * FastAPI başlatılmadan önce çağrılır.
+ * @param {BrowserWindow|null} mainWindow
+ * @param {object} pythonInfo  — findPython() çıktısı
+ * @param {object} app         — Electron app objesi
+ * @returns {Promise<object>}  — check_env.json içeriği
+ */
+async function runEnvDiagnostics(mainWindow, pythonInfo, app) {
+  return new Promise((resolve) => {
+    if (!pythonInfo || !pythonInfo.bin) {
+      console.warn('[check_env] Python bulunamadı, tanılama atlanıyor.');
+      return resolve({ status: 'skipped', errors: ['Python bulunamadı'] });
+    }
+
+    const checkEnvScript = app.isPackaged
+      ? path.join(app.getAppPath(), 'python_backend', 'check_env.py')
+      : path.join(__dirname, '..', 'python_backend', 'check_env.py');
+
+    const outputJson = app.isPackaged
+      ? path.join(app.getPath('userData'), 'check_env.json')
+      : path.join(__dirname, '..', 'python_backend', 'check_env.json');
+
+    if (!fs.existsSync(checkEnvScript)) {
+      console.warn('[check_env] check_env.py bulunamadı, tanılama atlanıyor.');
+      return resolve({ status: 'skipped', errors: ['check_env.py dosyası bulunamadı'] });
+    }
+
+    const extraPath = getExtendedPath(pythonInfo.bin);
+    const diagProc = spawn(pythonInfo.bin, [checkEnvScript, '--output', outputJson], {
+      env: { ...process.env, PATH: extraPath, PYTHONUNBUFFERED: '1' },
+      stdio: 'pipe',
+      timeout: 30000,
+    });
+
+    let stderr = '';
+    diagProc.stderr.on('data', (d) => { stderr += d.toString(); });
+    diagProc.stdout.on('data', (d) => { console.log('[check_env]', d.toString().trim()); });
+
+    const timer = setTimeout(() => {
+      try { diagProc.kill(); } catch { }
+      console.warn('[check_env] Tanılama zaman aşımına uğradı.');
+      resolve({ status: 'timeout', errors: ['Tanılama 30s zaman aşımı'] });
+    }, 30000);
+
+    diagProc.on('close', () => {
+      clearTimeout(timer);
+      try {
+        if (fs.existsSync(outputJson)) {
+          const report = JSON.parse(fs.readFileSync(outputJson, 'utf8'));
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('env-diagnostics-ready', report);
+          }
+          resolve(report);
+        } else {
+          console.warn('[check_env] check_env.json oluşturulamadı.', stderr);
+          resolve({ status: 'error', errors: ['Tanılama JSON oluşturulamadı'] });
+        }
+      } catch (e) {
+        console.warn('[check_env] JSON parse hatası:', e.message);
+        resolve({ status: 'error', errors: [e.message] });
+      }
+    });
+  });
+}
+
 // ── Backend Spawn ─────────────────────────────────────────────
 function startBackend(mainWindow, store, app) {
   return new Promise((resolve, reject) => {
@@ -287,6 +344,17 @@ function startBackend(mainWindow, store, app) {
       reject(err);
       return;
     }
+
+    // [FAZ B] FastAPI başlamadan önce sistem tanılama çalıştır
+    runEnvDiagnostics(mainWindow, pythonInfo, app)
+      .then((diagReport) => {
+        if (diagReport.errors && diagReport.errors.filter(Boolean).length > 0) {
+          console.warn('[startBackend] Tanılama uyarıları:', diagReport.errors.filter(Boolean));
+        } else {
+          console.log('[startBackend] Sistem tanılama başarılı.');
+        }
+      })
+      .catch((e) => console.warn('[startBackend] Tanılama hatası:', e.message));
 
     console.log(`[startBackend] Spawning: ${pythonInfo.bin} (compiled: ${pythonInfo.compiled})`);
 
@@ -435,6 +503,7 @@ module.exports = {
   verifyPython,
   getExtendedPath,
   killProcessOnPort,
+  runEnvDiagnostics,
   getBackendPort,
   getBackendHost,
   getBackendState,

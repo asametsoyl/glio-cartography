@@ -21,11 +21,10 @@ let glCircleTexture = null;
 
 let _isWebGLSupportedCache = null;
 function isWebGLSupported() {
-  if (_isWebGLSupportedCache !== null) return _isWebGLSupportedCache;
   if (typeof THREE === 'undefined') {
-    _isWebGLSupportedCache = false;
     return false;
   }
+  if (_isWebGLSupportedCache !== null) return _isWebGLSupportedCache;
   try {
     const canvas = document.createElement('canvas');
     const supported = !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
@@ -73,6 +72,24 @@ function clearThreeJSScene() {
     }
     glBgPlane = null;
   }
+}
+
+function getPathwayScore(spot, activePathway) {
+  if (!spot || !spot.pathways) return 0;
+  let key = activePathway;
+  if (!(key in spot.pathways)) {
+    const PATHWAY_MAP = {
+      'PI3K_AKT_mTOR': 'hsa04151',
+      'MAPK_ERK': 'hsa04010',
+      'JAK_STAT': 'hsa04630',
+      'NFkB': 'hsa04064'
+    };
+    const mapped = PATHWAY_MAP[key];
+    if (mapped && (mapped in spot.pathways)) {
+      key = mapped;
+    }
+  }
+  return spot.pathways[key] || 0;
 }
 
 async function reloadBackground() {
@@ -187,6 +204,7 @@ async function loadResults() {
   state._pathwayMin = 0;
   state._pathwayMax = 1;
   state._geneMax = 0.0001;
+  state.cellTypes = null;
 
   // Post-processing of gnnData: convert lr dictionary to lr_pairs array if needed!
   if (state.gnnData && state.gnnData.spots) {
@@ -340,6 +358,12 @@ async function runSimulationKnockout() {
     const url = `/results/simulate-knockout?output_dir=${encodeURIComponent(state.outputDir)}&knockout_type=${target}&simulation_mode=${mode}&regulation_type=${regType}`;
     const res = await api.backendRequest(url, 'GET', {});
 
+    if (!res || res.detail || res.error || !res.mean_shifts) {
+      const errStr = (res && (res.detail || res.error)) || 'Simülasyon başarısız oldu.';
+      showErrorToast(`Simülasyon hatası: ${errStr}`);
+      return;
+    }
+
     state.koMagnitudes = res.magnitudes;
     state.koShifts = res.mean_shifts;
 
@@ -406,8 +430,55 @@ function updateLegend(mode, data) {
       lg.innerHTML += `<div class="legend-item"><div class="legend-color" style="background:${c}"></div><span>${z}</span></div>`;
     });
   } else if (mode === 'celltype') {
-    lg.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;color:var(--text);">Baskın Hücre Tipleri</div>';
-    lg.innerHTML += `<div class="legend-item"><span style="font-size:0.75rem;">(Hücre tipine özgü otomatik renk)</span></div>`;
+    lg.innerHTML = '<div style="font-weight:bold;margin-bottom:8px;color:var(--text);">Baskın Hücre Tipleri</div>';
+    const ctNames = getCellTypes();
+    if (ctNames.length > 0) {
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'grid';
+      wrapper.style.gridTemplateColumns = 'repeat(auto-fill, minmax(140px, 1fr))';
+      wrapper.style.gap = '6px';
+      wrapper.style.marginTop = '8px';
+      wrapper.style.maxHeight = '140px';
+      wrapper.style.overflowY = 'auto';
+      wrapper.style.paddingRight = '4px';
+
+      ctNames.forEach((ctName, idx) => {
+        const hue = (idx * 137) % 360;
+        const color = `hsl(${hue},70%,60%)`;
+        
+        let displayName = ctName.replace(/_/g, ' ');
+        displayName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        item.style.display = 'flex';
+        item.style.alignItems = 'center';
+        item.style.gap = '6px';
+        item.style.fontSize = '0.74rem';
+
+        const colorBox = document.createElement('div');
+        colorBox.className = 'legend-color';
+        colorBox.style.width = '10px';
+        colorBox.style.height = '10px';
+        colorBox.style.borderRadius = '50%';
+        colorBox.style.backgroundColor = color;
+        colorBox.style.flexShrink = '0';
+
+        const label = document.createElement('span');
+        label.textContent = displayName;
+        label.style.whiteSpace = 'nowrap';
+        label.style.overflow = 'hidden';
+        label.style.textOverflow = 'ellipsis';
+        label.style.color = 'var(--text-muted)';
+
+        item.appendChild(colorBox);
+        item.appendChild(label);
+        wrapper.appendChild(item);
+      });
+      lg.appendChild(wrapper);
+    } else {
+      lg.innerHTML += `<div class="legend-item"><span style="font-size:0.75rem;">(Hücre tipine özgü otomatik renk)</span></div>`;
+    }
   } else if (mode === 'lr') {
     lg.innerHTML = '<div style="font-weight:bold;margin-bottom:4px;color:var(--text);">Ligand-Reseptör Etkileşimi</div>';
     lg.innerHTML += `
@@ -440,23 +511,23 @@ function updateLegend(mode, data) {
     lg.innerHTML = `<div style="font-weight:bold;margin-bottom:4px;color:var(--text);">${query} İfadelenmesi</div>`;
     lg.innerHTML += `
       <div class="legend-gradient" style="background: linear-gradient(to right, #4f46e5, #06b6d4, #10b981, #f97316, #ef4444);"></div>
-      <div class="legend-gradient-labels"><span>Düşük</span><span>Yüksek (${(state._geneMax||1.00).toFixed(2)})</span></div>
+      <div class="legend-gradient-labels"><span>${window.i18n.t('visualization.low')}</span><span>${window.i18n.t('visualization.high')} (${(state._geneMax||1.00).toFixed(2)})</span></div>
     `;
   } else if (mode === 'knockout') {
-    lg.innerHTML = '<div style="font-weight:bold;margin-bottom:6px;color:var(--text);display:flex;align-items:center;gap:6px;">🧬 Simülasyon Tedavi Yanıtı</div>';
+    lg.innerHTML = `<div style="font-weight:bold;margin-bottom:6px;color:var(--text);display:flex;align-items:center;gap:6px;">🧬 ${window.i18n.t('visualization.simulation_response')}</div>`;
     lg.innerHTML += `
       <div class="legend-gradient" style="background: linear-gradient(to right, #111827, #34d399);"></div>
-      <div class="legend-gradient-labels" style="margin-bottom:10px;"><span>Etki Yok (0.00)</span><span>Maksimum Etki (1.00)</span></div>
+      <div class="legend-gradient-labels" style="margin-bottom:10px;"><span>${window.i18n.t('visualization.no_effect')} (0.00)</span><span>${window.i18n.t('visualization.max_effect')} (1.00)</span></div>
     `;
     if (state.koText) {
       lg.innerHTML += `
         <div style="margin-top:10px; padding:8px; background:rgba(52, 211, 153, 0.1); border:1px solid rgba(52, 211, 153, 0.3); border-radius:6px; font-size:0.75rem; color:#34d399; line-height:1.3; font-weight:500;">
-          <strong>Klinik Etki Analizi:</strong><br>${state.koText}
+          <strong>${window.i18n.t('visualization.clinical_effect_analysis')}:</strong><br>${state.koText}
         </div>
       `;
     }
     if (state.koShifts && Object.keys(state.koShifts).length > 0) {
-      lg.innerHTML += `<div style="margin-top:8px; font-size:0.72rem; color:var(--text-muted); font-weight:600;">Dokusal Değişim Tahminleri:</div>`;
+      lg.innerHTML += `<div style="margin-top:8px; font-size:0.72rem; color:var(--text-muted); font-weight:600;">${window.i18n.t('visualization.tissue_transition_predictions')}:</div>`;
       Object.entries(state.koShifts).forEach(([z, v]) => {
         if (v !== 0) {
           const color = v > 0 ? '#ef4444' : '#34d399';
@@ -475,6 +546,37 @@ function updateLegend(mode, data) {
 
 // ══════════════════════════════════════════════════════════════
 function renderSpatialCanvas() {
+  const container3D = document.getElementById('spatial-3d-container');
+  const wrapperSingle = document.getElementById('single-map-wrapper');
+  const wrapperSplit = document.getElementById('split-map-wrapper');
+
+  if (state.view3D) {
+    if (wrapperSingle) wrapperSingle.classList.add('hidden');
+    if (wrapperSplit) wrapperSplit.classList.add('hidden');
+    if (container3D) container3D.classList.remove('hidden');
+    if (window.spatial3D) {
+      window.spatial3D.show();
+      window.spatial3D.loadData(getSpotsWithColors());
+    }
+    return;
+  }
+
+  // 2D mode
+  if (container3D) container3D.classList.add('hidden');
+  if (window.spatial3D) window.spatial3D.hide();
+
+  const mode = document.getElementById('view-mode') ? document.getElementById('view-mode').value : 'zone';
+  if (mode === 'knockout' && state.koMagnitudes) {
+    if (wrapperSingle) wrapperSingle.classList.add('hidden');
+    if (wrapperSplit) wrapperSplit.classList.remove('hidden');
+    renderSplitMap();
+    bindSplitPanZoomEvents();
+    return;
+  }
+
+  if (wrapperSplit) wrapperSplit.classList.add('hidden');
+  if (wrapperSingle) wrapperSingle.classList.remove('hidden');
+
   if (isWebGLSupported()) {
     try {
       renderSpatialCanvasWebGL();
@@ -484,6 +586,437 @@ function renderSpatialCanvas() {
     }
   }
   renderSpatialCanvas2D();
+}
+
+function getCellTypes(side = '') {
+  if (side === '') {
+    if (state.cellTypes) return state.cellTypes;
+    const data = state.gnnData;
+    if (!data || !data.spots) return [];
+    const set = new Set();
+    data.spots.forEach(s => {
+      if (s.ct) {
+        Object.keys(s.ct).forEach(k => set.add(k));
+      }
+    });
+    state.cellTypes = Array.from(set).sort();
+    return state.cellTypes;
+  } else {
+    if (state.compareCellTypes) return state.compareCellTypes;
+    const set = new Set();
+    [state.compareDataLeft, state.compareDataRight].forEach(data => {
+      if (data && data.spots) {
+        data.spots.forEach(s => {
+          if (s.ct) {
+            Object.keys(s.ct).forEach(k => set.add(k));
+          }
+        });
+      }
+    });
+    state.compareCellTypes = Array.from(set).sort();
+    return state.compareCellTypes;
+  }
+}
+
+function prepareRiskAndDrugScores(spots, side = '') {
+  if (!spots || spots.length === 0) return;
+  
+  let localRiskMin = Infinity;
+  let localRiskMax = -Infinity;
+  let drugMin = Infinity;
+  let drugMax = -Infinity;
+  
+  spots.forEach(s => {
+    // 1. Local Risk
+    const zones = s.zones || {};
+    const ct = s.ct || {};
+    const pNecrosis = zones['Pseudopalisading Necrosis'] || 0;
+    const pMVP = zones['Microvascular Proliferation'] || 0;
+    const pCT = zones['Cellular Tumor'] || 0;
+    const ctStem = ct['gbm_stem_cell'] || 0;
+    const ctM2 = ct['m2_macrophage'] || 0;
+    const ctMalignant = ct['malignant_tumor'] || 0;
+    const ctTAM = ct['tumor_associated_macrophage'] || 0;
+    const ctExhausted = ct['exhausted_t_cell'] || 0;
+    
+    const localScore = (pNecrosis * 2.5) + (pMVP * 2.0) + (pCT * 1.0) + 
+                        (ctStem * 3.0) + (ctM2 * 2.0) + (ctTAM * 1.5) + (ctMalignant * 1.5) + (ctExhausted * 1.0);
+    s._localRisk = localScore;
+    if (localScore < localRiskMin) localRiskMin = localScore;
+    if (localScore > localRiskMax) localRiskMax = localScore;
+    
+    // 2. Drug Score
+    const ds = s.drug_score || 0;
+    if (ds < drugMin) drugMin = ds;
+    if (ds > drugMax) drugMax = ds;
+  });
+  
+  if (localRiskMin === localRiskMax) {
+    localRiskMin = 0;
+    localRiskMax = 1;
+  }
+  if (drugMin === drugMax) {
+    drugMin = 0;
+    drugMax = 1;
+  }
+  
+  const sorted = [...spots].map(s => s._localRisk).sort((a,b)=>a-b);
+  const medianRisk = sorted[Math.floor(sorted.length / 2)];
+
+  if (side === 'left') {
+    state._localRiskMinLeft = localRiskMin;
+    state._localRiskMaxLeft = localRiskMax;
+    state._drugMinLeft = drugMin;
+    state._drugMaxLeft = drugMax;
+    state._medianRiskLeft = medianRisk;
+  } else if (side === 'right') {
+    state._localRiskMinRight = localRiskMin;
+    state._localRiskMaxRight = localRiskMax;
+    state._drugMinRight = drugMin;
+    state._drugMaxRight = drugMax;
+    state._medianRiskRight = medianRisk;
+  } else {
+    state._localRiskMin = localRiskMin;
+    state._localRiskMax = localRiskMax;
+    state._drugMin = drugMin;
+    state._drugMax = drugMax;
+    state._medianRisk = medianRisk;
+  }
+}
+
+function getSpotsWithColors() {
+  const data = state.gnnData;
+  if (!data || !data.spots) return [];
+  const spots = data.spots;
+  const ZONES = (data.metadata && data.metadata.zones) || [];
+  const mode = document.getElementById('view-mode') ? document.getElementById('view-mode').value : 'zone';
+
+  prepareRiskAndDrugScores(spots);
+
+  if (mode === 'lr') {
+    state._lrMax = 0;
+    spots.forEach(s => {
+      const pairs = s.lr_pairs || [];
+      if (pairs.length > 0) {
+        const mx = Math.max(...pairs.map(p => p.score || 0));
+        if (mx > state._lrMax) state._lrMax = mx;
+      }
+    });
+    if (state._lrMax === 0) state._lrMax = 1;
+  }
+  if (mode === 'pathway') {
+    const activePathway = document.getElementById('filter-pathway') ? document.getElementById('filter-pathway').value : '';
+    state._pathwayMin = Infinity;
+    state._pathwayMax = -Infinity;
+    spots.forEach(s => {
+      const val = getPathwayScore(s, activePathway);
+      if (val < state._pathwayMin) state._pathwayMin = val;
+      if (val > state._pathwayMax) state._pathwayMax = val;
+    });
+    if (state._pathwayMin === state._pathwayMax) {
+      state._pathwayMin = 0;
+      state._pathwayMax = 1;
+    }
+  }
+  if (mode === 'gene') {
+    const filterGene = document.getElementById('filter-gene');
+    const query = ((filterGene ? filterGene.value.trim().toUpperCase() : 'EGFR') || 'EGFR').trim();
+    state._geneMax = 0.0001;
+    spots.forEach(s => {
+      let val = 0.0;
+      if (s.lr) {
+        Object.entries(s.lr).forEach(([k, v]) => {
+          const parts = k.toUpperCase().split('-');
+          if (parts[0] === query || parts[1] === query) {
+            if (v > val) val = v;
+          }
+        });
+      }
+      if (val > state._geneMax) state._geneMax = val;
+    });
+  }
+
+  return spots.map((spot, idx) => {
+    let color = '#888';
+    if (mode === 'zone') {
+      const zoneIdx  = ZONES.map(z => spot.zones[z] || 0);
+      const domZone  = ZONES[zoneIdx.indexOf(Math.max(...zoneIdx))];
+      const zColors  = Object.values(ZONE_COLORS);
+      color = zColors[ZONES.indexOf(domZone) % zColors.length] || '#888';
+    } else if (mode === 'drug') {
+      const ds = spot.drug_score || 0;
+      const denom = (state._drugMax - state._drugMin) || 1;
+      const t = Math.min(Math.max((ds - state._drugMin) / denom, 0), 1);
+      color = interpolateColor('#1a1a2e', '#ff6b6b', t);
+    } else if (mode === 'risk') {
+      const rs = spot._localRisk || 0;
+      const denom = (state._localRiskMax - state._localRiskMin) || 1;
+      const t = Math.min(Math.max((rs - state._localRiskMin) / denom, 0), 1);
+      color = interpolateColor('#2A9D8F', '#E63946', t);
+    } else if (mode === 'celltype') {
+      const ct = spot.ct || {};
+      const dom = Object.entries(ct).sort((a,b)=>b[1]-a[1])[0];
+      const ctNames = getCellTypes();
+      const idx_ct = dom ? Math.max(0, ctNames.indexOf(dom[0])) : 0;
+      const hue = (idx_ct * 137) % 360;
+      color = `hsl(${hue},70%,60%)`;
+    } else if (mode === 'lr') {
+      const lrPairs = spot.lr_pairs || [];
+      const rawLR = lrPairs.length > 0 ? Math.max(...lrPairs.map(p => p.score || 0)) : 0;
+      const t = state._lrMax > 0 ? Math.min(rawLR / state._lrMax, 1) : 0;
+      color = lrPlasmaColor(t);
+    } else if (mode === 'pathway') {
+      const activePathway = document.getElementById('filter-pathway') ? document.getElementById('filter-pathway').value : '';
+      const rawVal = getPathwayScore(spot, activePathway);
+      const denom = (state._pathwayMax - state._pathwayMin) || 1;
+      const t = Math.min(Math.max((rawVal - state._pathwayMin) / denom, 0), 1);
+      color = pathwayPlasmaColor(t);
+    } else if (mode === 'gene') {
+      const filterGene = document.getElementById('filter-gene');
+      const query = ((filterGene ? filterGene.value.trim().toUpperCase() : 'EGFR') || 'EGFR').trim();
+      let geneValue = 0.0;
+      if (spot.lr) {
+        Object.entries(spot.lr).forEach(([k, v]) => {
+          const parts = k.toUpperCase().split('-');
+          if (parts[0] === query || parts[1] === query) {
+            if (v > geneValue) geneValue = v;
+          }
+        });
+      }
+      if (geneValue > 0 && query !== '') {
+        const denom = state._geneMax || 1;
+        const t = Math.min(geneValue / denom, 1.0);
+        color = lrPlasmaColor(t);
+      } else {
+        color = '#1e293b';
+      }
+    } else if (mode === 'knockout') {
+      if (state.koMagnitudes && typeof state.koMagnitudes[idx] !== 'undefined') {
+        const t = state.koMagnitudes[idx];
+        color = interpolateColor('#111827', '#34d399', t);
+      } else {
+        color = '#111827';
+      }
+    }
+
+    if (state.paracrineActive && state.paracrineAffected && state.paracrineAffected.has(spot.id)) {
+      const intensity = state.paracrineAffected.get(spot.id);
+      color = interpolateColor(color, '#00d4ff', intensity);
+    }
+
+    return {
+      ...spot,
+      color: color
+    };
+  });
+}
+
+function renderSplitMap() {
+  const data = state.gnnData;
+  if (!data) return;
+
+  const canvasBefore = document.getElementById('spatial-canvas-before');
+  const canvasAfter = document.getElementById('spatial-canvas-after');
+  if (!canvasBefore || !canvasAfter) return;
+
+  const rectL = canvasBefore.parentElement.getBoundingClientRect();
+  const rectR = canvasAfter.parentElement.getBoundingClientRect();
+  canvasBefore.width = rectL.width || 440;
+  canvasBefore.height = rectL.height || 520;
+  canvasAfter.width = rectR.width || 440;
+  canvasAfter.height = rectR.height || 520;
+
+  const ctxL = canvasBefore.getContext('2d');
+  const ctxR = canvasAfter.getContext('2d');
+
+  if (!state.viewTransform) state.viewTransform = { x: 0, y: 0, k: 1 };
+  const t = state.viewTransform;
+
+  const spots = data.spots;
+  const ZONES = (data.metadata && data.metadata.zones) || [];
+
+  const xs = spots.map(s => s.x * state.spatialScale);
+  const ys = spots.map(s => s.y * state.spatialScale);
+
+  ctxL.fillStyle = '#020509';
+  ctxL.fillRect(0, 0, canvasBefore.width, canvasBefore.height);
+  ctxR.fillStyle = '#020509';
+  ctxR.fillRect(0, 0, canvasAfter.width, canvasAfter.height);
+
+  let offsetX = 0, offsetY = 0, scale = 1.0;
+  const width = canvasBefore.width;
+  const height = canvasBefore.height;
+
+  if (state.bgLoaded && state.bgImage.width > 0) {
+    scale = Math.min(width / state.bgImage.width, height / state.bgImage.height) * 0.95;
+    offsetX = (width - state.bgImage.width * scale) / 2;
+    offsetY = (height - state.bgImage.height * scale) / 2;
+  } else {
+    const minX = xs.reduce((m, v) => Math.min(m, v),  Infinity);
+    const maxX = xs.reduce((m, v) => Math.max(m, v), -Infinity);
+    const minY = ys.reduce((m, v) => Math.min(m, v),  Infinity);
+    const maxY = ys.reduce((m, v) => Math.max(m, v), -Infinity);
+    const pad = 30;
+    const W = width - pad*2, H = height - pad*2;
+    scale = Math.min(W / (maxX - minX + 1e-8), H / (maxY - minY + 1e-8));
+    offsetX = pad - minX * scale;
+    offsetY = pad - minY * scale;
+  }
+
+  state._offsetX = offsetX;
+  state._offsetY = offsetY;
+  state._renderScale = scale;
+
+  if (state.bgLoaded && state.bgImage.width > 0) {
+    ctxL.globalAlpha = 0.5;
+    ctxL.drawImage(state.bgImage, offsetX * t.k + t.x, offsetY * t.k + t.y, state.bgImage.width * scale * t.k, state.bgImage.height * scale * t.k);
+    ctxL.globalAlpha = 1.0;
+
+    ctxR.globalAlpha = 0.5;
+    ctxR.drawImage(state.bgImage, offsetX * t.k + t.x, offsetY * t.k + t.y, state.bgImage.width * scale * t.k, state.bgImage.height * scale * t.k);
+    ctxR.globalAlpha = 1.0;
+  }
+
+  const r = Math.max(2, Math.min(5, 3000 / spots.length)) * (scale > 1 ? scale * 0.5 : 1) * t.k;
+
+  const toCanvas = (x, y) => {
+    const lx = offsetX + (x * state.spatialScale) * scale;
+    const ly = offsetY + (y * state.spatialScale) * scale;
+    return {
+      cx: lx * t.k + t.x,
+      cy: ly * t.k + t.y
+    };
+  };
+
+  spots.forEach((spot, idx) => {
+    const {cx, cy} = toCanvas(spot.x, spot.y);
+
+    // Left (Before) - original zone map color
+    const zoneIdx  = ZONES.map(z => spot.zones[z] || 0);
+    const domZone  = ZONES[zoneIdx.indexOf(Math.max(...zoneIdx))];
+    const zColors  = Object.values(ZONE_COLORS);
+    const colorL = zColors[ZONES.indexOf(domZone) % zColors.length] || '#888';
+
+    // Right (After) - GNN simulation heatmap
+    let colorR = '#111827';
+    let alphaR = 0.15;
+    if (state.koMagnitudes && typeof state.koMagnitudes[idx] !== 'undefined') {
+      const mag = state.koMagnitudes[idx];
+      colorR = interpolateColor('#111827', '#34d399', mag);
+      alphaR = 0.90;
+    }
+
+    // Draw Left spot
+    ctxL.beginPath();
+    ctxL.arc(cx, cy, r, 0, Math.PI * 2);
+    ctxL.fillStyle = colorL;
+    ctxL.globalAlpha = 0.85;
+    ctxL.fill();
+
+    // Draw Right spot
+    ctxR.beginPath();
+    ctxR.arc(cx, cy, r, 0, Math.PI * 2);
+    ctxR.fillStyle = colorR;
+    ctxR.globalAlpha = alphaR;
+    ctxR.fill();
+  });
+
+  ctxL.globalAlpha = 1.0;
+  ctxR.globalAlpha = 1.0;
+
+  updateViewerStats(spots, ZONES);
+  updateLegend('knockout', data);
+}
+
+function bindSplitPanZoomEvents() {
+  const canvasBefore = document.getElementById('spatial-canvas-before');
+  const canvasAfter = document.getElementById('spatial-canvas-after');
+  if (!canvasBefore || !canvasAfter) return;
+
+  if (canvasBefore.dataset.splitEventsBound) return;
+  canvasBefore.dataset.splitEventsBound = "1";
+  canvasAfter.dataset.splitEventsBound = "1";
+
+  const canvases = [canvasBefore, canvasAfter];
+
+  canvases.forEach(canvas => {
+    let isDragging = false;
+    let isMoved = false;
+    let startX, startY;
+    let clickStartX, clickStartY;
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (isDragging || !state.gnnData) return;
+      showSpotTooltip(e, canvas, state.gnnData.spots, (state.gnnData.metadata && state.gnnData.metadata.zones) || [], (x, y) => {
+        const lx = (state._offsetX || 0) + (x * state.spatialScale) * (state._renderScale || 1);
+        const ly = (state._offsetY || 0) + (y * state.spatialScale) * (state._renderScale || 1);
+        return {
+          x: lx * state.viewTransform.k + state.viewTransform.x,
+          y: ly * state.viewTransform.k + state.viewTransform.y
+        };
+      }, Math.max(10, 10 * state.viewTransform.k));
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      const tooltip = document.getElementById('spot-tooltip');
+      if (tooltip) tooltip.classList.add('hidden');
+    });
+
+    canvas.addEventListener('mousedown', e => {
+      isDragging = true;
+      isMoved = false;
+      clickStartX = e.clientX;
+      clickStartY = e.clientY;
+      startX = e.clientX - state.viewTransform.x;
+      startY = e.clientY - state.viewTransform.y;
+      canvasBefore.style.cursor = 'grabbing';
+      canvasAfter.style.cursor = 'grabbing';
+    });
+
+    const onMouseMove = e => {
+      if (!isDragging) return;
+      const dx = e.clientX - clickStartX;
+      const dy = e.clientY - clickStartY;
+      if (Math.hypot(dx, dy) > 5) isMoved = true;
+      state.viewTransform.x = e.clientX - startX;
+      state.viewTransform.y = e.clientY - startY;
+      requestAnimationFrame(renderSpatialCanvas);
+    };
+
+    const onMouseUp = e => {
+      if (isDragging && !isMoved && state.gnnData && e.target === canvas) {
+        handleSpotClick(e, canvas, state.gnnData.spots, (x, y) => {
+          const lx = (state._offsetX || 0) + (x * state.spatialScale) * (state._renderScale || 1);
+          const ly = (state._offsetY || 0) + (y * state.spatialScale) * (state._renderScale || 1);
+          return {
+            x: lx * state.viewTransform.k + state.viewTransform.x,
+            y: ly * state.viewTransform.k + state.viewTransform.y
+          };
+        }, Math.max(10, 10 * state.viewTransform.k));
+      }
+      isDragging = false;
+      canvasBefore.style.cursor = 'grab';
+      canvasAfter.style.cursor = 'grab';
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newK = Math.max(0.5, Math.min(state.viewTransform.k * zoomFactor, 10));
+      const ratio = newK / state.viewTransform.k;
+      state.viewTransform.x = mouseX - (mouseX - state.viewTransform.x) * ratio;
+      state.viewTransform.y = mouseY - (mouseY - state.viewTransform.y) * ratio;
+      state.viewTransform.k = newK;
+      updateZoomBadge();
+      requestAnimationFrame(renderSpatialCanvas);
+    }, { passive: false });
+  });
 }
 
 // ── WebGL/Three.js Spatial Drawing Engine ──────────────────────
@@ -519,6 +1052,28 @@ function renderSpatialCanvasWebGL() {
       alpha: false,
       preserveDrawingBuffer: true
     });
+
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      console.warn('WebGL context lost. Restoring when possible...');
+      if (typeof showToast === 'function') {
+        showToast(window.i18n.t('results.webgl_context_lost') || 'WebGL context lost. Attempting to restore...', 'warning');
+      }
+      glRenderer = null;
+      glScene = null;
+      glCamera = null;
+      glPointsMesh = null;
+      glBgPlane = null;
+      glSceneGroup = null;
+    }, false);
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.log('WebGL context restored. Re-rendering scene...');
+      if (typeof renderSpatialCanvas === 'function') {
+        renderSpatialCanvas();
+      }
+    }, false);
+
     glScene = new THREE.Scene();
     glScene.background = new THREE.Color('#020509');
     glCamera = new THREE.OrthographicCamera(0, cWidth, 0, cHeight, -1000, 1000);
@@ -542,6 +1097,8 @@ function renderSpatialCanvasWebGL() {
   const ZONES = (data.metadata && data.metadata.zones) || [];
   const mode  = document.getElementById('view-mode').value;
 
+  prepareRiskAndDrugScores(spots);
+
   // LR max score calculation
   if (mode === 'lr') {
     state._lrMax = 0;
@@ -561,7 +1118,7 @@ function renderSpatialCanvasWebGL() {
     state._pathwayMin = Infinity;
     state._pathwayMax = -Infinity;
     spots.forEach(s => {
-      const val = (s.pathways && s.pathways[activePathway]) || 0;
+      const val = getPathwayScore(s, activePathway);
       if (val < state._pathwayMin) state._pathwayMin = val;
       if (val > state._pathwayMax) state._pathwayMax = val;
     });
@@ -647,15 +1204,15 @@ function renderSpatialCanvasWebGL() {
   const r = Math.max(2, Math.min(5, 3000 / spots.length)) * (scale > 1 ? scale * 0.5 : 1) * t.k;
   const pointSize = r * 2.2;
 
-  // TCGA Risk Median
-  if (!state._medianRisk && spots.length > 0) {
-    const sorted = [...spots].map(s => s.tcga_risk || 0).sort((a,b)=>a-b);
-    state._medianRisk = sorted[Math.floor(sorted.length / 2)];
-  }
-
   // Re-create points geometry and buffer attributes if first run or data size changed
   const n = spots.length;
-  if (!glPointsMesh) {
+  if (!glPointsMesh || glPointsMesh.geometry.attributes.position.count !== n) {
+    if (glPointsMesh) {
+      glSceneGroup.remove(glPointsMesh);
+      glPointsMesh.geometry.dispose();
+      glPointsMesh.material.dispose();
+      glPointsMesh = null;
+    }
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(n * 3);
     const colors = new Float32Array(n * 3);
@@ -698,18 +1255,22 @@ function renderSpatialCanvasWebGL() {
       colorStr = zColors[ZONES.indexOf(domZone) % zColors.length] || '#888';
     } else if (mode === 'drug') {
       const ds = spot.drug_score || 0;
-      colorStr = interpolateColor('#1a1a2e', '#ff6b6b', ds);
+      const denom = (state._drugMax - state._drugMin) || 1;
+      const t = Math.min(Math.max((ds - state._drugMin) / denom, 0), 1);
+      colorStr = interpolateColor('#1a1a2e', '#ff6b6b', t);
     } else if (mode === 'risk') {
-      const rs = spot.tcga_risk || 0;
+      const rs = spot._localRisk || 0;
       const fRisk = document.getElementById('filter-risk').value;
       if (fRisk === 'high' && rs < state._medianRisk) isFiltered = true;
       if (fRisk === 'low' && rs >= state._medianRisk) isFiltered = true;
-      colorStr = interpolateColor('#2A9D8F', '#E63946', rs);
+      const denom = (state._localRiskMax - state._localRiskMin) || 1;
+      const t = Math.min(Math.max((rs - state._localRiskMin) / denom, 0), 1);
+      colorStr = interpolateColor('#2A9D8F', '#E63946', t);
     } else if (mode === 'celltype') {
       const ct = spot.ct || {};
       const dom = Object.entries(ct).sort((a,b)=>b[1]-a[1])[0];
-      const ctNames = Object.keys(ct);
-      const idx_ct = dom ? ctNames.indexOf(dom[0]) : 0;
+      const ctNames = getCellTypes();
+      const idx_ct = dom ? Math.max(0, ctNames.indexOf(dom[0])) : 0;
       const hue = (idx_ct * 137) % 360;
       colorStr = `hsl(${hue},70%,60%)`;
     } else if (mode === 'lr') {
@@ -719,7 +1280,7 @@ function renderSpatialCanvasWebGL() {
       colorStr = lrPlasmaColor(t);
     } else if (mode === 'pathway') {
       const activePathway = document.getElementById('filter-pathway').value;
-      const rawVal = (spot.pathways && spot.pathways[activePathway]) || 0;
+      const rawVal = getPathwayScore(spot, activePathway);
       const denom = (state._pathwayMax - state._pathwayMin) || 1;
       const t = Math.min(Math.max((rawVal - state._pathwayMin) / denom, 0), 1);
       colorStr = pathwayPlasmaColor(t);
@@ -758,7 +1319,8 @@ function renderSpatialCanvasWebGL() {
       rVal = parseInt(rgbParts[0]) / 255;
       gVal = parseInt(rgbParts[1]) / 255;
       bVal = parseInt(rgbParts[2]) / 255;
-    } else if (_tmpThreeColor) {
+    } else if (typeof THREE !== 'undefined') {
+      if (!_tmpThreeColor) _tmpThreeColor = new THREE.Color();
       _tmpThreeColor.set(colorStr);
       rVal = _tmpThreeColor.r;
       gVal = _tmpThreeColor.g;
@@ -881,7 +1443,7 @@ function renderSpatialCanvasWebGL() {
     canvas.addEventListener('webglcontextlost', e => {
       e.preventDefault();
       console.warn('[WebGL] Context lost — rendering paused. Will attempt restore.');
-      showWarningToast('⚠️ WebGL bağlamı kayboldu. Otomatik yeniden başlatma bekleniyor...');
+      showWarningToast(window.i18n.t('state.webgl_context_lost'));
       glRenderer = null;
       glScene = null;
       glCamera = null;
@@ -915,6 +1477,8 @@ function renderSpatialCanvas2D() {
   const ZONES = (data.metadata && data.metadata.zones) || [];
   const mode  = document.getElementById('view-mode').value;
 
+  prepareRiskAndDrugScores(spots);
+
   if (mode === 'lr') {
     state._lrMax = 0;
     spots.forEach(s => {
@@ -932,7 +1496,7 @@ function renderSpatialCanvas2D() {
     state._pathwayMin = Infinity;
     state._pathwayMax = -Infinity;
     spots.forEach(s => {
-      const val = (s.pathways && s.pathways[activePathway]) || 0;
+      const val = getPathwayScore(s, activePathway);
       if (val < state._pathwayMin) state._pathwayMin = val;
       if (val > state._pathwayMax) state._pathwayMax = val;
     });
@@ -1011,11 +1575,6 @@ function renderSpatialCanvas2D() {
 
   const r = Math.max(2, Math.min(5, 3000 / spots.length)) * (scale > 1 ? scale * 0.5 : 1) * t.k;
 
-  if (!state._medianRisk && spots.length > 0) {
-    const sorted = [...spots].map(s => s.tcga_risk || 0).sort((a,b)=>a-b);
-    state._medianRisk = sorted[Math.floor(sorted.length / 2)];
-  }
-
   spots.forEach((spot, idx) => {
     const {cx, cy} = toCanvas(spot.x, spot.y);
     let color = '#888';
@@ -1028,18 +1587,22 @@ function renderSpatialCanvas2D() {
       color = zColors[ZONES.indexOf(domZone) % zColors.length] || '#888';
     } else if (mode === 'drug') {
       const ds = spot.drug_score || 0;
-      color = interpolateColor('#1a1a2e', '#ff6b6b', ds);
+      const denom = (state._drugMax - state._drugMin) || 1;
+      const t = Math.min(Math.max((ds - state._drugMin) / denom, 0), 1);
+      color = interpolateColor('#1a1a2e', '#ff6b6b', t);
     } else if (mode === 'risk') {
-      const rs = spot.tcga_risk || 0;
+      const rs = spot._localRisk || 0;
       const fRisk = document.getElementById('filter-risk').value;
       if (fRisk === 'high' && rs < state._medianRisk) alpha = 0.05;
       if (fRisk === 'low' && rs >= state._medianRisk) alpha = 0.05;
-      color = interpolateColor('#2A9D8F', '#E63946', rs);
+      const denom = (state._localRiskMax - state._localRiskMin) || 1;
+      const t = Math.min(Math.max((rs - state._localRiskMin) / denom, 0), 1);
+      color = interpolateColor('#2A9D8F', '#E63946', t);
     } else if (mode === 'celltype') {
       const ct = spot.ct || {};
       const dom = Object.entries(ct).sort((a,b)=>b[1]-a[1])[0];
-      const ctNames = Object.keys(ct);
-      const idx_ct = dom ? ctNames.indexOf(dom[0]) : 0;
+      const ctNames = getCellTypes();
+      const idx_ct = dom ? Math.max(0, ctNames.indexOf(dom[0])) : 0;
       const hue = (idx_ct * 137) % 360;
       color = `hsl(${hue},70%,60%)`;
     } else if (mode === 'lr') {
@@ -1049,7 +1612,7 @@ function renderSpatialCanvas2D() {
       color = lrPlasmaColor(t);
     } else if (mode === 'pathway') {
       const activePathway = document.getElementById('filter-pathway').value;
-      const rawVal = (spot.pathways && spot.pathways[activePathway]) || 0;
+      const rawVal = getPathwayScore(spot, activePathway);
       const denom = (state._pathwayMax - state._pathwayMin) || 1;
       const t = Math.min(Math.max((rawVal - state._pathwayMin) / denom, 0), 1);
       color = pathwayPlasmaColor(t);
@@ -1284,8 +1847,7 @@ function lrPlasmaColor(t) { return _plasmaColorRamp(t); }
  */
 function pathwayPlasmaColor(t) { return _plasmaColorRamp(t); }
 
-// ── Singleton THREE.Color for WebGL per-spot color parsing (avoids GC pressure) ──
-const _tmpThreeColor = (typeof THREE !== 'undefined') ? new THREE.Color() : null;
+let _tmpThreeColor = null;
 
 function updateViewerStats(spots, ZONES) {
   const el = document.getElementById('viewer-stats');
@@ -1335,21 +1897,21 @@ function toggleParacrineSimulation() {
     state.paracrineActive = false;
     state.paracrineAffected.clear();
     if (btn) {
-      btn.innerHTML = `<span>📡 Simülasyonu Başlat</span>`;
+      btn.innerHTML = `<span>📡 ${window.i18n.t('visualization.start_simulation')}</span>`;
       btn.style.background = 'linear-gradient(135deg, #7c3aed, #00d4ff)';
     }
     if (resultsDiv) resultsDiv.classList.add('hidden');
     renderSpatialCanvas();
-    showExportSuccessToast("Parakrin simülasyonu durduruldu.");
+    showExportSuccessToast(window.i18n.t("visualization.simulation_stopped"));
   } else {
     state.paracrineActive = true;
     if (btn) {
-      btn.innerHTML = `<span>🛑 Simülasyonu Durdur</span>`;
+      btn.innerHTML = `<span>🛑 ${window.i18n.t('visualization.stop_simulation')}</span>`;
       btn.style.background = 'linear-gradient(135deg, #ef4444, #f97316)';
     }
     if (resultsDiv) resultsDiv.classList.remove('hidden');
     updateParacrineSimulation();
-    showExportSuccessToast("Parakrin yayılım simülasyonu başlatıldı!");
+    showExportSuccessToast(window.i18n.t("visualization.simulation_started"));
   }
 }
 
@@ -1442,7 +2004,7 @@ function updateParacrineSimulation() {
   if (surrImpactEl) surrImpactEl.textContent = `%${surrounding_impact.toFixed(1)}`;
   if (spotsCountEl) spotsCountEl.textContent = `${affectedCount} / ${state.gnnData.spots.length} Spot`;
 
-  const conclusion = `Bu ilaç sadece seçilen spotun %${spot_impact_percent.toFixed(1)}'sini değil, GNN komşuluk matrisine göre çevresindeki infiltrasyon bölgesinin %${surrounding_impact.toFixed(1)}'sini de parakrin olarak baskılar.`;
+  const conclusion = window.i18n.t('visualization.paracrine_conclusion', { spotPct: spot_impact_percent.toFixed(1), surroundingPct: surrounding_impact.toFixed(1) });
   if (conclusionEl) conclusionEl.textContent = conclusion;
 
   renderSpatialCanvas();
@@ -1474,7 +2036,7 @@ function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
   // Update drug badge in simulation panel
   const drugBadge = document.getElementById('para-drug-badge');
   if (drugBadge) {
-    drugBadge.textContent = (clickedSpot.drug && clickedSpot.drug !== 'N/A') ? clickedSpot.drug : 'Standart Terapötik';
+    drugBadge.textContent = (clickedSpot.drug && clickedSpot.drug !== 'N/A') ? clickedSpot.drug : window.i18n.t('visualization.standard_therapeutic');
   }
   
   // Refresh simulation details if already active
@@ -1484,7 +2046,7 @@ function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
     // If not active, hide results container and reset button
     const btn = document.getElementById('btn-para-sim');
     if (btn) {
-      btn.innerHTML = `<span>📡 Simülasyonu Başlat</span>`;
+      btn.innerHTML = `<span>📡 ${window.i18n.t('visualization.start_simulation')}</span>`;
       btn.style.background = 'linear-gradient(135deg, #7c3aed, #00d4ff)';
     }
     const resultsDiv = document.getElementById('para-results');
@@ -1492,7 +2054,7 @@ function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
   }
 
   const card = document.getElementById('spot-details-card');
-  document.getElementById('sd-title').textContent = `Spot #${clickedSpot.id || '?'} Detayları`;
+  document.getElementById('sd-title').textContent = window.i18n.t('results.spot_details_title', { id: clickedSpot.id || '?' });
 
   const ctObj = clickedSpot.ct || {};
   const sortedCT = Object.entries(ctObj).sort((a,b)=>b[1]-a[1]).slice(0, 4);
@@ -1504,16 +2066,16 @@ function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
   const sortedLR = [...lrArr].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0, 5);
   document.getElementById('sd-lr').innerHTML = sortedLR.length ? sortedLR.map(lr => 
     `<li><span>${lr.ligand} → ${lr.receptor}</span> <span style="font-family:var(--mono); color:var(--accent)">${(lr.score||0).toFixed(2)}</span></li>`
-  ).join('') : '<li>Veri yok</li>';
+  ).join('') : `<li>${window.i18n.t('common.no_data')}</li>`;
 
   if (clickedSpot.drug && clickedSpot.drug !== 'N/A') {
     document.getElementById('sd-drug').innerHTML = `
       <div style="font-weight:bold; color:#F4A261">${clickedSpot.drug}</div>
-      <div style="color:var(--text-muted); margin-top:4px;">Hedef: ${clickedSpot.drug_target}</div>
-      <div style="color:var(--text-muted);">Uyum Skoru: ${(clickedSpot.drug_score||0).toFixed(2)}</div>
+      <div style="color:var(--text-muted); margin-top:4px;">${window.i18n.t('results.target')}: ${clickedSpot.drug_target}</div>
+      <div style="color:var(--text-muted);">${window.i18n.t('results.alignment_score')}: ${(clickedSpot.drug_score||0).toFixed(2)}</div>
     `;
   } else {
-    document.getElementById('sd-drug').innerHTML = '<div style="color:var(--text-muted)">Öne çıkan hedef yok</div>';
+    document.getElementById('sd-drug').innerHTML = `<div style="color:var(--text-muted)">${window.i18n.t('results.no_prominent_target')}</div>`;
   }
 
   card.classList.remove('hidden');
@@ -1620,6 +2182,25 @@ function initCompareWebGL(side) {
         alpha: false,
         preserveDrawingBuffer: true
       });
+
+      canvas.addEventListener('webglcontextlost', (event) => {
+        event.preventDefault();
+        console.warn('Split-view left WebGL context lost. Restoring...');
+        glRendererLeft = null;
+        glSceneLeft = null;
+        glCameraLeft = null;
+        glPointsMeshLeft = null;
+        glBgPlaneLeft = null;
+        glSceneGroupLeft = null;
+      }, false);
+
+      canvas.addEventListener('webglcontextrestored', () => {
+        console.log('Split-view left WebGL context restored. Re-rendering...');
+        if (typeof renderCompareCanvas === 'function') {
+          renderCompareCanvas('left');
+        }
+      }, false);
+
       glSceneLeft = new THREE.Scene();
       glSceneLeft.background = new THREE.Color('#020509');
       glCameraLeft = new THREE.OrthographicCamera(0, cWidth, 0, cHeight, -1000, 1000);
@@ -1638,6 +2219,25 @@ function initCompareWebGL(side) {
         alpha: false,
         preserveDrawingBuffer: true
       });
+
+      canvas.addEventListener('webglcontextlost', (event) => {
+        event.preventDefault();
+        console.warn('Split-view right WebGL context lost. Restoring...');
+        glRendererRight = null;
+        glSceneRight = null;
+        glCameraRight = null;
+        glPointsMeshRight = null;
+        glBgPlaneRight = null;
+        glSceneGroupRight = null;
+      }, false);
+
+      canvas.addEventListener('webglcontextrestored', () => {
+        console.log('Split-view right WebGL context restored. Re-rendering...');
+        if (typeof renderCompareCanvas === 'function') {
+          renderCompareCanvas('right');
+        }
+      }, false);
+
       glSceneRight = new THREE.Scene();
       glSceneRight.background = new THREE.Color('#020509');
       glCameraRight = new THREE.OrthographicCamera(0, cWidth, 0, cHeight, -1000, 1000);
@@ -1785,6 +2385,8 @@ function renderCompareWebGL(side) {
   const ZONES = (data.metadata && data.metadata.zones) || [];
   const mode = document.getElementById(`compare-mode-${side}`).value;
 
+  prepareRiskAndDrugScores(spots, side);
+
   // Compute boundaries, scale, and offset
   const xs = spots.map(s => s.x * spatialScale);
   const ys = spots.map(s => s.y * spatialScale);
@@ -1871,7 +2473,7 @@ function renderCompareWebGL(side) {
   const activePathway = pathwaySelect ? pathwaySelect.value : '';
   if (mode === 'pathway') {
     spots.forEach(s => {
-      const val = (s.pathways && s.pathways[activePathway]) || 0;
+      const val = getPathwayScore(s, activePathway);
       if (val < sidePathwayMin) sidePathwayMin = val;
       if (val > sidePathwayMax) sidePathwayMax = val;
     });
@@ -1901,7 +2503,13 @@ function renderCompareWebGL(side) {
 
   // Points Mesh creation
   const n = spots.length;
-  if (!pointsMesh) {
+  if (!pointsMesh || pointsMesh.geometry.attributes.position.count !== n) {
+    if (pointsMesh) {
+      sceneGroup.remove(pointsMesh);
+      pointsMesh.geometry.dispose();
+      pointsMesh.material.dispose();
+      pointsMesh = null;
+    }
     const geometry = new THREE.BufferGeometry();
     const positions = new Float32Array(n * 3);
     const colors = new Float32Array(n * 3);
@@ -1945,15 +2553,23 @@ function renderCompareWebGL(side) {
       colorStr = zColors[ZONES.indexOf(domZone) % zColors.length] || '#888';
     } else if (mode === 'drug') {
       const ds = spot.drug_score || 0;
-      colorStr = interpolateColor('#1a1a2e', '#ff6b6b', ds);
+      const minVal = side === 'left' ? state._drugMinLeft : state._drugMinRight;
+      const maxVal = side === 'left' ? state._drugMaxLeft : state._drugMaxRight;
+      const denom = (maxVal - minVal) || 1;
+      const tVal = Math.min(Math.max((ds - minVal) / denom, 0), 1);
+      colorStr = interpolateColor('#1a1a2e', '#ff6b6b', tVal);
     } else if (mode === 'risk') {
-      const rs = spot.tcga_risk || 0;
-      colorStr = interpolateColor('#2A9D8F', '#E63946', rs);
+      const rs = spot._localRisk || 0;
+      const minVal = side === 'left' ? state._localRiskMinLeft : state._localRiskMinRight;
+      const maxVal = side === 'left' ? state._localRiskMaxLeft : state._localRiskMaxRight;
+      const denom = (maxVal - minVal) || 1;
+      const tVal = Math.min(Math.max((rs - minVal) / denom, 0), 1);
+      colorStr = interpolateColor('#2A9D8F', '#E63946', tVal);
     } else if (mode === 'celltype') {
       const ct = spot.ct || {};
       const dom = Object.entries(ct).sort((a,b)=>b[1]-a[1])[0];
-      const ctNames = Object.keys(ct);
-      const idx_ct = dom ? ctNames.indexOf(dom[0]) : 0;
+      const ctNames = getCellTypes('compare');
+      const idx_ct = dom ? Math.max(0, ctNames.indexOf(dom[0])) : 0;
       const hue = (idx_ct * 137) % 360;
       colorStr = `hsl(${hue},70%,60%)`;
     } else if (mode === 'lr') {
@@ -1962,7 +2578,7 @@ function renderCompareWebGL(side) {
       const tVal = sideLRMax > 0 ? Math.min(rawLR / sideLRMax, 1) : 0;
       colorStr = lrPlasmaColor(tVal);
     } else if (mode === 'pathway') {
-      const rawVal = (spot.pathways && spot.pathways[activePathway]) || 0;
+      const rawVal = getPathwayScore(spot, activePathway);
       const denom = (sidePathwayMax - sidePathwayMin) || 1;
       const tVal = Math.min(Math.max((rawVal - sidePathwayMin) / denom, 0), 1);
       colorStr = pathwayPlasmaColor(tVal);
@@ -1994,7 +2610,8 @@ function renderCompareWebGL(side) {
       rVal = parseInt(rgbParts[0]) / 255;
       gVal = parseInt(rgbParts[1]) / 255;
       bVal = parseInt(rgbParts[2]) / 255;
-    } else if (_tmpThreeColor) {
+    } else if (typeof THREE !== 'undefined') {
+      if (!_tmpThreeColor) _tmpThreeColor = new THREE.Color();
       _tmpThreeColor.set(colorStr);
       rVal = _tmpThreeColor.r;
       gVal = _tmpThreeColor.g;
@@ -2040,6 +2657,8 @@ function renderCompareCanvas2D(side) {
   const spots = data.spots;
   const ZONES = (data.metadata && data.metadata.zones) || [];
   const mode = document.getElementById(`compare-mode-${side}`).value;
+
+  prepareRiskAndDrugScores(spots, side);
 
   const bgImage = side === 'left' ? state.bgImageLeft : state.bgImageRight;
   const bgLoaded = side === 'left' ? state.bgLoadedLeft : state.bgLoadedRight;
@@ -2107,7 +2726,7 @@ function renderCompareCanvas2D(side) {
   const activePathway = pathwaySelect ? pathwaySelect.value : '';
   if (mode === 'pathway') {
     spots.forEach(s => {
-      const val = (s.pathways && s.pathways[activePathway]) || 0;
+      const val = getPathwayScore(s, activePathway);
       if (val < sidePathwayMin) sidePathwayMin = val;
       if (val > sidePathwayMax) sidePathwayMax = val;
     });
@@ -2150,15 +2769,23 @@ function renderCompareCanvas2D(side) {
       colorStr = zColors[ZONES.indexOf(domZone) % zColors.length] || '#888';
     } else if (mode === 'drug') {
       const ds = spot.drug_score || 0;
-      colorStr = interpolateColor('#1a1a2e', '#ff6b6b', ds);
+      const minVal = side === 'left' ? state._drugMinLeft : state._drugMinRight;
+      const maxVal = side === 'left' ? state._drugMaxLeft : state._drugMaxRight;
+      const denom = (maxVal - minVal) || 1;
+      const tVal = Math.min(Math.max((ds - minVal) / denom, 0), 1);
+      colorStr = interpolateColor('#1a1a2e', '#ff6b6b', tVal);
     } else if (mode === 'risk') {
-      const rs = spot.tcga_risk || 0;
-      colorStr = interpolateColor('#2A9D8F', '#E63946', rs);
+      const rs = spot._localRisk || 0;
+      const minVal = side === 'left' ? state._localRiskMinLeft : state._localRiskMinRight;
+      const maxVal = side === 'left' ? state._localRiskMaxLeft : state._localRiskMaxRight;
+      const denom = (maxVal - minVal) || 1;
+      const tVal = Math.min(Math.max((rs - minVal) / denom, 0), 1);
+      colorStr = interpolateColor('#2A9D8F', '#E63946', tVal);
     } else if (mode === 'celltype') {
       const ct = spot.ct || {};
       const dom = Object.entries(ct).sort((a,b)=>b[1]-a[1])[0];
-      const ctNames = Object.keys(ct);
-      const idx_ct = dom ? ctNames.indexOf(dom[0]) : 0;
+      const ctNames = getCellTypes('compare');
+      const idx_ct = dom ? Math.max(0, ctNames.indexOf(dom[0])) : 0;
       const hue = (idx_ct * 137) % 360;
       colorStr = `hsl(${hue},70%,60%)`;
     } else if (mode === 'lr') {
@@ -2167,7 +2794,7 @@ function renderCompareCanvas2D(side) {
       const tVal = sideLRMax > 0 ? Math.min(rawLR / sideLRMax, 1) : 0;
       colorStr = lrPlasmaColor(tVal);
     } else if (mode === 'pathway') {
-      const rawVal = (spot.pathways && spot.pathways[activePathway]) || 0;
+      const rawVal = getPathwayScore(spot, activePathway);
       const denom = (sidePathwayMax - sidePathwayMin) || 1;
       const tVal = Math.min(Math.max((rawVal - sidePathwayMin) / denom, 0), 1);
       colorStr = pathwayPlasmaColor(tVal);
@@ -2496,12 +3123,12 @@ function verifyCompareMetadata() {
     banner.style.background = 'rgba(16,185,129,0.08)';
     banner.style.borderColor = 'rgba(16,185,129,0.25)';
     if (iconEl) iconEl.textContent = '✅';
-    if (titleEl) titleEl.textContent = `Aynı Hasta Doğrulandı: ${pidLeft}`;
+    if (titleEl) titleEl.textContent = window.i18n.t('cohort.same_patient_verified', { id: pidLeft });
   } else {
     banner.style.background = 'rgba(239,68,68,0.08)';
     banner.style.borderColor = 'rgba(239,68,68,0.25)';
     if (iconEl) iconEl.textContent = '⚠️';
-    if (titleEl) titleEl.textContent = `Farklı Hasta Profilleri Karşılaştırılıyor: ${pidLeft} vs ${pidRight}`;
+    if (titleEl) titleEl.textContent = window.i18n.t('cohort.different_patients_compared', { idLeft: pidLeft, idRight: pidRight });
   }
 
   // Semantic Timepoint Analysis helper
@@ -2509,16 +3136,16 @@ function verifyCompareMetadata() {
     const textToSearch = `${prof.name} ${prof.spatial} ${prof.output}`.toLowerCase();
     
     if (/rekürren|recurrent|relapse|nüks|t2/i.test(textToSearch)) {
-      return 'Rekürren Tümör';
+      return window.i18n.t('cohort.recurrent_tumor');
     }
     if (/post|sonra|tedavi|treatment|sim|simulation/i.test(textToSearch)) {
-      return 'Tedavi Sonrası / Simülasyon';
+      return window.i18n.t('cohort.post_treatment_simulation');
     }
     if (/pre|once|önce|kontrol|control|baseline/i.test(textToSearch)) {
-      return 'Tedavi Öncesi / Kontrol';
+      return window.i18n.t('cohort.pre_treatment_control');
     }
     if (/primer|primary|initial|ilk|t1/i.test(textToSearch)) {
-      return 'Primer Tümör';
+      return window.i18n.t('cohort.primary_tumor');
     }
     return '';
   };
@@ -2528,14 +3155,14 @@ function verifyCompareMetadata() {
 
   let subtitleText = '';
   if (leftTimepoint && rightTimepoint) {
-    subtitleText = `Sol: ${leftTimepoint}  ·  Sağ: ${rightTimepoint}`;
+    subtitleText = `${window.i18n.t('cohort.left')}: ${leftTimepoint}  ·  ${window.i18n.t('cohort.right')}: ${rightTimepoint}`;
     if (leftTimepoint === rightTimepoint) {
-      subtitleText += ' (Aynı Durum Karşılaştırması)';
+      subtitleText += ' ' + window.i18n.t('cohort.same_state_comparison');
     } else {
-      subtitleText += ' (Farklı Zaman Noktaları)';
+      subtitleText += ' ' + window.i18n.t('cohort.different_timepoints');
     }
   } else {
-    subtitleText = `Sol Profil: "${profLeft.name}"  ·  Sağ Profil: "${profRight.name}"`;
+    subtitleText = `${window.i18n.t('cohort.left_profile')}: "${profLeft.name}"  ·  ${window.i18n.t('cohort.right_profile')}: "${profRight.name}"`;
   }
 
   if (subEl) subEl.textContent = subtitleText;
@@ -2555,7 +3182,7 @@ function verifyCompareMetadata() {
   const spotsLeft = state.compareDataLeft ? state.compareDataLeft.spots.length : 0;
   const spotsRight = state.compareDataRight ? state.compareDataRight.spots.length : 0;
   if (diffEl) {
-    diffEl.textContent = `Sol: ${spotsLeft} Spot | Sağ: ${spotsRight} Spot`;
+    diffEl.textContent = `${window.i18n.t('cohort.left')}: ${spotsLeft} Spot | ${window.i18n.t('cohort.right')}: ${spotsRight} Spot`;
   }
 
   banner.classList.remove('hidden');

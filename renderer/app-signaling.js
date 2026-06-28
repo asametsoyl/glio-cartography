@@ -83,7 +83,7 @@ function setupNewFeatures() {
   // 2. Populate Cell Type checkboxes in Signaling Panel safely without innerHTML templates
   const ctList = (data.metadata && (data.metadata.cell_types || data.metadata.ct_names)) || [];
   if (ctList.length === 0) {
-    showWarningToast('Hücre tipi listesi alınamadı. Sinyalleşme analizi devre dışı.');
+    showWarningToast(window.i18n.t('signaling.warn_no_celltypes'));
   }
 
   const ctContainer = document.getElementById('signaling-ct-checkboxes');
@@ -201,13 +201,13 @@ function renderSignalingDiagram() {
   const commData = state.gnnData.cell_cell_communication || {};
   const lrSelect = document.getElementById('signaling-lr-select');
   if (!lrSelect) {
-    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">L-R seçimi için gerekli bileşen bulunamadı.</text>`;
+    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">${window.i18n.t('signaling.no_lr_components')}</text>`;
     return;
   }
   
   const lrPair = lrSelect.value;
   if (!lrPair || !commData[lrPair]) {
-    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">Seçili L-R çifti için veri bulunamadı.</text>`;
+    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">${window.i18n.t('signaling.no_data_for_lr')}</text>`;
     return;
   }
   
@@ -218,7 +218,7 @@ function renderSignalingDiagram() {
   const activeCTs = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
   
   if (activeCTs.length < 2) {
-    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">Lütfen en az 2 hücre tipi seçin.</text>`;
+    svg.innerHTML = `<text x="0" y="0" text-anchor="middle" fill="var(--text-muted)">${window.i18n.t('signaling.select_min_celltypes')}</text>`;
     return;
   }
   
@@ -345,7 +345,7 @@ function renderSignalingDiagram() {
     // Hover event for sector safely escaped
     path.addEventListener('mouseover', (e) => {
       highlightSector(ct);
-      showChordTooltip(e, `<strong>${escapeHtml(ct)}</strong><br>Toplam Etkileşim Gücü: ${ctTotals[ct].toFixed(3)}`);
+      showChordTooltip(e, `<strong>${escapeHtml(ct)}</strong><br>${window.i18n.t('signaling.total_interaction_strength')}: ${ctTotals[ct].toFixed(3)}`);
     });
     path.addEventListener('mousemove', (e) => {
       moveChordTooltip(e);
@@ -493,14 +493,14 @@ function renderSignalingDiagram() {
       if (a === b) {
         tooltipContent = `
           <strong>${escapeHtml(a)} (Kendi Kendine)</strong><br>
-          Etkileşim Gücü: ${ab_val.toFixed(4)}
+          ${window.i18n.t('signaling.interaction_strength')}: ${ab_val.toFixed(4)}
         `;
       } else {
         tooltipContent = `
-          <strong>${escapeHtml(a)} ⇄ ${escapeHtml(b)} İletişimi</strong><br>
+          <strong>${escapeHtml(a)} ⇄ ${escapeHtml(b)} " + window.i18n.t('signaling.communication')</strong><br>
           <span style="color:#00d4ff">${escapeHtml(a)} → ${escapeHtml(b)}:</span> ${ab_val.toFixed(4)}<br>
           <span style="color:#ff6b6b">${escapeHtml(b)} → ${escapeHtml(a)}:</span> ${ba_val.toFixed(4)}<br>
-          <strong>Toplam Güç:</strong> ${w.toFixed(4)}
+          <strong>${window.i18n.t('signaling.total_strength')}:</strong> ${w.toFixed(4)}
         `;
       }
       
@@ -652,14 +652,14 @@ function drawContrastChart(containerId, title, data) {
 // 4.3 — INTERACTIVE L-R CATALOG OVERLAY MODAL LOGIC
 // ══════════════════════════════════════════════════════════════
 async function openLrCatalogModal() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
   
   const modal = document.getElementById('lr-catalog-modal');
   if (!modal) return;
   
   // Show loading state in table
   const tbody = document.getElementById('lr-catalog-tbody');
-  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:var(--text-muted);">🧬 L-R Kataloğu yükleniyor...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:var(--text-muted);">${window.i18n.t('signaling.lr_catalog_loading')}</td></tr>`;
   modal.classList.remove('hidden');
   
   try {
@@ -669,7 +669,7 @@ async function openLrCatalogModal() {
     
     populateLrCatalogTable(state.lrCatalogData);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:var(--danger);">❌ Katalog yüklenemedi: ${escapeHtml(e.message || e)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:var(--danger);">❌ ${window.i18n.t('signaling.catalog_load_failed')}: ${escapeHtml(e.message || e)}</td></tr>`;
   }
 }
 
@@ -688,12 +688,12 @@ function populateLrCatalogTable(data) {
     const td = document.createElement('td');
     td.setAttribute('colspan', '5');
     td.style.cssText = 'text-align:center; padding:32px; color:var(--text-muted);';
-    td.textContent = 'Hiçbir etkileşim bulunamadı.';
+    td.textContent = window.i18n.t('signaling.no_interactions_found');
     tr.appendChild(td);
     tbody.appendChild(tr);
     
     const counter = document.getElementById('lr-catalog-counter');
-    if (counter) counter.textContent = 'Toplam: 0 etkileşim gösteriliyor';
+    if (counter) counter.textContent = window.i18n.t('signaling.total_interactions_showing', { count: 0 });
     return;
   }
   
@@ -748,7 +748,7 @@ function populateLrCatalogTable(data) {
     const tdDrug = document.createElement('td');
     tdDrug.style.cssText = 'padding:14px 16px; line-height:1.3;';
     
-    const isTargeted = item.drug && item.drug !== 'Yok / Araştırma Safhası';
+    const isTargeted = item.drug && item.drug !== window.i18n.t('signaling.no_treatment_research');
     if (isTargeted) {
       const drugSpan = document.createElement('span');
       drugSpan.style.cssText = 'color:#00d4ff; font-weight:700;';
@@ -774,7 +774,7 @@ function populateLrCatalogTable(data) {
     const btn = document.createElement('button');
     btn.className = 'btn-secondary';
     btn.style.cssText = 'padding:5px 10px; font-size:0.75rem; font-weight:700; border-radius:6px; border-color:var(--accent); color:var(--accent); cursor:pointer;';
-    btn.textContent = '🎯 Seç & Çiz';
+    btn.textContent = window.i18n.t('signaling.select_plot_btn');
     
     const key = `${item.ligand}-${item.receptor}`;
     btn.addEventListener('click', () => {
@@ -784,7 +784,7 @@ function populateLrCatalogTable(data) {
     const btnPathway = document.createElement('button');
     btnPathway.className = 'btn-primary';
     btnPathway.style.cssText = 'padding:5px 10px; font-size:0.75rem; font-weight:700; border-radius:6px; cursor:pointer;';
-    btnPathway.textContent = '🧬 Yol Yolağı';
+    btnPathway.textContent = window.i18n.t('signaling.pathway_btn');
     btnPathway.addEventListener('click', () => {
       openPathwayEnrichmentModal(item.ligand, item.receptor);
     });
@@ -799,7 +799,7 @@ function populateLrCatalogTable(data) {
   tbody.appendChild(fragment);
   
   const counter = document.getElementById('lr-catalog-counter');
-  if (counter) counter.textContent = `Toplam: ${data.length} etkileşim gösteriliyor`;
+  if (counter) counter.textContent = window.i18n.t('signaling.total_interactions_showing', { count: data.length });
 }
 
 function filterLrCatalog() {
@@ -848,7 +848,7 @@ function selectLrFromCatalog(lrKey) {
     renderSignalingDiagram();
   }
   closeLrCatalogModal();
-  showExportSuccessToast(`${lrKey} seçildi ve uzamsal diyagram çizildi!`);
+  showExportSuccessToast(window.i18n.t('signaling.toast_lr_selected_plotted', { key: lrKey }));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -856,7 +856,7 @@ function selectLrFromCatalog(lrKey) {
 // ══════════════════════════════════════════════════════════════
 
 async function openPathwayEnrichmentModal(ligand, receptor) {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
   
   const modal = document.getElementById('pathway-enrichment-modal');
   if (!modal) return;
@@ -906,7 +906,7 @@ async function openPathwayEnrichmentModal(ligand, receptor) {
       }
     }
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px; color:var(--danger);">❌ Analiz başarısız oldu: ${escapeHtml(e.message || e)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px; color:var(--danger);">❌ ${window.i18n.t('pipeline.error')}: ${escapeHtml(e.message || e)}</td></tr>`;
   }
 }
 
@@ -917,7 +917,7 @@ async function rerunPathwayEnrichment() {
   if (tbody) {
     const zoneEl = document.getElementById('pathway-zone-select');
     const zoneLabel = zoneEl ? (zoneEl.options[zoneEl.selectedIndex]?.text || '') : '';
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">🧬 ${zoneLabel || 'Tüm Tümör'} için yeniden analiz ediliyor...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">🧬 ${zoneLabel ? window.i18n.t('signaling.reanalyzing_for_zone', { zone: zoneLabel }) : window.i18n.t('signaling.reanalyzing_for_all_tumor')}</td></tr>`;
   }
   await openPathwayEnrichmentModal(lig, rec);
 }
@@ -985,7 +985,7 @@ function renderPathwayTable(results, ligand, receptor) {
   if (selectElement) selectElement.innerHTML = '';
 
   if (!results || results.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">Anlamlı şekilde zenginleşmiş yolak bulunamadı.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:32px; color:var(--text-muted);">${window.i18n.t('signaling.no_enriched_pathways_found')}</td></tr>`;
     return;
   }
 
@@ -1014,7 +1014,7 @@ function renderPathwayTable(results, ligand, receptor) {
       <td style="padding:12px 16px; text-align:right; font-family:var(--mono); font-size:0.85rem; color:${path.pvalue < 0.01 ? '#10b981' : 'var(--text-dim)'};">${path.pvalue.toExponential(3)}</td>
       <td style="padding:12px 16px; text-align:right; font-family:var(--mono); font-size:0.85rem; color:${path.fdr_qvalue < 0.05 ? '#00d4ff' : 'var(--text-dim)'}; font-weight:${path.fdr_qvalue < 0.05 ? '700' : 'normal'};">${path.fdr_qvalue.toExponential(3)}</td>
       <td style="padding:12px 16px; text-align:center;">
-        <button class="btn-secondary" style="padding:4px 8px; font-size:0.7rem; font-weight:700; border-radius:4px;" onclick="visualizeSpecificPathway('${path.id}')">🔍 İncele</button>
+        <button class="btn-secondary" style="padding:4px 8px; font-size:0.7rem; font-weight:700; border-radius:4px;" onclick="visualizeSpecificPathway('${path.id}')">${window.i18n.t('common.inspect')}</button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1189,7 +1189,7 @@ function renderPathwayNetwork(pathwayId) {
     setTimeout(() => { cy.resize(); cy.fit(); }, 200);
   } catch (err) {
     console.error('Cytoscape error:', err);
-    cyContainer.innerHTML = `<p style="padding: 24px; text-align:center; color:var(--text-muted);">Etkileşimli network yüklenemedi: ${err.message || err}</p>`;
+    cyContainer.innerHTML = `<p style="padding: 24px; text-align:center; color:var(--text-muted);">${window.i18n.t('signaling.interactive_network_load_failed')}: ${err.message || err}</p>`;
   }
 }
 
@@ -1201,12 +1201,12 @@ function renderPathwayMap(pathwayId, ligand, receptor) {
   img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   
   if (pathwayId && pathwayId.startsWith('GO:')) {
-    loader.innerHTML = 'ℹ️ Gene Ontology (GO) terimleri için görsel KEGG haritası bulunmamaktadır. Lütfen "Etkileşimli Network" sekmesini kullanın.';
+    loader.innerHTML = 'ℹ️ ' + window.i18n.t('signaling.no_kegg_for_go');
     loader.classList.remove('hidden');
     return;
   }
 
-  loader.innerHTML = '⏳ Biyolojik harita yükleniyor...';
+  loader.innerHTML = window.i18n.t('signaling.kegg_map_loading');
   loader.classList.remove('hidden');
 
   const zoneEl = document.getElementById('pathway-zone-select');
@@ -1222,7 +1222,7 @@ function renderPathwayMap(pathwayId, ligand, receptor) {
   };
   
   img.onerror = () => {
-    loader.innerHTML = '❌ Biyolojik harita overlay oluşturulamadı';
+    loader.innerHTML = window.i18n.t('signaling.kegg_overlay_failed');
   };
 }
 
@@ -1291,28 +1291,28 @@ function populatePathwayDrugs(results) {
   tbody.innerHTML = '';
 
   if (!results || results.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">Druggable downstream gen bulunamadı.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">${window.i18n.t('signaling.no_druggable_genes_found')}</td></tr>`;
     return;
   }
 
   // Predefined list of druggable genes in glioblastoma pathways
   const DRUGGABLE_DOWNSTREAM_CATALOG = {
-    "AKT1": { "drug": "Ipatasertib", "mechanism": "AKT Kinaz İnhibitörü", "status": "Klinik Deneme (Faz II)" },
-    "AKT2": { "drug": "Ipatasertib", "mechanism": "AKT Kinaz İnhibitörü", "status": "Klinik Deneme (Faz II)" },
-    "MTOR": { "drug": "Everolimus / Temsirolimus", "mechanism": "mTORC1 Kompleks Blokajı", "status": "Klinik Deneme (Faz II/III)" },
-    "EGFR": { "drug": "Erlotinib / Lapatinib", "mechanism": "Reseptör Tirozin Kinaz İnhibitörü", "status": "FDA Onaylı (Çeşitli Kanserler)" },
-    "MET": { "drug": "Crizotinib / Cabozantinib", "mechanism": "HGFR / MET Tirozin Kinaz Blokajı", "status": "Klinik Deneme (Faz II)" },
-    "KDR": { "drug": "Cabozantinib / Regorafenib", "mechanism": "VEGFR2 Reseptör İnhibisyonu", "status": "Klinik Deneme (Faz III)" },
-    "FLT1": { "drug": "Regorafenib", "mechanism": "Multikinaz / VEGFR1 İnhibitörü", "status": "Klinik Deneme (Faz II)" },
-    "JAK1": { "drug": "Ruxolitinib", "mechanism": "JAK1/JAK2 Sinyal İletim İnhibitörü", "status": "Klinik Deneme (Faz I/II)" },
-    "JAK2": { "drug": "Ruxolitinib", "mechanism": "JAK1/JAK2 Sinyal İletim İnhibitörü", "status": "Klinik Deneme (Faz I/II)" },
-    "STAT3": { "drug": "Napabucasin", "mechanism": "STAT3 Transkripsiyon İnhibitörü", "status": "Klinik Deneme (Faz II)" },
-    "PTEN": { "drug": "VO-Ohpic", "mechanism": "PTEN Aktivatörü / Pro-apoptotik", "status": "Araştırma Aşaması" },
-    "PDCD1": { "drug": "Pembrolizumab", "mechanism": "Anti-PD-1 Checkpoint Blokajı", "status": "FDA Onaylı" },
-    "CD274": { "drug": "Atezolizumab", "mechanism": "Anti-PD-L1 Checkpoint Blokajı", "status": "FDA Onaylı" },
+    "AKT1": { "drug": "Ipatasertib", "mechanism": window.i18n.t("drugs.akt_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
+    "AKT2": { "drug": "Ipatasertib", "mechanism": window.i18n.t("drugs.akt_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
+    "MTOR": { "drug": "Everolimus / Temsirolimus", "mechanism": window.i18n.t("drugs.mtor_blockade"), "status": window.i18n.t("drugs.phase_2_3") },
+    "EGFR": { "drug": "Erlotinib / Lapatinib", "mechanism": window.i18n.t("drugs.rtk_inhibitor"), "status": window.i18n.t("drugs.fda_approved_various") },
+    "MET": { "drug": "Crizotinib / Cabozantinib", "mechanism": window.i18n.t("drugs.hgfr_blockade"), "status": window.i18n.t("drugs.phase_2") },
+    "KDR": { "drug": "Cabozantinib / Regorafenib", "mechanism": window.i18n.t("drugs.vegfr2_inhibition"), "status": window.i18n.t("drugs.phase_3") },
+    "FLT1": { "drug": "Regorafenib", "mechanism": window.i18n.t("drugs.multikinase_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
+    "JAK1": { "drug": "Ruxolitinib", "mechanism": window.i18n.t("drugs.jak_inhibitor"), "status": window.i18n.t("drugs.phase_1_2") },
+    "JAK2": { "drug": "Ruxolitinib", "mechanism": window.i18n.t("drugs.jak_inhibitor"), "status": window.i18n.t("drugs.phase_1_2") },
+    "STAT3": { "drug": "Napabucasin", "mechanism": window.i18n.t("drugs.stat3_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
+    "PTEN": { "drug": "VO-Ohpic", "mechanism": window.i18n.t("drugs.pten_activator"), "status": window.i18n.t("drugs.research_stage") },
+    "PDCD1": { "drug": "Pembrolizumab", "mechanism": window.i18n.t("drugs.anti_pd1"), "status": window.i18n.t("drugs.fda_approved") },
+    "CD274": { "drug": "Atezolizumab", "mechanism": "Anti-PD-L1 Checkpoint Blokajı", "status": window.i18n.t("drugs.fda_approved") },
     "CD44": { "drug": "RG7356", "mechanism": "Anti-CD44 Monoklonal Antikor", "status": "Klinik Deneme (Faz I)" },
-    "MMP2": { "drug": "Marimastat", "mechanism": "Geniş Spektrumlu MMP İnhibitörü", "status": "Tarihsel Referans" },
-    "MMP9": { "drug": "Marimastat", "mechanism": "Geniş Spektrumlu MMP İnhibitörü", "status": "Tarihsel Referans" }
+    "MMP2": { "drug": "Marimastat", "mechanism": window.i18n.t("drugs.broad_spectrum_mmp_inhibitor"), "status": "Tarihsel Referans" },
+    "MMP9": { "drug": "Marimastat", "mechanism": window.i18n.t("drugs.broad_spectrum_mmp_inhibitor"), "status": "Tarihsel Referans" }
   };
 
   const matchedTargets = [];
@@ -1338,7 +1338,7 @@ function populatePathwayDrugs(results) {
   });
 
   if (matchedTargets.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">Yolaklarda druggable downstream hedef eşleşmesi bulunamadı.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">${window.i18n.t("signaling.no_druggable_downstream_match")}</td></tr>`;
     return;
   }
 
@@ -1468,7 +1468,7 @@ function populateSignalingStatsTable(pairData, activeCTs) {
   interactions.sort((a, b) => b.score - a.score);
 
   if (interactions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">Seçilen hücre tipleri arasında aktif iletişim skoru bulunamadı.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">${window.i18n.t("signaling.no_active_communication")}</td></tr>`;
     return;
   }
 
@@ -1484,11 +1484,11 @@ function populateSignalingStatsTable(pairData, activeCTs) {
     if (inter.score > maxScore * 0.75) {
       stars = '<span style="color:#f2c94c; font-weight:bold;">★★★</span> <span style="font-size:0.75rem; color:#f2c94c;">(Kritik)</span>';
     } else if (inter.score > maxScore * 0.4) {
-      stars = '<span style="color:#00d4ff; font-weight:bold;">★★</span> <span style="font-size:0.75rem; color:#00d4ff;">(Yüksek)</span>';
+      stars = `<span style="color:#00d4ff; font-weight:bold;">★★</span> <span style="font-size:0.75rem; color:#00d4ff;">${window.i18n.t('signaling.level_high')}</span>`;
     } else if (inter.score > maxScore * 0.1) {
       stars = '<span style="color:#a78bfa; font-weight:bold;">★</span> <span style="font-size:0.75rem; color:#a78bfa;">(Orta)</span>';
     } else {
-      stars = '<span style="color:var(--text-muted); font-size:0.75rem;">Zayıf</span>';
+      stars = `<span style="color:var(--text-muted); font-size:0.75rem;">${window.i18n.t('signaling.level_weak')}</span>`;
     }
 
     tr.innerHTML = `

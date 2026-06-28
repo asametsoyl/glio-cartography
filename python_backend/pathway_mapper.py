@@ -213,25 +213,29 @@ def calculate_pathway_enrichment(adata, ligand: str, receptor: str) -> list[dict
     db = load_pathway_db()
     results = []
 
-    universe_genes = set(adata.var_names)
-    deg_set = set(degs)
+    gene_casing_map = {g.upper(): g for g in adata.var_names}
+    universe_genes = set(gene_casing_map.keys())
+    deg_set = set(g.upper() for g in degs)
 
     M = len(universe_genes) # Total universe size
     N = len(deg_set)       # Total study/DEGs size
 
     for path in db.get("pathways", []):
-        path_genes = set(path["genes"])
+        path_genes = set(g.upper() for g in path["genes"])
         
         # Genes in pathway that are present in our dataset
         K_genes = path_genes.intersection(universe_genes)
         K = len(K_genes)
 
         # Overlapping DEGs in this pathway
-        overlap_genes = deg_set.intersection(K_genes)
-        x = len(overlap_genes)
+        overlap_genes_upper = deg_set.intersection(K_genes)
+        x = len(overlap_genes_upper)
 
         if x == 0:
             continue
+
+        # Map back to original casing of the dataset
+        overlap_genes = [gene_casing_map[g] for g in overlap_genes_upper]
 
         # Contingency table:
         #            In Pathway   Not In Pathway
@@ -398,19 +402,24 @@ def calculate_zonal_pathway_enrichment(
 
     db = load_pathway_db()
     results = []
-    universe_genes = set(adata.var_names)
-    deg_set = set(degs)
+    gene_casing_map = {g.upper(): g for g in adata.var_names}
+    universe_genes = set(gene_casing_map.keys())
+    deg_set = set(g.upper() for g in degs)
     M = len(universe_genes)
     N = len(deg_set)
 
     for path in db.get("pathways", []):
-        path_genes = set(path["genes"])
+        path_genes = set(g.upper() for g in path["genes"])
         K_genes = path_genes.intersection(universe_genes)
         K = len(K_genes)
-        overlap_genes = deg_set.intersection(K_genes)
-        x = len(overlap_genes)
+        overlap_genes_upper = deg_set.intersection(K_genes)
+        x = len(overlap_genes_upper)
         if x == 0:
             continue
+        
+        # Map back to original casing of the dataset
+        overlap_genes = [gene_casing_map[g] for g in overlap_genes_upper]
+        
         table = [[x, N - x], [K - x, M - K - (N - x)]]
         oddsratio, pval = fisher_exact(table, alternative='greater')
         results.append({

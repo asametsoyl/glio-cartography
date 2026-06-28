@@ -8,6 +8,8 @@ import scipy.sparse as sp
 import yaml
 import shutil
 import traceback
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
 
 # ── Project Path & PyInstaller Support ───────────────────────
 if getattr(sys, 'frozen', False):
@@ -19,8 +21,40 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from loguru import logger
+import locale_logger
 import scanpy as sc
 import squidpy as sq
+
+# Pydantic Config Validation Schemas
+class ScrnaPreprocessingConfig(BaseModel):
+    min_genes: int = 200
+    min_cells: int = 3
+    max_genes: int = 8000
+    max_mito_pct: float = 20.0
+    n_top_genes: int = 3000
+    n_pcs: int = 50
+    n_neighbors: int = 15
+    leiden_resolution: float = 0.8
+
+class SpatialPreprocessingConfig(BaseModel):
+    min_counts: int = 1000
+    min_genes: int = 300
+    max_counts: int = 40000
+    max_mito_pct: float = 25.0
+    n_top_genes: int = 3000
+
+class PreprocessingConfig(BaseModel):
+    scrna: ScrnaPreprocessingConfig = Field(default_factory=ScrnaPreprocessingConfig)
+    spatial: SpatialPreprocessingConfig = Field(default_factory=SpatialPreprocessingConfig)
+
+class CellCycleConfig(BaseModel):
+    s_genes: List[str] = Field(default_factory=list)
+    g2m_genes: List[str] = Field(default_factory=list)
+
+class GlobalConfig(BaseModel):
+    preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
+    cell_cycle: CellCycleConfig = Field(default_factory=CellCycleConfig)
+    cell_markers: Dict[str, List[str]] = Field(default_factory=dict)
 
 # Use verbosity 2 for detailed Scanpy logging (warnings and info)
 sc.settings.verbosity = 2
@@ -34,6 +68,38 @@ def report_progress(percent):
     print(json.dumps({"stage": "preprocessing", "status": "running", "progress": percent}))
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Stage 1: Preprocessing")
+    parser.add_argument("--config_path", type=str, default=None, help="Path to config.yaml")
+    parser.add_argument("--species", type=str, default="human", help="Species (e.g. human or mouse)")
+    args, unknown = parser.parse_known_args()
+
+    config_path_str = args.config_path or os.environ.get("GLIO_CONFIG_PATH")
+    if config_path_str:
+        config_path = Path(config_path_str)
+    else:
+        # Fallback search paths
+        candidates = [
+            PROJECT_ROOT / "configs" / "config.yaml",
+            PROJECT_ROOT / "desktop_app" / "configs" / "config.yaml",
+            Path("configs/config.yaml"),
+            Path("desktop_app/configs/config.yaml")
+        ]
+        config_path = next((c for c in candidates if c.exists()), None)
+
+    # Load and validate config
+    config = GlobalConfig()
+    if config_path and config_path.exists():
+        try:
+            with open(config_path) as f:
+                raw_cfg = yaml.safe_load(f) or {}
+            config = GlobalConfig(**raw_cfg)
+            logger.info(f"   Config loaded and validated via Pydantic: {config_path}")
+        except Exception as e:
+            logger.warning(f"   Config validation failed ({e}), using default parameters.")
+    else:
+        logger.warning(f"   Config file not found, using default parameters.")
+
     try:
         SCRNA_PATH  = Path(os.environ["GLIO_SCRNA_PATH"])
         SPATIAL_DIR = Path(os.environ["GLIO_SPATIAL_DIR"])
@@ -126,11 +192,12 @@ def main():
     adata_sc.var_names_make_unique()
 
     # Gen Filtresi: %1'den küçük görünmeyen genleri at
-    min_cells_threshold = max(10, int(adata_sc.n_obs * 0.01))
+    min_cells_cfg = config.preprocessing.scrna.min_cells
+    min_cells_threshold = max(min_cells_cfg, int(adata_sc.n_obs * 0.01))
     sc.pp.filter_genes(adata_sc, min_cells=min_cells_threshold)
 
     # Hücre Filtresi: Probe kalitesi
-    sc.pp.filter_cells(adata_sc, min_genes=200)
+    sc.pp.filter_cells(adata_sc, min_genes=config.preprocessing.scrna.min_genes)
 
     # MT, Ribo, ve Hemoglobin
     adata_sc.var["mt"] = adata_sc.var_names.str.upper().str.startswith("MT-")
@@ -141,7 +208,8 @@ def main():
     # Adaptif Doublet (MAD) Filtresi (gen sayısına dayalı basit filtre)
     median_genes = np.median(adata_sc.obs['n_genes_by_counts'])
     mad_genes = stats.median_abs_deviation(adata_sc.obs['n_genes_by_counts'])
-    max_genes = median_genes + 3 * mad_genes
+    max_genes_limit = config.preprocessing.scrna.max_genes
+    max_genes = min(max_genes_limit, median_genes + 3 * mad_genes)
     logger.info(f"   Doublet filtering using MAD: max_genes={max_genes:.2f} (median={median_genes:.2f}, MAD={mad_genes:.2f})")
     logger.warning("   [QC Uyarı] Doublet tespiti yalnızca gen sayı sınırına dayanmaktadır. Büyük/hiperaktif hücreler etkilenebilir.")
     adata_sc = adata_sc[adata_sc.obs['n_genes_by_counts'] < max_genes, :].copy()
@@ -149,7 +217,8 @@ def main():
     # Adaptif Mitochondrial Filtresi (MAD bazlı, 5% - 15% arası clamp edilmiş)
     median_mt = np.median(adata_sc.obs['pct_counts_mt'])
     mad_mt = stats.median_abs_deviation(adata_sc.obs['pct_counts_mt'])
-    max_mt = np.clip(median_mt + 3 * mad_mt, 5.0, 15.0)
+    max_mito_pct_cfg = config.preprocessing.scrna.max_mito_pct
+    max_mt = np.clip(median_mt + 3 * mad_mt, 5.0, max_mito_pct_cfg)
     logger.info(f"   scRNA MT filtering threshold: {max_mt:.2f}% (median={median_mt:.2f}%, MAD={mad_mt:.2f}%)")
     adata_sc = adata_sc[adata_sc.obs.pct_counts_mt < max_mt].copy()
 
@@ -195,7 +264,7 @@ def main():
 
     batch_key = 'batch' if 'batch' in adata_sc.obs.columns else None
     try:
-        sc.pp.highly_variable_genes(adata_sc, flavor="seurat", n_top_genes=3000, batch_key=batch_key)
+        sc.pp.highly_variable_genes(adata_sc, flavor="seurat", n_top_genes=config.preprocessing.scrna.n_top_genes, batch_key=batch_key)
     except Exception as e_hvg_seurat:
         try:
             sc.pp.highly_variable_genes(adata_sc, flavor="cell_ranger", n_top_genes=3000, batch_key=batch_key)
@@ -218,8 +287,8 @@ def main():
     adata_sc_hvg = adata_sc[:, adata_sc.var.highly_variable].copy()
 
     # Cell Cycle Scoring and Regression
-    s_genes = ['MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2', 'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'HELLS', 'RFC2', 'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76', 'SLBP', 'CCNE2', 'UBR7', 'POLD3', 'MSH2', 'ATAD2', 'RAD51', 'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN', 'DSCC1', 'BLM', 'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8']
-    g2m_genes = ['HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A', 'NDC80', 'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF', 'TACC3', 'SMC4', 'CCNB2', 'CENPE', 'AURKB', 'CCNB1', 'ECT2', 'CENPA', 'CDC20', 'TTK', 'CDC25C', 'KIF20B', 'PLK1', 'CEP55', 'PRC1', 'KIF2C', 'KIF11', 'KIF23', 'SMC2', 'DIAPH3', 'HMMR', 'KIF15', 'LBR', 'SFPQ', 'ANLN', 'ANP32E', 'G2E3', 'GAS2L3', 'NCAPD2', 'NCAPH', 'NCAPG']
+    s_genes = config.cell_cycle.s_genes or ['MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2', 'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'HELLS', 'RFC2', 'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76', 'SLBP', 'CCNE2', 'UBR7', 'POLD3', 'MSH2', 'ATAD2', 'RAD51', 'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN', 'DSCC1', 'BLM', 'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8']
+    g2m_genes = config.cell_cycle.g2m_genes or ['HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A', 'NDC80', 'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF', 'TACC3', 'SMC4', 'CCNB2', 'CENPE', 'AURKB', 'CCNB1', 'ECT2', 'CENPA', 'CDC20', 'TTK', 'CDC25C', 'KIF20B', 'PLK1', 'CEP55', 'PRC1', 'KIF2C', 'KIF11', 'KIF23', 'SMC2', 'DIAPH3', 'HMMR', 'KIF15', 'LBR', 'SFPQ', 'ANLN', 'ANP32E', 'G2E3', 'GAS2L3', 'NCAPD2', 'NCAPH', 'NCAPG']
 
     # Case-insensitive matching so it works with 'Mcm5' (mouse) and 'MCM5' (human)
     var_names_upper = {g.upper(): g for g in adata_sc.var_names}
@@ -309,20 +378,11 @@ def main():
     logger.info(f"   Spatial shape: {adata_sp.shape}")
 
     # ── Spatial QC (v5.1) ───────────────────────────────────────
-    config_path = PROJECT_ROOT / "configs" / "config.yaml"
-    min_counts = 1000
-    min_genes = 300
-    max_counts = 40000
-    try:
-        with open(config_path) as f:
-            cfg = yaml.safe_load(f)
-        sp_cfg = cfg.get("preprocessing", {}).get("spatial", {})
-        min_counts = sp_cfg.get("min_counts", 1000)
-        min_genes = sp_cfg.get("min_genes", 300)
-        max_counts = sp_cfg.get("max_counts", 40000)
-        logger.info(f"   Loaded QC config: min_counts={min_counts}, min_genes={min_genes}, max_counts={max_counts}")
-    except Exception as e:
-        logger.warning(f"   Config load failed ({e}), using defaults.")
+    min_counts = config.preprocessing.spatial.min_counts
+    min_genes = config.preprocessing.spatial.min_genes
+    max_counts = config.preprocessing.spatial.max_counts
+    max_mito_pct = config.preprocessing.spatial.max_mito_pct
+    logger.info(f"   Loaded spatial QC config: min_counts={min_counts}, min_genes={min_genes}, max_counts={max_counts}, max_mito_pct={max_mito_pct}")
 
     adata_sp.var_names_make_unique()
 
@@ -335,6 +395,9 @@ def main():
     sc.pp.filter_cells(adata_sp, min_counts=min_counts)
     sc.pp.filter_cells(adata_sp, max_counts=max_counts)
     adata_sp = adata_sp[adata_sp.obs.n_genes_by_counts >= min_genes, :].copy()
+    
+    # Filter spatial cells by mitochondrial percentage from config
+    adata_sp = adata_sp[adata_sp.obs.pct_counts_mt < max_mito_pct, :].copy()
     report_progress(70)
 
     # ── Normalize Spatial ────────────────────────────────────────

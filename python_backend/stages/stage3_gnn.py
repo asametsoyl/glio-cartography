@@ -30,7 +30,11 @@ GNN_EPOCHS    = int(os.environ.get("GLIO_GNN_EPOCHS", "100"))
 RUN_OPTUNA    = os.environ.get("GLIO_RUN_OPTUNA", "0") == "1"
 OPTUNA_TRIALS = int(os.environ.get("GLIO_OPTUNA_TRIALS", "5"))
 
+GLIO_LANG = os.environ.get("GLIO_LANG", "tr").lower()
+is_english = (GLIO_LANG == "en")
+
 from loguru import logger
+import locale_logger
 import anndata as ad
 import numpy as np
 import torch
@@ -152,19 +156,21 @@ def main():
     # ── Evaluate ─────────────────────────────────────────────────
     model.eval()
     with torch.no_grad():
-        ct_pred, zone_pred, surv_pred, drug_pred, emb = model(data)
+        ct_pred, zone_pred, surv_pred, drug_pred, emb, _ = model(data)
 
     zone_np = F.softmax(zone_pred, dim=-1).cpu().numpy()
     surv_np = surv_pred.cpu().numpy()
     drug_np = drug_pred.cpu().numpy()
 
     # ── Verify test mask and compute MSE ─────────────────────────
-    if not hasattr(data, 'test_mask') or data.test_mask is None or data.test_mask.sum().item() == 0:
+    has_test_mask = 'test_mask' in data['spot'] and data['spot'].test_mask is not None and data['spot'].test_mask.sum().item() > 0
+    if not has_test_mask:
         logger.warning("   Test maskesi boş veya tanımlanmamış — MSE ve korelasyonlar hesaplanamadı.")
         test_mse = float('nan')
     else:
-        pred_test = ct_pred[data.test_mask]
-        y_test = data.y[data.test_mask]
+        test_mask = data['spot'].test_mask
+        pred_test = ct_pred[test_mask]
+        y_test = data['spot'].y[test_mask]
         if pred_test.shape != y_test.shape:
             raise ValueError(f"Şekil uyuşmazlığı: GNN hücre tipi tahmini {pred_test.shape} ve gerçek dekonvolüsyon değerleri {y_test.shape} uyuşmuyor!")
         test_mse = F.mse_loss(pred_test, y_test).item()
@@ -172,7 +178,14 @@ def main():
 
     # ── Save model + arrays ──────────────────────────────────────
     try:
+        try:
+            from safetensors.torch import save_file
+            save_file(model.state_dict(), gnn_out / "glio_gnn_v3.safetensors")
+            logger.info("   Model saved in safetensors format.")
+        except ImportError:
+            pass
         torch.save(model.state_dict(), gnn_out / "glio_gnn_v3.pt")
+
         np.save(gnn_out / "zone_predictions.npy",    zone_np)
         np.save(gnn_out / "celltype_predictions.npy", ct_pred.cpu().numpy())
         np.save(gnn_out / "survival_predictions.npy", surv_np)
@@ -194,9 +207,10 @@ def main():
 
     # ── Summary & Correlations ───────────────────────────────────
     corrs = {}
-    if hasattr(data, 'test_mask') and data.test_mask is not None and data.test_mask.sum().item() > 0:
-        ct_p = ct_pred[data.test_mask].cpu().numpy()
-        ct_t = data.y[data.test_mask].cpu().numpy()
+    if has_test_mask:
+        test_mask = data['spot'].test_mask
+        ct_p = ct_pred[test_mask].cpu().numpy()
+        ct_t = data['spot'].y[test_mask].cpu().numpy()
         for i, ct in enumerate(ct_names):
             try:
                 # Check for zero variance to avoid pearsonr/spearmanr exceptions
@@ -219,12 +233,13 @@ def main():
         "correlations": corrs,
         "zones": ZONE_NAMES,
         "ct_names": ct_names,
-        "n_spots": int(data.x.shape[0]),
+        "n_spots": int(data['spot'].x.shape[0]),
         "n_epochs_trained": len(hist.get("train", [])),
         "cfg_epochs": cfg.get("epochs", GNN_EPOCHS),
         "cfg": cfg,
         "deconv_method": deconv_method,
-        "device": device_str
+        "device": device_str,
+        "loss_scale_factors": model.loss_scale_factors.detach().cpu().tolist() if hasattr(model, 'loss_scale_factors') and model.loss_scale_factors is not None else None
     }
     try:
         (gnn_out / "gnn_summary.json").write_text(json.dumps(summary, indent=2), encoding='utf-8')
@@ -234,9 +249,9 @@ def main():
     # ── Training plot ─────────────────────────────────────────────
     try:
         fig, axes = plt.subplots(1, 2, figsize=(14, 5), facecolor='#0d1117')
-        axes[0].plot(hist.get('train', []), color='#E63946', label='Train')
-        axes[0].plot(hist.get('val', []),   color='#457B9D', label='Val')
-        axes[0].set_title('Train vs Val Loss', color='white')
+        axes[0].plot(hist.get('train', []), color='#E63946', label='Train' if is_english else 'Eğitim')
+        axes[0].plot(hist.get('val', []),   color='#457B9D', label='Val' if is_english else 'Doğrulama')
+        axes[0].set_title('Train vs Val Loss' if is_english else 'Eğitim vs Doğrulama Kaybı', color='white')
         axes[0].set_facecolor('#1a1a2e')
         axes[0].tick_params(colors='white')
         axes[0].legend(facecolor='#1a1a2e', labelcolor='white')
@@ -248,7 +263,7 @@ def main():
             if comp_values:
                 axes[1].plot(comp_values, label=key.upper(), color=clr)
         
-        axes[1].set_title('Loss Bileşenleri', color='white')
+        axes[1].set_title('Loss Components' if is_english else 'Kaybın Bileşenleri', color='white')
         axes[1].set_facecolor('#1a1a2e')
         axes[1].tick_params(colors='white')
         axes[1].legend(facecolor='#1a1a2e', labelcolor='white')
@@ -305,8 +320,10 @@ def main():
                 valid_genes.append(arr)
         if valid_genes:
             total_valid_genes_found += len(valid_genes)
-            zscored = np.stack([(g - g.mean()) / (g.std() + 1e-8) for g in valid_genes])
-            zone_scores[:, z_idx] = np.mean(zscored, axis=0)
+            valid_arr = np.stack(valid_genes)
+            zscored = (valid_arr - valid_arr.mean(axis=1, keepdims=True)) / (valid_arr.std(axis=1, keepdims=True) + 1e-8)
+            zone_scores[:, z_idx] = zscored.mean(axis=0)
+
         else:
             zone_scores[:, z_idx] = -1e6  # very low probability logit
 
@@ -367,15 +384,24 @@ def main():
             cm = confusion_matrix(y_true_core, y_pred_core, labels=labels)
             row_sums_cm = cm.sum(axis=1, keepdims=True).astype(float)
             cm_perc = np.divide(cm.astype(float) * 100, row_sums_cm, out=np.zeros_like(cm, dtype=float), where=row_sums_cm > 0)
+
+            zone_label_mapping = {
+                "Pseudopalisading Necrosis": "Pseudopalisading Necrosis" if is_english else "Yalancı Palisadlı Nekroz",
+                "Microvascular Proliferation": "Microvascular Proliferation" if is_english else "Mikrovasküler Proliferasyon",
+                "Cellular Tumor": "Cellular Tumor" if is_english else "Hücresel Tümör",
+                "Leading Edge": "Leading Edge" if is_english else "Tümör Sınırı",
+                "Infiltrating Tumor": "Infiltrating Tumor" if is_english else "İnfiltratif Tümör"
+            }
+            mapped_zones = [zone_label_mapping.get(z, z) for z in ZONE_NAMES]
             
             try:
                 fig, axes = plt.subplots(1, 2, figsize=(20, 8), facecolor='#0d1117')
-                sns.heatmap(cm_perc, annot=True, fmt='.1f', cmap='viridis', xticklabels=[z.replace(' ', '\n') for z in ZONE_NAMES], yticklabels=ZONE_NAMES, ax=axes[0])
+                sns.heatmap(cm_perc, annot=True, fmt='.1f', cmap='viridis', xticklabels=[z.replace(' ', '\n') for z in mapped_zones], yticklabels=mapped_zones, ax=axes[0])
                 axes[0].set_title(f"Accuracy: %{acc*100:.1f} | Macro F1: {macro_f1:.3f} | Weighted F1: {weighted_f1:.3f}", color='white')
                 axes[0].tick_params(colors='white')
                 
-                sns.heatmap(cm, annot=True, fmt='d', cmap='plasma', xticklabels=[z.replace(' ', '\n') for z in ZONE_NAMES], yticklabels=ZONE_NAMES, ax=axes[1])
-                axes[1].set_title("Mutlak Spot Sayıları (Core Spotlar)", color='white')
+                sns.heatmap(cm, annot=True, fmt='d', cmap='plasma', xticklabels=[z.replace(' ', '\n') for z in mapped_zones], yticklabels=mapped_zones, ax=axes[1])
+                axes[1].set_title("Absolute Spot Counts (Core Spots)" if is_english else "Mutlak Spot Sayıları (Core Spotlar)", color='white')
                 axes[1].tick_params(colors='white')
                 
                 plt.tight_layout()

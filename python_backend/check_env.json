@@ -1,0 +1,154 @@
+{
+  "timestamp": "2026-06-26T12:22:14.811910+00:00",
+  "platform": "Darwin 25.4.0 (arm64)",
+  "status": "error",
+  "python": {
+    "ok": true,
+    "version": "3.10.20",
+    "required": "3.10+",
+    "error": null
+  },
+  "accelerator": {
+    "cuda": {
+      "available": false,
+      "version": null,
+      "device_count": 0,
+      "devices": []
+    },
+    "mps": {
+      "available": true
+    },
+    "cpu_only": false
+  },
+  "libraries": {
+    "required": {
+      "scanpy": {
+        "display": "scanpy",
+        "ok": true,
+        "version": "1.11.5",
+        "min_version": "1.9.0",
+        "error": null
+      },
+      "squidpy": {
+        "display": "squidpy",
+        "ok": true,
+        "version": "1.6.5",
+        "min_version": "1.2.0",
+        "error": null
+      },
+      "torch": {
+        "display": "PyTorch",
+        "ok": true,
+        "version": "2.10.0",
+        "min_version": "2.0.0",
+        "error": null
+      },
+      "torch_geometric": {
+        "display": "PyG",
+        "ok": true,
+        "version": "2.8.0",
+        "min_version": "2.3.0",
+        "error": null
+      },
+      "fastapi": {
+        "display": "FastAPI",
+        "ok": true,
+        "version": "0.138.0",
+        "min_version": "0.100.0",
+        "error": null
+      },
+      "anndata": {
+        "display": "AnnData",
+        "ok": true,
+        "version": "0.11.4",
+        "min_version": "0.9.0",
+        "error": null
+      },
+      "numpy": {
+        "display": "NumPy",
+        "ok": true,
+        "version": "2.2.6",
+        "min_version": "1.23.0",
+        "error": null
+      },
+      "pandas": {
+        "display": "Pandas",
+        "ok": true,
+        "version": "2.3.3",
+        "min_version": "1.5.0",
+        "error": null
+      },
+      "scipy": {
+        "display": "SciPy",
+        "ok": true,
+        "version": "1.15.2",
+        "min_version": "1.10.0",
+        "error": null
+      },
+      "sklearn": {
+        "display": "scikit-learn",
+        "ok": true,
+        "version": "1.7.2",
+        "min_version": "1.2.0",
+        "error": null
+      }
+    },
+    "optional": {
+      "tangram": {
+        "display": "Tangram-sc",
+        "ok": true,
+        "version": "1.0.4",
+        "error": null
+      },
+      "cell2location": {
+        "display": "cell2location",
+        "ok": true,
+        "version": "0.1.5",
+        "error": null
+      },
+      "optuna": {
+        "display": "Optuna",
+        "ok": true,
+        "version": "4.9.0",
+        "error": null
+      },
+      "psutil": {
+        "display": "psutil",
+        "ok": true,
+        "version": "7.2.2",
+        "error": null
+      },
+      "loguru": {
+        "display": "Loguru",
+        "ok": true,
+        "version": "0.7.3",
+        "error": null
+      },
+      "uvicorn": {
+        "display": "Uvicorn",
+        "ok": true,
+        "version": "0.49.0",
+        "error": null
+      }
+    },
+    "all_required_ok": true,
+    "errors": []
+  },
+  "port": {
+    "port": 8765,
+    "available": false,
+    "error": "Port 8765 is busy (active connection succeeded)"
+  },
+  "ram": {
+    "available_gb": 1.82,
+    "total_gb": 8.0,
+    "ok": false,
+    "required_gb": 8.0,
+    "status": "warning",
+    "error": "Insufficient RAM: 1.8 GB available (8.0 GB required)"
+  },
+  "errors": [
+    "Port 8765 is busy (active connection succeeded)",
+    "Insufficient RAM: 1.8 GB available (8.0 GB required)"
+  ]
+}

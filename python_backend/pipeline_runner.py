@@ -28,13 +28,40 @@ class PipelineStatus(str, Enum):
     ERROR    = "error"
     CANCELLED= "cancelled"
 
-STAGES = [
-    ("preprocessing",  "📦 Veri Ön İşleme"),
-    ("deconvolution",  "🔬 Hücre Tipi Dekonvolüsyonu"),
-    ("gnn_training",   "🧠 GNN Eğitimi"),
-    ("visualization",  "📊 Görselleştirme"),
-    ("report",         "📄 Rapor Oluşturma"),
-]
+RUNNER_LOCALE = {
+    "tr": {
+        "started": "🚀 Glio-Cartography Pipeline başlatıldı",
+        "cancelled": "⛔ Kullanıcı tarafından iptal edildi",
+        "stage": "Aşama",
+        "completed": "\n✅ Tüm aşamalar tamamlandı!",
+        "outputs": "📂 Çıktı klasörü: {}",
+        "error": "\n❌ HATA: {}",
+        "stages": {
+            "preprocessing": "📦 Veri Ön İşleme",
+            "deconvolution": "🔬 Hücre Tipi Dekonvolüsyonu",
+            "gnn_training": "🧠 GNN Eğitimi",
+            "visualization": "📊 Görselleştirme",
+            "report": "📄 Rapor Oluşturma"
+        },
+        "clinical_meta": "📋 Klinik metadata: Yaş={}, MGMT={}, IDH={}, KPS={} [{}-case imputation]"
+    },
+    "en": {
+        "started": "🚀 Glio-Cartography Pipeline started",
+        "cancelled": "⛔ Cancelled by user",
+        "stage": "Stage",
+        "completed": "\n✅ All stages completed successfully!",
+        "outputs": "📂 Output directory: {}",
+        "error": "\n❌ ERROR: {}",
+        "stages": {
+            "preprocessing": "📦 Data Preprocessing",
+            "deconvolution": "🔬 Cell Type Deconvolution",
+            "gnn_training": "🧠 GNN Training",
+            "visualization": "📊 Visualization",
+            "report": "📄 Report Generation"
+        },
+        "clinical_meta": "📋 Clinical metadata: Age={}, MGMT={}, IDH={}, KPS={} [{}-case imputation]"
+    }
+}
 
 # Imputation varsayılanları (Plan 1.7)
 WORST_CASE_DEFAULTS = {"age": 60,  "mgmt": 0.0,  "idh": 0.0,  "kps": 70}
@@ -48,7 +75,7 @@ class PipelineRunner:
                  # ── Klinik metadata (FAZ 1 — JSON payload, env race condition yok) ──
                  clinical_age=None, clinical_mgmt=None,
                  clinical_idh=None, clinical_kps=None,
-                 imputation_mode="worst"):
+                 imputation_mode="worst", lang="tr"):
         self.spatial_dir    = Path(spatial_dir)
         self.scrna_path     = Path(scrna_path)
         self.output_dir     = Path(output_dir)
@@ -57,6 +84,17 @@ class PipelineRunner:
         self.optuna_trials  = optuna_trials
         self.gnn_epochs     = gnn_epochs
         self.deconv_method  = deconv_method
+        self.lang           = lang or "tr"
+
+        # Dynamically set stage labels
+        stages_info = RUNNER_LOCALE.get(self.lang, RUNNER_LOCALE["tr"])["stages"]
+        self.stages = [
+            ("preprocessing",  stages_info["preprocessing"]),
+            ("deconvolution",  stages_info["deconvolution"]),
+            ("gnn_training",   stages_info["gnn_training"]),
+            ("visualization",  stages_info["visualization"]),
+            ("report",         stages_info["report"]),
+        ]
 
         # Klinik veri imputation çözümü
         defaults = WORST_CASE_DEFAULTS if (imputation_mode or "worst") == "worst" else MEDIAN_CASE_DEFAULTS
@@ -94,7 +132,7 @@ class PipelineRunner:
                     # Process group'a SIGTERM gönder, böylece tüm alt süreçler (Tangram vs) kapanır
                     os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
             except Exception as e:
-                self.log(f"İptal edilirken hata oluştu: {e}")
+                self.log(f"Error while cancelling: {e}" if self.lang == "en" else f"İptal edilirken hata oluştu: {e}")
 
     def log(self, msg):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -107,21 +145,22 @@ class PipelineRunner:
         self._cancelled = False
         self.progress = 0
         self.logs     = []
-        self.log("🚀 Glio-Cartography Pipeline başlatıldı")
+        loc = RUNNER_LOCALE.get(self.lang, RUNNER_LOCALE["tr"])
+        self.log(loc["started"])
 
         try:
-            total = len(STAGES)
-            for i, (stage_id, stage_label) in enumerate(STAGES):
+            total = len(self.stages)
+            for i, (stage_id, stage_label) in enumerate(self.stages):
                 if self._cancelled:
                     self.status = PipelineStatus.CANCELLED
-                    self.log("⛔ Kullanıcı tarafından iptal edildi")
+                    self.log(loc["cancelled"])
                     return
 
                 self.current_stage = stage_label
                 # Aşama başında yarı-tamamlanmış göster (kullanıcı ilerlemeyi görür)
                 self.progress      = int(((i + 0.5) / total) * 100)
                 self.log(f"\n{'='*50}")
-                self.log(f"Aşama {i+1}/{total}: {stage_label}")
+                self.log(f"{loc['stage']} {i+1}/{total}: {stage_label}")
                 self.log(f"{'='*50}")
 
                 if stage_id == "preprocessing":
@@ -140,12 +179,12 @@ class PipelineRunner:
 
             self.progress = 100
             self.status   = PipelineStatus.DONE
-            self.log("\n✅ Tüm aşamalar tamamlandı!")
-            self.log(f"📂 Çıktı klasörü: {self.output_dir}")
+            self.log(loc["completed"])
+            self.log(loc["outputs"].format(self.output_dir))
 
         except Exception as e:
             self.status = PipelineStatus.ERROR
-            self.log(f"\n❌ HATA: {e}")
+            self.log(loc["error"].format(e))
             self.log(traceback.format_exc())
 
     async def _run_script(self, script_path, args=None, env_extra=None):
@@ -164,7 +203,7 @@ class PipelineRunner:
         else:
             cmd = [python, str(script_path)] + (args or [])
             
-        env = {**os.environ, **(env_extra or {})}
+        env = {**os.environ, **(env_extra or {}), "GLIO_LANG": self.lang}
 
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -175,7 +214,7 @@ class PipelineRunner:
             start_new_session=True # process group oluşturur (cancel için)
         )
         
-        stage_keys = [s[0] for s in STAGES]
+        stage_keys = [s[0] for s in self.stages]
         
         async for line_bytes in self._proc.stdout:
             line_str = line_bytes.decode(errors='replace').rstrip()
@@ -204,7 +243,7 @@ class PipelineRunner:
                         
                         if stage_id in stage_keys:
                             i = stage_keys.index(stage_id)
-                            total = len(STAGES)
+                            total = len(self.stages)
                             global_pct = (i + stage_pct) * (100.0 / total)
                             self.progress = int(min(max(global_pct, 0), 100))
                             is_progress_report = True
@@ -255,9 +294,8 @@ class PipelineRunner:
             "--clinical-kps",   str(self.clinical_kps),
             "--imputation-mode", self.imputation_mode,
         ]
-        self.log(f"📋 Klinik metadata: Yaş={self.clinical_age}, MGMT={self.clinical_mgmt}, "
-                 f"IDH={self.clinical_idh}, KPS={self.clinical_kps} "
-                 f"[{self.imputation_mode}-case imputation]")
+        loc = RUNNER_LOCALE.get(self.lang, RUNNER_LOCALE["tr"])
+        self.log(loc["clinical_meta"].format(self.clinical_age, self.clinical_mgmt, self.clinical_idh, self.clinical_kps, self.imputation_mode))
         await self._run_script(script, args=clinical_args, env_extra=env)
 
     async def _run_visualization(self):

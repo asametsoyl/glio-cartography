@@ -28,7 +28,7 @@ function isPathSafe(p) {
 }
 
 // ── Custom Prompt Dialog ──────────────────────────────────────
-function customPrompt(title, message, defaultValue = "") {
+function customPrompt(title, message, defaultValue = "", submitText = null, cancelText = null) {
   if (_promptOpen) return Promise.resolve(null);
   _promptOpen = true;
 
@@ -37,19 +37,33 @@ function customPrompt(title, message, defaultValue = "") {
     const input = document.getElementById('custom-prompt-input');
     const submitBtn = document.getElementById('custom-prompt-submit');
     const cancelBtn = document.getElementById('custom-prompt-cancel');
+    const closeBtn = document.getElementById('custom-prompt-close-btn');
     
     document.getElementById('custom-prompt-title').textContent = title;
     document.getElementById('custom-prompt-message').textContent = message;
     input.value = defaultValue;
     
+    const isTr = (window.i18n && window.i18n.lang === 'tr');
+    const finalSubmitText = submitText || (isTr ? 'Tamam' : 'OK');
+    const finalCancelText = cancelText || (window.i18n ? window.i18n.t('common.cancel') : (isTr ? 'İptal' : 'Cancel'));
+
+    const oldSubmitText = submitBtn.textContent;
+    const oldCancelText = cancelBtn.textContent;
+
+    submitBtn.textContent = finalSubmitText;
+    cancelBtn.textContent = finalCancelText;
+
     modal.classList.remove('hidden');
     input.focus();
     
     const cleanup = () => {
       modal.classList.add('hidden');
+      submitBtn.textContent = oldSubmitText;
+      cancelBtn.textContent = oldCancelText;
       submitBtn.removeEventListener('click', onSubmit);
       cancelBtn.removeEventListener('click', onCancel);
       input.removeEventListener('keydown', onKeyDown);
+      if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
       _promptOpen = false;
     };
     
@@ -71,15 +85,20 @@ function customPrompt(title, message, defaultValue = "") {
         onCancel();
       }
     };
+
+    const onCloseClick = () => {
+      onCancel();
+    };
     
     submitBtn.addEventListener('click', onSubmit);
     cancelBtn.addEventListener('click', onCancel);
     input.addEventListener('keydown', onKeyDown);
+    if (closeBtn) closeBtn.addEventListener('click', onCloseClick);
   });
 }
 
 // ── Custom Confirm Dialog (reuses prompt modal safely) ────────
-function customConfirm(title, message) {
+function customConfirm(title, message, submitText = null, cancelText = null) {
   if (_promptOpen) return Promise.resolve(false);
   _promptOpen = true;
 
@@ -88,6 +107,7 @@ function customConfirm(title, message) {
     const input = document.getElementById('custom-prompt-input');
     const submitBtn = document.getElementById('custom-prompt-submit');
     const cancelBtn = document.getElementById('custom-prompt-cancel');
+    const closeBtn = document.getElementById('custom-prompt-close-btn');
     
     document.getElementById('custom-prompt-title').textContent = title;
     document.getElementById('custom-prompt-message').textContent = message;
@@ -95,8 +115,15 @@ function customConfirm(title, message) {
     // Hide input field for confirm modal
     if (input) input.style.display = 'none';
     
+    const isTr = (window.i18n && window.i18n.lang === 'tr');
+    const finalSubmitText = submitText || (isTr ? 'Evet' : 'Yes');
+    const finalCancelText = cancelText || (window.i18n ? window.i18n.t('common.cancel') : (isTr ? 'İptal' : 'Cancel'));
+
     const oldSubmitText = submitBtn.textContent;
-    submitBtn.textContent = 'Evet, Sil';
+    const oldCancelText = cancelBtn.textContent;
+
+    submitBtn.textContent = finalSubmitText;
+    cancelBtn.textContent = finalCancelText;
     
     modal.classList.remove('hidden');
     submitBtn.focus();
@@ -105,9 +132,11 @@ function customConfirm(title, message) {
       modal.classList.add('hidden');
       if (input) input.style.display = '';
       submitBtn.textContent = oldSubmitText;
+      cancelBtn.textContent = oldCancelText;
       submitBtn.removeEventListener('click', onSubmit);
       cancelBtn.removeEventListener('click', onCancel);
       if (input) input.removeEventListener('keydown', onKeyDown);
+      if (closeBtn) closeBtn.removeEventListener('click', onCloseClick);
       _promptOpen = false;
     };
     
@@ -128,11 +157,56 @@ function customConfirm(title, message) {
         onCancel();
       }
     };
+
+    const onCloseClick = () => {
+      onCancel();
+    };
     
     submitBtn.addEventListener('click', onSubmit);
     cancelBtn.addEventListener('click', onCancel);
     if (input) input.addEventListener('keydown', onKeyDown);
+    if (closeBtn) closeBtn.addEventListener('click', onCloseClick);
   });
+}
+
+// ══════════════════════════════════════════════════════════════
+// AYARLARI ANINDA KAYDETME (cross-session settings persistence)
+// ══════════════════════════════════════════════════════════════
+async function saveCurrentSettings() {
+  try {
+    const spatialDir     = document.getElementById('spatial-path')?.value || '';
+    const scrnaPath      = document.getElementById('scrna-path')?.value || '';
+    const outputDir      = document.getElementById('output-path')?.value || '';
+    const patientId      = document.getElementById('patient-id')?.value || 'Patient_A';
+    const epochs         = parseInt(document.getElementById('gnn-epochs')?.value) || 100;
+    const runOptuna      = document.getElementById('run-optuna')?.checked || false;
+    const optunaT        = parseInt(document.getElementById('optuna-trials')?.value) || 10;
+    const deconvMethod   = document.getElementById('deconv-method')?.value || 'tangram';
+    
+    const clinicalAge    = document.getElementById('clinical-age')?.value ? parseInt(document.getElementById('clinical-age').value) : null;
+    const clinicalMgmt   = document.getElementById('clinical-mgmt')?.value ? parseFloat(document.getElementById('clinical-mgmt').value) : null;
+    const clinicalIdh    = document.getElementById('clinical-idh')?.value ? parseFloat(document.getElementById('clinical-idh').value) : null;
+    const clinicalKps    = document.getElementById('clinical-kps')?.value ? parseInt(document.getElementById('clinical-kps').value) : null;
+    const imputationMode = document.getElementById('imputation-mode')?.value || 'worst';
+
+    await api.saveLastPaths({
+      spatial:        spatialDir,
+      scrna:          scrnaPath,
+      output:         outputDir,
+      patientId:      patientId,
+      epochs:         epochs,
+      runOptuna:      runOptuna,
+      optunaTrials:   optunaT,
+      deconvMethod:   deconvMethod,
+      clinicalAge:    clinicalAge,
+      clinicalMgmt:   clinicalMgmt,
+      clinicalIdh:    clinicalIdh,
+      clinicalKps:    clinicalKps,
+      imputationMode: imputationMode,
+    });
+  } catch (e) {
+    console.warn('[Profiles] saveCurrentSettings failed:', e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -148,7 +222,7 @@ async function restoreLastPaths() {
       const ok = await api.fileExists(last.spatial);
       setIndicator(
         'spatial-indicator',
-        ok ? '✅ Son kullanılan klasör yüklendi' : '⚠️ Klasör artık bulunamıyor',
+        ok ? '✅ ' + window.i18n.t('setup.last_folder_loaded') : window.i18n.t('setup.folder_not_found'),
         ok ? 'ok' : 'err'
       );
     }
@@ -158,7 +232,7 @@ async function restoreLastPaths() {
       const ok = await api.fileExists(last.scrna);
       setIndicator(
         'scrna-indicator',
-        ok ? '✅ Son kullanılan dosya yüklendi' : '⚠️ Dosya artık bulunamıyor',
+        ok ? '✅ ' + window.i18n.t('setup.last_file_loaded') : window.i18n.t('setup.file_not_found'),
         ok ? 'ok' : 'err'
       );
     }
@@ -169,7 +243,7 @@ async function restoreLastPaths() {
       state.outputDir = ok ? last.output : null;
       setIndicator(
         'output-indicator',
-        ok ? '✅ Son kullanılan çıktı klasörü' : '⚠️ Çıktı klasörü artık bulunamıyor',
+        ok ? '✅ ' + window.i18n.t('setup.last_output_loaded') : window.i18n.t('setup.output_not_found'),
         ok ? 'ok' : 'err'
       );
     }
@@ -224,11 +298,17 @@ async function restoreLastPaths() {
         el.value = last.imputationMode;
         // Hint metnini güncelle
         const hintEl = document.getElementById('imputation-hint');
-        const HINTS = {
-          worst:  'Yaş: 60 · MGMT: 0.0 (unmethylated) · IDH: 0.0 (wildtype) · KPS: 70%',
-          median: 'Yaş: 55 · MGMT: 0.45 (±GBM prevalansı) · IDH: 0.08 (±mutant) · KPS: 80%',
+        if (hintEl) hintEl.textContent = window.i18n.t(`clinical.imputation_hint_${last.imputationMode}`) || '';
+        const fallbacks = {
+          'fb-age':  `clinical.fallback_age_${last.imputationMode}`,
+          'fb-mgmt': `clinical.fallback_mgmt_${last.imputationMode}`,
+          'fb-idh':  `clinical.fallback_idh_${last.imputationMode}`,
+          'fb-kps':  `clinical.fallback_kps_${last.imputationMode}`,
         };
-        if (hintEl) hintEl.textContent = HINTS[last.imputationMode] || HINTS.worst;
+        Object.entries(fallbacks).forEach(([id, key]) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = window.i18n.t(key);
+        });
       }
     }
 
@@ -262,7 +342,7 @@ async function loadProfiles() {
   profiles.forEach(p => {
     const card = document.createElement('div');
     card.className = 'profile-card';
-    card.title = `Yüklemek için tıkla: ${p.name || 'İsimsiz Profil'}`;
+    card.title = window.i18n.t('profiles.click_to_load', { name: p.name || window.i18n.t('profiles.untitled') });
 
     const scrnaExt = (p.scrna || '').split('.').pop().toLowerCase();
     const icon = scrnaExt === 'h5' ? '🧬' : scrnaExt === 'h5ad' ? '🔬' : '📊';
@@ -278,7 +358,7 @@ async function loadProfiles() {
 
     const nameEl = document.createElement('div');
     nameEl.className = 'profile-card-name';
-    nameEl.textContent = p.name || 'İsimsiz Profil';
+    nameEl.textContent = p.name || window.i18n.t('profiles.untitled');
     bodyEl.appendChild(nameEl);
 
     const metaEl = document.createElement('div');
@@ -323,21 +403,21 @@ async function saveCurrentProfile() {
   const patientId  = document.getElementById('patient-id').value || 'Patient_A';
 
   if (!spatialDir || !scrnaPath || !outputDir) {
-    showWarningToast('Profil kaydetmeden önce lütfen tüm yolları (Spatial, scRNA, Çıktı) seçin.');
+    showWarningToast(window.i18n.t('profiles.warn_select_paths'));
     return;
   }
 
   if (!isPathSafe(spatialDir) || !isPathSafe(scrnaPath) || !isPathSafe(outputDir)) {
-    showWarningToast('Seçilen yollar geçersiz veya güvenli olmayan karakterler içeriyor.');
+    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
     return;
   }
 
-  const name = await customPrompt('📂 Profil Kaydet', 'Bu profil için açıklayıcı bir isim girin (örn: "GBM_Visium_HasatD1"):');
+  const name = await customPrompt(window.i18n.t('profiles.save_title'), window.i18n.t('profiles.save_prompt'));
   if (!name || !name.trim()) return;
 
   await api.saveProfile({ name: name.trim(), patientId, spatial: spatialDir, scrna: scrnaPath, output: outputDir });
   await loadProfiles();
-  showToast(`"${name.trim()}" profili başarıyla kaydedildi.`, 'success');
+  showToast(window.i18n.t('profiles.toast_saved', { name: name.trim() }), 'success');
 }
 
 function loadProfile(p) {
@@ -359,7 +439,13 @@ function loadProfile(p) {
 
 async function deleteProfile(event, id) {
   event.stopPropagation();
-  const ok = await customConfirm('⚠️ Profili Sil', 'Bu veri seti profilini silmek istediğinize emin misiniz?');
+  const isTr = (window.i18n && window.i18n.lang === 'tr');
+  const ok = await customConfirm(
+    window.i18n.t('profiles.delete_title'),
+    window.i18n.t('profiles.delete_prompt'),
+    isTr ? 'Evet, Sil' : 'Yes, Delete',
+    window.i18n.t('common.cancel')
+  );
   if (!ok) return;
   await api.deleteProfile(id);
   await loadProfiles();
@@ -381,15 +467,15 @@ async function reloadCompareSelects() {
   const valLeft = selectLeft.value;
   const valRight = selectRight.value;
 
-  selectLeft.innerHTML = '<option value="">-- Sol Profil Seçin --</option>';
-  selectRight.innerHTML = '<option value="">-- Sağ Profil Seçin --</option>';
+  selectLeft.innerHTML = `<option value="">${window.i18n.t('profiles.select_left_placeholder')}</option>`;
+  selectRight.innerHTML = `<option value="">${window.i18n.t('profiles.select_right_placeholder')}</option>`;
 
   if (!profiles || profiles.length === 0) {
     return;
   }
 
   profiles.forEach(p => {
-    const label = `${p.name || 'İsimsiz'} (${p.patientId || 'Patient_A'})`;
+    const label = `${p.name || window.i18n.t('profiles.untitled_short')} (${p.patientId || 'Patient_A'})`;
     
     const optLeft = document.createElement('option');
     optLeft.value = p.id;
@@ -444,14 +530,14 @@ async function onCompareSelectChange(side) {
 
 async function loadCompareData(side, profile) {
   if (!profile.output || !isPathSafe(profile.output)) {
-    showWarningToast('Geçersiz veya güvensiz profil çıktı yolları.');
+    showWarningToast(window.i18n.t('profiles.warn_invalid_paths'));
     return;
   }
 
   const dataPath = `${profile.output}/gnn/data.json`;
   const exists = await api.fileExists(dataPath);
   if (!exists) {
-    showWarningToast(`Seçilen profilin GNN çıktı verisi mevcut değil: ${_shortPath(dataPath)}\nLütfen önce bu profil için analizi çalıştırın.`);
+    showWarningToast(window.i18n.t('profiles.warn_no_output_data', { path: _shortPath(dataPath) }));
     const select = document.getElementById(`compare-select-${side}`);
     if (select) select.value = "";
     return;
@@ -463,7 +549,7 @@ async function loadCompareData(side, profile) {
   if (select && select.selectedIndex >= 0) {
     selectedOption = select.options[select.selectedIndex];
     origText = selectedOption.text;
-    selectedOption.text = "⏳ Yükleniyor...";
+    selectedOption.text = "⏳ " + window.i18n.t("state.loading");
     select.disabled = true;
   }
 
@@ -495,6 +581,7 @@ async function loadCompareData(side, profile) {
       });
     }
 
+    state.compareCellTypes = null;
     if (side === 'left') {
       state.compareDataLeft = data;
       state.compareProfileLeft = profile;
@@ -610,7 +697,7 @@ async function loadCompareData(side, profile) {
 
   } catch (err) {
     console.error("Error loading compare data:", err);
-    showErrorToast("Profil yüklenirken bir hata oluştu: " + err.message);
+    showErrorToast(window.i18n.t("profiles.load_error") + ": " + err.message);
   } finally {
     if (select) {
       select.disabled = false;

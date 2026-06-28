@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="{{ T_HTML_LANG }}">
+<head>
+<meta charset="UTF-8">
+<title>{{ T_TITLE }}</title>
+<style>
+{{ css_content }}
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>🧠 Glio-Cartography</h1>
+    <p style="color:#999; margin-top:4px;">{{ T_TME_ATLAS }}</p>
+    <p style="color:var(--accent); margin-top:8px; font-size:1.1rem;"><strong>{{ T_PATIENT }}</strong></p>
+  </div>
+  <div style="text-align:right">
+    <span class="badge">{{ version_stamp_safe }}</span>
+    <p style="color:#666; font-size:0.8rem; margin-top:8px;">{{ report_date_safe }}</p>
+    <button class="print-btn" style="margin-top: 16px;" onclick="window.print()">{{ T_DOWNLOAD_PDF }}</button>
+  </div>
+</div>
+
+<h2>{{ T_SUMMARY_TITLE }}</h2>
+<div class="grid-2" style="margin-bottom: 24px;">
+  <div class="card" style="border-left: 4px solid var(--accent); display: flex; flex-direction: column; justify-content: center;">
+    <h3 style="margin-top: 0; color: var(--text); font-size: 1.1rem; margin-bottom: 12px;">{{ T_EXEC_SUMMARY }}</h3>
+    <p style="line-height: 1.6; font-size: 0.95rem; color: #e0e0e0;">
+      {{ exec_summary }}
+    </p>
+  </div>
+  <div class="card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px;">
+    <h3 style="margin-top: 0; color: var(--text); font-size: 0.95rem; margin-bottom: 8px; width: 100%; text-align: left;">{{ T_SVG_MAP_TITLE }}</h3>
+    <div style="width: 100%; max-width: 250px; aspect-ratio: 1/1;">
+      {{ svg_map_html }}
+    </div>
+    <div style="display: flex; gap: 16px; margin-top: 8px; font-size: 0.75rem; font-weight: bold;">
+      <span style="color: #2A9D8F;">{{ T_STABLE_LABEL }}</span>
+      <span style="color: #E63946;">{{ T_AGGRESSIVE_LABEL }}</span>
+    </div>
+  </div>
+</div>
+
+<h2>{{ T_GENERAL_METRICS }}</h2>
+<div class="grid-3">
+  <div class="card">
+    <div class="metric">{{ n_spots }}</div>
+    <div class="metric-label">{{ T_SPOTS_ANALYZED }}</div>
+  </div>
+  <div class="card">
+    <div class="metric">{{ cell_types_count }}</div>
+    <div class="metric-label">{{ T_CELL_TYPES }}</div>
+  </div>
+  <div class="card">
+    <div class="metric">{{ test_mse }}</div>
+    <div class="metric-label">{{ T_GNN_TEST_MSE }}</div>
+  </div>
+  <div class="card">
+    <div class="metric">{{ deconv_confidence }}</div>
+    <div class="metric-label">{{ T_DECONV_CONFIDENCE }}</div>
+  </div>
+</div>
+
+<h2>{{ T_CLINICAL_DECISION }}</h2>
+<p style="font-size:0.78rem; color:#666; margin-bottom:12px; font-style:italic;">
+  {{ T_RUO_WARNING }}
+</p>
+<div class="grid-2">
+  <div class="card" style="border-left: 4px solid var(--accent);">
+    <h3 style="margin-top:0; color:var(--text);">{{ T_MOLECULAR_PROFILE }}</h3>
+    <table style="margin-top: 12px; background: transparent;">
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_DIAGNOSIS_LBL }}</td><td style="border:none; font-weight:bold;">{{ diagnosis_safe }}</td></tr>
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_WHO_GRADE_LBL }}</td><td style="border:none; font-weight:bold; color:{{ who_grade_color_safe }};">{{ who_grade_safe }}</td></tr>
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_IDH_LBL }}</td><td style="border:none; font-weight:bold;">{{ idh_status_safe }} {{ idh_note_safe }}</td></tr>
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_MGMT_LBL }}</td><td style="border:none; font-weight:bold; color:{{ mgmt_color_safe }};">{{ mgmt_status_short_safe }}</td></tr>
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_TUMOR_LBL }}</td><td style="border:none;">{{ tumor_fraction_pct }}</td></tr>
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_MYELOID_LBL }}</td><td style="border:none;">{{ myeloid_fraction_pct }}</td></tr>
+      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_TCELL_LBL }}</td><td style="border:none;">{{ tcell_fraction_pct }}</td></tr>
+    </table>
+  </div>
+  <div class="card" style="border-left: 4px solid var(--success);">
+    <h3 style="margin-top:0; color:var(--text);">{{ T_RECOMMENDED_PROTOCOL }}</h3>
+    <p style="font-size:0.8rem; color:#aaa; margin-top:6px; margin-bottom:10px;">{{ T_PROTOCOL_DESC }}</p>
+    {% for p in protocols %}
+      <div style='margin:8px 0; font-size:0.88rem; line-height:1.5;'>{{ p }}</div>
+    {% endfor %}
+    <hr style="border-color:#1e3a5f; margin:12px 0;">
+    <p style="font-size:0.75rem; color:#777;"><strong>{{ T_SOURCES }}:</strong> {{ rationale_safe }}</p>
+    <p style="font-size:0.72rem; color:#555; margin-top:6px;">* {{ mgmt_status_safe }}</p>
+  </div>
+</div>
+
+<h2>{{ T_CLINICAL_SYNTHESIS_TITLE }}</h2>
+<div class="card" style="border-left: 4px solid var(--warning); line-height: 1.6; font-size: 0.92rem; margin-bottom: 24px; padding: 20px;">
+  <p>{{ clinical_synthesis }}</p>
+</div>
+
+<h2>{{ T_DOWNSTREAM_PATHWAY_TITLE }}</h2>
+<div class="grid-2" style="margin-bottom: 24px;">
+  <div class="card" style="border-left: 4px solid var(--accent);">
+    <h3 style="margin-top:0; color:var(--text);">{{ T_AVG_PATHWAY_SCORES }}</h3>
+    <table style="margin-top: 12px; background: transparent;">
+      {% for p in pathways %}
+        <tr>
+          <td style='color:#999; border:none; padding:8px 0;'>{{ p }}:</td>
+          <td style='border:none; font-weight:bold; color:var(--accent);'>{{ pathway_avgs[p] }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="card" style="border-left: 4px solid var(--danger);">
+    <h3 style="margin-top:0; color:var(--text);">{{ T_DOMINANT_PATHWAY }}</h3>
+    <div style="font-size:2rem; font-weight:700; color:var(--danger); margin-top:15px;">
+      {{ top_pathway_safe }}
+    </div>
+    <p style="font-size:0.8rem; color:#aaa; margin-top:8px;">
+      {{ T_DOMINANT_PATHWAY_DESC }}
+    </p>
+  </div>
+</div>
+
+<h2>{{ T_ENRICHED_PATHWAYS_TITLE }}</h2>
+<div class="card" style="margin-bottom: 24px;">
+  <p style="font-size:0.85rem; color:#aaa; margin-bottom:12px;">{{ T_ENRICHED_PATHWAYS_DESC }}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>{{ T_PATHWAY_ID }}</th>
+        <th>{{ T_PATHWAY_NAME }}</th>
+        <th>{{ T_TYPE }}</th>
+        <th>{{ T_OVERLAP }}</th>
+        <th>{{ T_PVALUE }}</th>
+        <th>{{ T_FDR }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ enrichment_rows | safe }}
+    </tbody>
+  </table>
+</div>
+
+<h2>{{ T_DRUGGABLE_TITLE }}</h2>
+<div class="card" style="margin-bottom: 24px;">
+  <p style="font-size:0.85rem; color:#aaa; margin-bottom:12px;">{{ T_DRUGGABLE_DESC }}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>{{ T_TARGET_GENE }}</th>
+        <th>{{ T_INDUCED_PATHWAY }}</th>
+        <th>{{ T_ACTIVE_DRUG }}</th>
+        <th>{{ T_MECHANISM }}</th>
+        <th>{{ T_CLINICAL_STAGE }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ druggable_rows | safe }}
+    </tbody>
+  </table>
+</div>
+
+<h2>{{ T_ZONAL_TITLE }}</h2>
+<div class="card" style="margin-bottom: 24px;">
+  <table>
+    <thead>
+      <tr>
+        <th>{{ T_PATH_ZONE_LBL }}</th>
+        <th>PI3K/AKT/mTOR</th>
+        <th>MAPK/ERK</th>
+        <th>JAK/STAT</th>
+        <th>NFkB</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ zonal_rows | safe }}
+    </tbody>
+  </table>
+</div>
+
+<h2>{{ T_CELLTYPE_CORR_TITLE }}</h2>
+<table>
+  <thead><tr><th>{{ T_CELL_TYPE }}</th><th>Pearson r</th><th>Spearman ρ</th><th>{{ T_SIGNIFICANCE }}</th></tr></thead>
+  <tbody>{{ corr_rows | safe }}</tbody>
+</table>
+
+<h2>{{ T_VISUALIZATIONS }}</h2>
+<div class="figures-grid">{{ fig_html | safe }}</div>
+
+<h2>{{ T_PIPELINE_SUMMARY }}</h2>
+<div class="grid-2" style="margin-bottom: 24px;">
+  <div class="card">
+    <h3>{{ T_PREPROCESSING }}</h3>
+    <p>{{ T_CELLS_LABEL }}: <strong>{{ prep_summary_cells }}</strong></p>
+    <p>{{ T_SPOTS_LABEL }}: <strong>{{ prep_summary_spots }}</strong></p>
+    <p>{{ T_CLUSTERS_LABEL }}: <strong>{{ prep_summary_clusters }}</strong></p>
+  </div>
+  <div class="card">
+    <h3>{{ T_DECONVOLUTION }}</h3>
+    <p>{{ T_CELL_TYPES_COUNT }}: <strong>{{ deconv_summary_cell_types }}</strong></p>
+    <p>{{ T_METHOD_LABEL }}: <strong>Tangram / Score-based</strong></p>
+  </div>
+</div>
+
+<h2>{{ T_PUBMED_REFS }}</h2>
+<div class="card" style="border-left: 4px solid var(--accent); margin-bottom: 24px;">
+  <p style="font-size:0.8rem; color:#aaa; margin-bottom:12px;">{{ T_PUBMED_DESC }}</p>
+  <div class="grid-2">
+    <div>
+      {{ ref_html_left | safe }}
+    </div>
+    <div>
+      {{ ref_html_right | safe }}
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <p>{{ version_stamp_safe }} · {{ T_LICENSED }} · {{ report_date_safe }}</p>
+  <p style="margin-top:4px;">{{ T_AUTO_GENERATED }}</p>
+</div>
+</body>
+</html>

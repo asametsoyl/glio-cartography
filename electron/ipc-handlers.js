@@ -28,6 +28,7 @@ const { checkForUpdates, startUpdateDownload } = require('./updater');
 
 let _store = null;
 let _mainWindow = null;
+let _languageLocked = false;
 
 function setStore(store) { _store = store; }
 function setMainWindow(win) { _mainWindow = win; }
@@ -35,6 +36,44 @@ function setMainWindow(win) { _mainWindow = win; }
 // Local shorthand that captures _mainWindow at call time
 function safeSend(channel, ...args) {
   safeSendUtil(_mainWindow, channel, ...args);
+}
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function safeUnlink(filePath, retries = 5, ms = 500) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      return true;
+    } catch (err) {
+      if (i === retries - 1) {
+        console.warn(`[Cleanup] Failed to unlink ${filePath} after ${retries} retries: ${err.message}`);
+        return false;
+      }
+      await delay(ms);
+    }
+  }
+  return false;
+}
+
+async function safeRm(dirPath, retries = 5, ms = 500) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      if (fs.existsSync(dirPath)) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+      return true;
+    } catch (err) {
+      if (i === retries - 1) {
+        console.warn(`[Cleanup] Failed to rm ${dirPath} after ${retries} retries: ${err.message}`);
+        return false;
+      }
+      await delay(ms);
+    }
+  }
+  return false;
 }
 
 // ── Register all IPC handlers ─────────────────────────────────
@@ -89,8 +128,9 @@ function registerIpcHandlers() {
     }
 
     try {
-      if (fs.existsSync(zipPath)) { try { fs.unlinkSync(zipPath); } catch { } }
-      if (fs.existsSync(envDir)) { try { fs.rmSync(envDir, { recursive: true, force: true }); } catch { } }
+      killBackend();
+      if (fs.existsSync(zipPath)) { await safeUnlink(zipPath); }
+      if (fs.existsSync(envDir)) { await safeRm(envDir); }
 
       setBackendState('downloading');
       safeSend('download-progress', { status: 'downloading', percent: 0 });
@@ -126,7 +166,7 @@ function registerIpcHandlers() {
 
       if (_store) _store.set('customPythonPath', pyBin);
 
-      try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch { }
+      try { if (fs.existsSync(zipPath)) await safeUnlink(zipPath); } catch { }
 
       setBackendState('completed');
       safeSend('download-progress', { status: 'completed', percent: 100 });
@@ -329,7 +369,7 @@ function registerIpcHandlers() {
     if (!_store) return false;
     // Whitelist-only approach: only known keys are written to the store.
     // Prevents prototype pollution (__proto__, constructor) and extra field injection.
-    const ALLOWED_KEYS = ['name', 'spatialPath', 'scrnaPath', 'outputPath'];
+    const ALLOWED_KEYS = ['name', 'patientId', 'spatial', 'scrna', 'output'];
     const MAX_LENS = { name: 100 }; // shorter limit for display name
     const safe = Object.fromEntries(
       ALLOWED_KEYS.map(k => [k, String(profile[k] || '').slice(0, MAX_LENS[k] || 1000)])
@@ -404,6 +444,173 @@ function registerIpcHandlers() {
       console.log('[IPC Handlers] Notification shown.');
     } catch (err) {
       console.error('[IPC Handlers] Failed to show native notification:', err);
+    }
+  });
+
+  // ── [FAZ B] Sistem Tanılama ─────────────────────────────────────────
+  // check_env.json oku ve döndür
+  ipcMain.handle('get-env-diagnostics', async () => {
+    const { runEnvDiagnostics, findPython } = require('./backend-manager');
+    const envDir = path.join(app.getPath('userData'), 'python_env');
+
+    // Önce disk üzerinde önceki raporu kontrol et (çalıştırmak yerine hızlı döndür)
+    const cachePaths = [
+      path.join(app.getPath('userData'), 'check_env.json'),
+      path.join(__dirname, '..', 'python_backend', 'check_env.json'),
+    ];
+    for (const p of cachePaths) {
+      if (fs.existsSync(p)) {
+        try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { }
+      }
+    }
+
+    // Cache yoksa çalıştır
+    const pythonInfo = findPython(_store, app);
+    return await runEnvDiagnostics(_mainWindow, pythonInfo, app);
+  });
+
+  // Eksik bağımlılıkları otomatik onar (pip install)
+  ipcMain.handle('repair-dependencies', async (_ev, packages) => {
+    const { findPython } = require('./backend-manager');
+    const pythonInfo = findPython(_store, app);
+    if (!pythonInfo.bin) {
+      return { ok: false, error: 'Python bulunamadı' };
+    }
+
+    const pkgList = Array.isArray(packages) ? packages : [];
+    if (pkgList.length === 0) {
+      return { ok: false, error: 'Onarılacak paket listesi boş' };
+    }
+
+    return new Promise((resolve) => {
+      const { spawn: spawnNode } = require('child_process');
+      const proc = spawnNode(pythonInfo.bin, ['-m', 'pip', 'install', '--upgrade', ...pkgList], {
+        stdio: 'pipe',
+        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      });
+
+      let output = '';
+      proc.stdout.on('data', (d) => {
+        const line = d.toString();
+        output += line;
+        safeSend('repair-dependency-progress', { type: 'stdout', line: line.trim() });
+      });
+      proc.stderr.on('data', (d) => {
+        const line = d.toString();
+        output += line;
+        safeSend('repair-dependency-progress', { type: 'stderr', line: line.trim() });
+      });
+      proc.on('close', (code) => {
+        resolve({ ok: code === 0, exitCode: code, output });
+      });
+      proc.on('error', (e) => {
+        resolve({ ok: false, error: e.message });
+      });
+    });
+  });
+
+  // ── [FAZ C] i18n Dil Yönetimi ─────────────────────────────────────────
+  ipcMain.handle('get-language', () => {
+    try {
+      return _store ? (_store.get('appLanguage') || 'tr') : 'tr';
+    } catch {
+      return 'tr';
+    }
+  });
+
+  ipcMain.handle('set-language', (_ev, lang) => {
+    const validLangs = ['tr', 'en'];
+    const safeLang = validLangs.includes(lang) ? lang : 'tr';
+    try {
+      if (_store) _store.set('appLanguage', safeLang);
+      return { ok: true, lang: safeLang };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('get-locale-data', (_ev, lang) => {
+    const validLangs = ['tr', 'en'];
+    const safeLang = validLangs.includes(lang) ? lang : 'tr';
+    try {
+      const localePath = path.join(__dirname, '..', 'renderer', 'locales', `${safeLang}.json`);
+      const raw = fs.readFileSync(localePath, 'utf8');
+      return JSON.parse(raw);
+    } catch (e) {
+      console.error(`[ipc-handlers] Failed to read locale for ${lang}:`, e.message);
+      return {};
+    }
+  });
+
+  ipcMain.handle('is-language-locked', () => {
+    return _languageLocked;
+  });
+
+  ipcMain.handle('set-language-locked', (_ev, locked) => {
+    _languageLocked = !!locked;
+    return _languageLocked;
+  });
+
+  ipcMain.handle('print-report-to-pdf', async (event, htmlContent) => {
+    const fs = require('fs');
+    const path = require('path');
+
+    const { filePath, canceled } = await dialog.showSaveDialog(_mainWindow, {
+      title: 'Klinik Raporu PDF Olarak Kaydet / Save Clinical Report as PDF',
+      defaultPath: path.join(app.getPath('downloads'), 'glio_cartography_report.pdf'),
+      filters: [{ name: 'PDF Files', extensions: ['pdf'] }]
+    });
+
+    if (canceled || !filePath) {
+      return { canceled: true };
+    }
+
+    const { BrowserWindow } = require('electron');
+    const tempWin = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    const tempFilePath = path.join(__dirname, '..', 'renderer', 'temp_report.html');
+    try {
+      fs.writeFileSync(tempFilePath, htmlContent, 'utf8');
+      await tempWin.loadFile(tempFilePath);
+
+      // Give a tiny timeout for any local resources to settle
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const options = {
+        margins: {
+          top: 15,
+          bottom: 15,
+          left: 15,
+          right: 15
+        },
+        printBackground: true,
+        pageSize: 'A4',
+        landscape: false
+      };
+
+      const pdfData = await tempWin.webContents.printToPDF(options);
+      fs.writeFileSync(filePath, pdfData);
+      return { success: true, filePath };
+    } catch (e) {
+      console.error('[PDF Export Error]', e);
+      throw e;
+    } finally {
+      if (tempWin && !tempWin.isDestroyed()) {
+        tempWin.destroy();
+      }
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch (err) {
+        console.warn('Failed to delete temporary PDF HTML source file:', err);
+      }
     }
   });
 }

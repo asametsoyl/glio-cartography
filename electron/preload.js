@@ -77,6 +77,27 @@ contextBridge.exposeInMainWorld('glioAPI', {
   },
   focusWindow: () => ipcRenderer.invoke('focus-window'),
   showNotification: (title, body) => ipcRenderer.send('show-notification', { title, body }),
+
+  // [FAZ B] Sistem Tanılama
+  getEnvDiagnostics: () => ipcRenderer.invoke('get-env-diagnostics'),
+  repairDependencies: (packages) => ipcRenderer.invoke('repair-dependencies', packages),
+  onEnvDiagnosticsReady: (cb) => {
+    ipcRenderer.removeAllListeners('env-diagnostics-ready');
+    ipcRenderer.on('env-diagnostics-ready', (_, report) => cb(report));
+  },
+  onRepairDependencyProgress: (cb) => {
+    ipcRenderer.removeAllListeners('repair-dependency-progress');
+    ipcRenderer.on('repair-dependency-progress', (_, data) => cb(data));
+  },
+
+  // [FAZ C] i18n Dil Yönetimi
+  getLanguage: () => ipcRenderer.invoke('get-language'),
+  setLanguage: (lang) => ipcRenderer.invoke('set-language', lang),
+  getLocale: (lang) => ipcRenderer.invoke('get-locale-data', lang),
+  isLanguageLocked: () => ipcRenderer.invoke('is-language-locked'),
+  setLanguageLocked: (locked) => ipcRenderer.invoke('set-language-locked', locked),
+  printReportToPDF: (htmlContent) => ipcRenderer.invoke('print-report-to-pdf', htmlContent),
+
   // Cleanup helper: renderer pages should call this on unmount
   // to avoid handler accumulation between hot-reloads in dev mode.
   removeAllListeners: (channel) => {

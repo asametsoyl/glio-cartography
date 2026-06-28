@@ -78,12 +78,12 @@ async function setKmCohort(cohort) {
     
     const kmHighSpots = document.getElementById('km-stat-high-spots');
     if (kmHighSpots) {
-      kmHighSpots.textContent = `Yüksek Risk: ${cData.n_high_risk_spots ?? 0} spot (Ort: ${(cData.mean_risk_score_high ?? 0).toFixed(2)})`;
+      kmHighSpots.textContent = window.i18n.t('results.high_risk_spots_summary', { count: cData.n_high_risk_spots ?? 0, avg: (cData.mean_risk_score_high ?? 0).toFixed(2) });
     }
     
     const kmLowSpots = document.getElementById('km-stat-low-spots');
     if (kmLowSpots) {
-      kmLowSpots.textContent = `Düşük Risk: ${cData.n_low_risk_spots ?? 0} spot (Ort: ${(cData.mean_risk_score_low ?? 0).toFixed(2)})`;
+      kmLowSpots.textContent = window.i18n.t('results.low_risk_spots_summary', { count: cData.n_low_risk_spots ?? 0, avg: (cData.mean_risk_score_low ?? 0).toFixed(2) });
     }
     
     let imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier_${cohort}.png`;
@@ -122,7 +122,7 @@ async function zoomKmPlot() {
   let imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier_${cohort}.png`;
   
   if (!isPathSafeLocal(imgPath)) {
-    showWarningToast('Güvenli olmayan dosya yolu.');
+    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
     return;
   }
   
@@ -130,7 +130,7 @@ async function zoomKmPlot() {
   if (!hasSpecific) {
     imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier.png`;
     if (!isPathSafeLocal(imgPath)) {
-      showWarningToast('Güvenli olmayan dosya yolu.');
+      showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
       return;
     }
   }
@@ -139,7 +139,7 @@ async function zoomKmPlot() {
 }
 
 async function loadFigures() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
 
   // Load KM summary and set default view
   try {
@@ -165,7 +165,7 @@ async function loadFigures() {
       const placeholder = document.createElement('div');
       placeholder.className = 'gallery-placeholder';
       const p = document.createElement('p');
-      p.textContent = 'Henüz figür bulunamadı.';
+      p.textContent = window.i18n.t('figures.no_figures_found');
       placeholder.appendChild(p);
       gallery.appendChild(placeholder);
       return;
@@ -173,18 +173,18 @@ async function loadFigures() {
 
   // İnsan okunabilir figür isimleri
   const FIGURE_LABELS = {
-    'fig2_dominant_celltype_map':   'Dominant Hücre Tipi Haritası',
-    'fig2_volcano_necrosis_vs_edge':'Volcano Plot: Nekroz vs Edge',
-    'fig3_tme_composition':         'TME Kompozisyon Analizi',
-    'GNN_confusion_matrix':         'GNN Karışıklık Matrisi',
-    'training_history_v3':          'GNN Eğitim Geçmişi',
-    'fig1_zone_stacked_bars':       'Bölge Dağılımı (Yığılı Bar)',
-    'fig3_bipartite_network':       'Bipartit L-R Ağı',
-    'fig_drug_score_map':           'İlaç Skor Haritası',
-    'fig_kaplan_meier':             'Kaplan-Meier Yaşam Eğrisi',
-    'fig_lr_communication':         'L-R İletişim Haritası',
-    'fig_risk_map':                 'Risk Stratifikasyonu Haritası',
-    'fig_spatial_zone_map':         'Spatial Zone Haritası',
+    'fig2_dominant_celltype_map':   window.i18n.t('figures.dominant_celltype_map'),
+    'fig2_volcano_necrosis_vs_edge':window.i18n.t('figures.volcano_necrosis_vs_edge'),
+    'fig3_tme_composition':         window.i18n.t('figures.tme_composition'),
+    'GNN_confusion_matrix':         window.i18n.t('figures.gnn_confusion_matrix'),
+    'training_history_v3':          window.i18n.t('figures.gnn_training_history'),
+    'fig1_zone_stacked_bars':       window.i18n.t('figures.zone_stacked_bars'),
+    'fig3_bipartite_network':       window.i18n.t('figures.bipartite_network'),
+    'fig_drug_score_map':           window.i18n.t('figures.drug_score_map'),
+    'fig_kaplan_meier':             window.i18n.t('figures.kaplan_meier'),
+    'fig_lr_communication':         window.i18n.t('figures.lr_communication'),
+    'fig_risk_map':                 window.i18n.t('figures.risk_map'),
+    'fig_spatial_zone_map':         window.i18n.t('figures.spatial_zone_map')
   };
 
   const FIGURE_ICONS = {
@@ -231,7 +231,7 @@ async function loadFigures() {
         img.src = PLACEHOLDER_SVG;
         img.style.opacity = '0.5';
         item.style.cursor = 'default';
-        item.title = `${item.title} (analiz tamamlanmadı)`;
+        item.title = `${item.title} (${window.i18n.t('figures.analysis_incomplete')})`;
       };
       // Set src after binding onerror
       img.src = `local://${encodeURI(fig.path)}?t=${Date.now()}`;
@@ -250,7 +250,7 @@ async function loadFigures() {
         if (isPathSafeLocal(fig.path)) {
           api.openOutputFolder(fig.path);
         } else {
-          showWarningToast('Güvenli olmayan dosya yolu.');
+          showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
         }
       });
       
@@ -264,7 +264,7 @@ async function loadFigures() {
 }
 
 async function loadReport() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
 
   const patientIdInput = document.getElementById('patient-id');
   const patientId = patientIdInput ? patientIdInput.value.trim() : 'Patient_A';
@@ -273,7 +273,7 @@ async function loadReport() {
   const htmlPath = `${state.outputDir}/reports/Klinik_Rapor_${safePatientId}.html`;
   
   if (!isPathSafeLocal(htmlPath)) {
-    showWarningToast('Güvenli olmayan dosya yolu.');
+    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
     return;
   }
 
@@ -286,7 +286,7 @@ async function loadReport() {
     const placeholder = document.createElement('div');
     placeholder.className = 'gallery-placeholder';
     const p = document.createElement('p');
-    p.textContent = 'Rapor henüz oluşturulmadı.';
+    p.textContent = window.i18n.t('report.not_generated');
     placeholder.appendChild(p);
     wrapper.appendChild(placeholder);
     return;
@@ -301,7 +301,7 @@ async function loadReport() {
 }
 
 async function openReport() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
 
   const patientIdInput = document.getElementById('patient-id');
   const patientId = patientIdInput ? patientIdInput.value.trim() : 'Patient_A';
@@ -311,7 +311,7 @@ async function openReport() {
   const htmlPath = `${state.outputDir}/reports/Klinik_Rapor_${safePatientId}.html`;
 
   if (!isPathSafeLocal(pdfPath) || !isPathSafeLocal(htmlPath)) {
-    showWarningToast('Güvenli olmayan dosya yolu.');
+    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
     return;
   }
 
@@ -323,14 +323,110 @@ async function openReport() {
   } else if (hasHTML) {
     api.openOutputFolder(htmlPath);
   } else {
-    showWarningToast('Rapor bulunamadı, önce analizi tamamlayın.');
+    showWarningToast(window.i18n.t('report.not_found'));
+  }
+}
+
+async function exportReportPDF() {
+  const wrapper = document.getElementById('report-frame-wrapper');
+  if (!wrapper) return;
+  const iframe = wrapper.querySelector('iframe');
+  if (!iframe) {
+    showWarningToast(window.i18n.t('report.not_found'));
+    return;
+  }
+
+  try {
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    if (!iframeDoc) {
+      showErrorToast("Rapor içeriğine erişilemedi.");
+      return;
+    }
+
+    // 1. Clone DOM
+    const clone = iframeDoc.documentElement.cloneNode(true);
+
+    // 2. Read notes from textarea outside
+    const notesArea = document.getElementById('report-physician-notes');
+    const notesValue = notesArea ? notesArea.value.trim() : '';
+
+    if (notesValue) {
+      // Find a suitable place to append notes
+      const notesContainer = iframeDoc.createElement('div');
+      notesContainer.className = 'physician-notes-print-block';
+      notesContainer.setAttribute('style', 'margin-top: 40px; padding: 15px; border: 1.5px solid #a5b4fc; border-radius: 6px; background-color: rgba(255,255,255,0.01); page-break-inside: avoid;');
+      
+      const title = iframeDoc.createElement('h3');
+      title.setAttribute('style', 'margin-top: 0; color: #a5b4fc; font-size: 16px; border-bottom: 1px solid #1f2937; padding-bottom: 6px;');
+      title.textContent = window.i18n.t('report.physician_notes') || 'Hekim Klinik Notları';
+      
+      const body = iframeDoc.createElement('p');
+      body.setAttribute('style', 'white-space: pre-wrap; font-size: 13px; color: #f3f4f6; margin-bottom: 0; line-height: 1.5;');
+      body.textContent = notesValue;
+
+      notesContainer.appendChild(title);
+      notesContainer.appendChild(body);
+
+      const cloneBody = clone.querySelector('body');
+      if (cloneBody) {
+        cloneBody.appendChild(notesContainer);
+      }
+    }
+
+    // Remove buttons or print-avoiding elements inside report
+    const noPrint = clone.querySelectorAll('.no-print, button, input[type="button"]');
+    noPrint.forEach(el => el.remove());
+
+    // 3. Replace any textareas inside the clone with static content
+    const textareas = clone.querySelectorAll('textarea');
+    textareas.forEach(ta => {
+      const div = iframeDoc.createElement('div');
+      div.setAttribute('style', 'white-space: pre-wrap; font-family: inherit; font-size: 13px; color: #f3f4f6; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px;');
+      div.textContent = ta.value;
+      ta.parentNode.replaceChild(div, ta);
+    });
+
+    // 4. Inline CSS variables for print fidelity
+    const cssVarMap = {
+      '--bg-deep': '#020509',
+      '--bg-dark': '#0b1120',
+      '--text': '#f3f4f6',
+      '--text-muted': '#9ca3af',
+      '--main': '#00ffcc',
+      '--border': '#1f2937',
+      '--accent': '#7c3aed'
+    };
+    const elements = clone.querySelectorAll('*');
+    elements.forEach(el => {
+      let styleAttr = el.getAttribute('style');
+      if (styleAttr) {
+        Object.entries(cssVarMap).forEach(([vName, vVal]) => {
+          styleAttr = styleAttr.replace(new RegExp(`var\\(${vName}\\)`, 'g'), vVal);
+        });
+        el.setAttribute('style', styleAttr);
+      }
+    });
+
+    // 5. Serialize
+    const htmlContent = '<!DOCTYPE html>\n' + clone.outerHTML;
+
+    showInfoToast(window.i18n.t('report.generate_pdf') || "PDF oluşturuluyor...");
+    const res = await api.printReportToPDF(htmlContent);
+    if (res && res.success) {
+      showExportSuccessToast(window.i18n.t('state.export_success') || "✅ Rapor PDF olarak başarıyla kaydedildi!");
+    } else if (res && res.canceled) {
+      showInfoToast(window.i18n.t('state.export_canceled') || "PDF kaydetme iptal edildi.");
+    }
+  } catch (e) {
+    console.error("PDF export failed:", e);
+    showErrorToast(`PDF Dışa Aktarma Başarısız: ${e.message || e}`);
   }
 }
 
 async function openOutputFolder() {
   if (!state.outputDir) return;
   if (!isPathSafeLocal(state.outputDir)) {
-    showWarningToast('Güvenli olmayan klasör yolu.');
+    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
     return;
   }
   api.openOutputFolder(state.outputDir);
@@ -340,7 +436,7 @@ async function openOutputFolder() {
 // 4.4 — DEKONVOLÜSYON KALİTE PANELİ
 // ══════════════════════════════════════════════════════════════
 async function loadDeconvQuality() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
 
   try {
     const q = await api.backendRequest(
@@ -465,7 +561,7 @@ function appendRow(tbody, label, value) {
 }
 
 async function loadGnnModel() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+  if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
 
   try {
     const m = await api.backendRequest(
@@ -484,9 +580,9 @@ async function loadGnnModel() {
       fileTbody.innerHTML = '';
       appendRow(fileTbody, 'Dosya', m.model_file || '—');
       appendRow(fileTbody, 'Boyut', m.model_size_mb ? `${m.model_size_mb} MB` : 'N/A');
-      appendRow(fileTbody, 'Spot Sayısı', m.output?.n_spots !== undefined ? m.output.n_spots.toLocaleString() : '0');
-      appendRow(fileTbody, 'Zone Sayısı', m.output?.zones !== undefined ? m.output.zones.length.toString() : '0');
-      appendRow(fileTbody, 'Hücre Tipi', m.output?.ct_names !== undefined ? m.output.ct_names.length.toString() : '0');
+      appendRow(fileTbody, window.i18n.t('model.spots_count'), m.output?.n_spots !== undefined ? m.output.n_spots.toLocaleString() : '0');
+      appendRow(fileTbody, window.i18n.t('model.zones_count'), m.output?.zones !== undefined ? m.output.zones.length.toString() : '0');
+      appendRow(fileTbody, window.i18n.t('model.cell_types_count'), m.output?.ct_names !== undefined ? m.output.ct_names.length.toString() : '0');
     }
 
     // Architecture
@@ -500,8 +596,8 @@ async function loadGnnModel() {
       
       appendRow(archTbody, 'Hidden Dim', arch.hidden_dim !== undefined ? arch.hidden_dim.toString() : '—');
       appendRow(archTbody, 'Attention Heads', arch.attention_heads !== undefined ? arch.attention_heads.toString() : '—');
-      appendRow(archTbody, 'GAT Katmanları', arch.gat_layers !== undefined ? arch.gat_layers.toString() : '—');
-      appendRow(archTbody, 'SAGE Katmanları', arch.sage_layers !== undefined ? arch.sage_layers.toString() : '—');
+      appendRow(archTbody, window.i18n.t('model.gat_layers'), arch.gat_layers !== undefined ? arch.gat_layers.toString() : '—');
+      appendRow(archTbody, window.i18n.t('model.sage_layers'), arch.sage_layers !== undefined ? arch.sage_layers.toString() : '—');
       appendRow(archTbody, 'Dropout', arch.dropout !== undefined ? arch.dropout.toString() : '—');
       appendRow(archTbody, 'Learning Rate', lrDisplay);
     }
@@ -511,12 +607,12 @@ async function loadGnnModel() {
     const trainTbody = document.getElementById('model-train-tbody');
     if (trData && trainTbody) {
       trainTbody.innerHTML = '';
-      appendRow(trainTbody, 'İstenen Epoch', trData.epochs_requested !== undefined ? trData.epochs_requested.toString() : '—');
-      appendRow(trainTbody, 'Eğitilen Epoch', trData.epochs_trained !== undefined ? trData.epochs_trained.toString() : '—');
+      appendRow(trainTbody, window.i18n.t('model.epochs_requested'), trData.epochs_requested !== undefined ? trData.epochs_requested.toString() : '—');
+      appendRow(trainTbody, window.i18n.t('model.epochs_trained'), trData.epochs_trained !== undefined ? trData.epochs_trained.toString() : '—');
       appendRow(trainTbody, 'Patience', trData.patience !== undefined ? trData.patience.toString() : '—');
-      appendRow(trainTbody, 'En İyi Val Loss', trData.best_val_loss !== undefined ? trData.best_val_loss.toFixed(6) : '—');
+      appendRow(trainTbody, window.i18n.t('model.best_val_loss'), trData.best_val_loss !== undefined ? trData.best_val_loss.toFixed(6) : '—');
       appendRow(trainTbody, 'Test MSE', trData.test_mse !== undefined ? trData.test_mse.toFixed(6) : '—');
-      appendRow(trainTbody, 'Optuna', trData.optuna_used ? '✅ Kullanıldı' : '⬜ Kullanılmadı');
+      appendRow(trainTbody, 'Optuna', trData.optuna_used ? '✅ ' + window.i18n.t('model.optuna_used') : '⬜ ' + window.i18n.t('model.optuna_unused'));
     }
 
     // Correlations
@@ -526,7 +622,7 @@ async function loadGnnModel() {
       const fragment = document.createDocumentFragment();
       for (const [ct, vals] of Object.entries(m.correlations)) {
         const pr = vals.pearson_r;
-        const sig = Math.abs(pr) > 0.7 ? '🟢 Güçlü' : Math.abs(pr) > 0.5 ? '🟡 Orta' : '🔴 Zayıf';
+        const sig = Math.abs(pr) > 0.7 ? '🟢 ' + window.i18n.t('model.sig_strong') : Math.abs(pr) > 0.5 ? '🟡 ' + window.i18n.t('model.sig_medium') : '🔴 ' + window.i18n.t('model.sig_weak');
         
         const tr = document.createElement('tr');
         
@@ -553,7 +649,7 @@ async function loadGnnModel() {
       ctbody.appendChild(fragment);
     }
   } catch (e) {
-    showErrorToast(`Model bilgisi yüklenemedi: ${e.message || e}`);
+    showErrorToast(window.i18n.t('profiles.load_error') + ': ' + (e.message || e));
   }
 }
 
@@ -604,7 +700,7 @@ async function runExport(type, endpoint, buttonOrEl, loadingText) {
       showErrorToast(`${type.toUpperCase()} dışa aktarma başarısız oldu.`);
     }
   } catch (e) {
-    showErrorToast(`Dışa aktarma hatası: ${e.message || e}`);
+    showErrorToast(window.i18n.t('common.export') + ' ' + window.i18n.t('common.error').toLowerCase() + ': ' + (e.message || e));
   } finally {
     if (btn) {
       btn.innerHTML = originalText;
@@ -753,8 +849,8 @@ async function comparePatients() {
 
   } catch (err) {
     console.error('Multi-patient comparison error:', err);
-    showErrorToast(`Karşılaştırma hatası: ${err.message}`);
-    if (resultEl) resultEl.innerHTML = `<div class="license-error">Karşılaştırma yapılırken hata oluştu: ${err.message}</div>`;
+    showErrorToast(window.i18n.t('cohort.compare_error') + ': ' + err.message);
+    if (resultEl) resultEl.innerHTML = `<div class="license-error">${window.i18n.t('cohort.compare_failed')}: ${err.message}</div>`;
   }
 }
 

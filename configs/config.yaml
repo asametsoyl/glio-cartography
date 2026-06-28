@@ -1,0 +1,730 @@
+# ============================================================
+# GLIO-CARTOGRAPHY — Global Configuration
+# ============================================================
+
+project:
+  name: "GLIO-CARTOGRAPHY"
+  version: "1.0.0"
+  description: "Spatial Tumor Microenvironment Atlas for Glioblastoma"
+  output_dir: "outputs"
+  log_level: "INFO"
+
+# -----------------------------------------------------------
+# Data Paths
+# -----------------------------------------------------------
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  spatial_dir: "data/spatial"
+  scrna_dir: "data/scRNA"
+  figures_dir: "outputs/figures"
+  models_dir: "outputs/models"
+  reports_dir: "outputs/reports"
+
+# -----------------------------------------------------------
+# Preprocessing Parameters
+# -----------------------------------------------------------
+preprocessing:
+  scrna:
+    min_genes: 200          # Minimum genes per cell
+    min_cells: 3            # Minimum cells per gene
+    max_genes: 8000         # Maximum genes (doublet filter)
+    max_mito_pct: 20.0      # Max mitochondrial %
+    n_top_genes: 3000       # Highly variable genes
+    n_pcs: 50               # PCA components
+    n_neighbors: 15         # KNN for graph
+    leiden_resolution: 0.8  # Clustering resolution
+  spatial:
+    min_counts: 1000
+    min_genes: 300
+    max_counts: 40000
+    max_mito_pct: 25.0
+    n_top_genes: 3000
+
+# -----------------------------------------------------------
+# Cell Type Annotation Markers
+# -----------------------------------------------------------
+cell_markers:
+  malignant_tumor:
+    - EGFR
+    - PTEN
+    - IDH1
+    - TP53
+    - CDKN2A
+    - MET
+  # ── GBM Kök Hücre (GSC) Markerları ──────────────────────
+  gbm_stem_cell:
+    - PROM1      # CD133 — GSC tanımlayıcısı
+    - NES        # Nestin — sinir kök hücresi
+    - SOX2       # Çoğullaşma kapasitesi
+    - MYC        # Onkojen, GSC proliferasyonu
+    - PDGFRA     # Kök hücre sinyali
+    - OLIG2      # GSC transkripsiyon faktörü
+    - AQP4       # İnvazif kenarda su kanalı
+    - ITGA6      # CD49f — GSC niş tutunması
+  # ── Makrofaj Kutuplaşması ─────────────────────────────────
+  m1_macrophage:       # Anti-tümör / inflamatuvar fenotip
+    - CD80
+    - CD86
+    - CXCL10
+    - NOS2       # Nitrik oksit sentaz — tümör öldürücü
+    - IL12A
+    - TNF
+    - HLA-DRA
+  m2_macrophage:       # Pro-tümör / immünsüpresif fenotip
+    - CD163
+    - MRC1       # CD206
+    - ARG1       # Arginaz 1 — metabolik baskı
+    - VEGFA      # Anjiogenez desteği
+    - IL10
+    - CCL22
+    - TGFB1
+  tumor_associated_macrophage:
+    - CD163
+    - MRC1
+    - MSR1
+    - CCL2
+    - SPP1
+    - APOE
+  microglia:
+    - CX3CR1
+    - P2RY12
+    - TMEM119
+    - SALL1
+    - SLC2A5
+  t_cell:
+    - CD3D
+    - CD3E
+    - CD3G
+    - TRAC
+  exhausted_t_cell:
+    - PDCD1    # PD-1
+    - TOX
+    - TIGIT
+    - LAG3
+    - TIM3
+    - HAVCR2
+  cd8_t_cell:
+    - CD8A
+    - CD8B
+    - GZMB       # Granzyme B — sitotoksik aktivite
+    - PRF1       # Perforin
+    - IFNG
+  treg:
+    - FOXP3      # Treg master regülatörü
+    - IL2RA      # CD25
+    - CTLA4
+    - IKZF2      # Helios
+    - TNFRSF18   # GITR
+  nk_cell:
+    - NCAM1
+    - NKG7
+    - GNLY
+    - KLRB1
+    - FCGR3A     # CD16
+  # ── Dendritik Hücre Alt Tipleri ──────────────────────────
+  cdc1:         # Konvansiyonel DC1 — çapraz sunum, anti-tümör
+    - CLEC9A     # DNGR-1 — cDC1 tanımlayıcısı
+    - XCR1       # cDC1'e özgü kemokin reseptörü
+    - CADM1
+    - IRF8       # Transkripsiyon faktörü
+    - BATF3
+  cdc2:         # Konvansiyonel DC2 — CD4+ T aktivasyonu
+    - CLEC10A    # CD301 — cDC2 tanımlayıcısı
+    - CD1C
+    - FCER1A
+    - IRF4
+    - CLEC12A
+  pdc:          # Plazmositoid DC — interferon-α üretimi
+    - LILRA4     # ILT7 — pDC tanımlayıcısı
+    - CLEC4C     # CD303
+    - IL3RA      # CD123
+    - TCF4
+    - SIGLEC6
+  modc:         # Monosit kaynaklı DC — inflamasyon ortamı
+    - CD14
+    - CD1C
+    - CCR2
+    - ITGAM      # CD11b
+    - FCGR1A     # CD64
+  # ── Genel DC Aktivasyon Markerleri ───────────────────────
+  dc_activation:
+    - HLA-DRA    # MHC-II antigen sunum
+    - HLA-DRB1
+    - CD80       # Co-stimülatör — B7-1
+    - CD86       # Co-stimülatör — B7-2
+    - CD40
+    - CCR7       # Olgunlaşmış DC — lenf noduna göç
+  oligodendrocyte:
+    - MBP
+    - MOG
+    - MOBP
+    - PLP1
+  astrocyte:
+    - GFAP
+    - AQP4
+    - S100B
+    - VIM
+  endothelial:
+    - PECAM1
+    - VWF
+    - CLDN5
+    - FLT1
+  pericyte:
+    - PDGFRB
+    - RGS5
+    - ACTA2
+
+# -----------------------------------------------------------
+# GBM Molecular Subtypes (Neftel 2019)
+# -----------------------------------------------------------
+gbm_states:
+  MES:   [VIM, CHI3L1, CD44, FN1, ANPEP, SERPINE1]
+  AC:    [GFAP, ALDOC, AQP4, S100B, APOE]
+  NPC:   [SOX4, DCX, DLL3, OLIG2, ASCL1]
+  OPC:   [PDGFRA, CSPG4, OLIG1, SOX10, GPR17]
+
+# -----------------------------------------------------------
+# Metabolic & Vascular Scoring Gene Sets
+# -----------------------------------------------------------
+metabolic_scores:
+  acidosis_warburg:
+    - CA9
+    - CA12
+    - LDHA
+    - LDHB
+    - SLC16A1
+    - SLC16A3
+    - PKM
+    - ENO1
+  hypoxia:
+    - HIF1A
+    - VEGFA
+    - BNIP3
+    - DDIT4
+    - EGLN1
+    - NDRG1
+  glycolysis_warburg:       # Genişletilmiş Warburg metabolizması
+    - HK2
+    - PFKP
+    - ALDOA
+    - PKM
+    - LDHA
+    - SLC16A3      # MCT4 — laktat taşıyıcı
+    - ENO1
+    - PGK1
+    - CA9           # Asidoz marker
+    - SLC2A1        # GLUT1
+  oxidative_phosphorylation:
+    - NDUFS1
+    - NDUFA9
+    - COX5A
+    - COX6C
+    - ATP5F1B
+    - UQCRC1
+    - COX4I1
+    - NDUFB8
+    - ATP5F1A
+    - UQCRC2
+  lipid_metabolism:          # Tümör lipid bağımlılığı
+    - FASN         # Yağ asidi sentazı — ilaç hedefi
+    - ACACA        # Asetil-CoA karboksilaz
+    - SCD          # Stearoyl-CoA desatüraz
+    - CPT1A        # Mitokondriyal yağ oksidasyonu
+    - ACLY         # ATP-sitrat liyaz (FASN upstream)
+
+immune_scores:
+  antigen_presentation:    # DC'lerin antijen sunum kapasitesi
+    - HLA-DRA
+    - HLA-DRB1
+    - HLA-DPA1
+    - HLA-DPB1
+    - B2M
+    - TAP1
+    - TAP2
+    - TAPBP           # Tapasin
+  dc_maturation:           # DC olgunlaşma skoru
+    - CCR7
+    - CD80
+    - CD86
+    - CD40
+    - CD83
+    - REL             # c-Rel transkripsiyon faktörü
+  immunosuppression:       # Baskılanma skoru (yüksekse kötü)
+    - IL10
+    - TGFB1
+    - IDO1
+    - HAVCR2          # TIM-3
+    - PDCD1LG2        # PD-L2
+    - CD274           # PD-L1
+    - FOXP3
+
+vascular_scores:
+  endothelial:
+    - PECAM1
+    - VWF
+    - CLDN5
+    - FLT1
+    - ERG
+  bbb_integrity:
+    - CLDN5
+    - OCLN
+    - TJP1
+    - SLC2A1
+    - ABCB1
+  angiogenesis:
+    - VEGFA
+    - VEGFB
+    - ANGPT1
+    - ANGPT2
+    - PDGFB
+    - NOTCH1
+
+# -----------------------------------------------------------
+# Ligand-Receptor Pairs of Interest
+# -----------------------------------------------------------
+lr_pairs_focus:
+  - ligand: CD274      # PD-L1
+    receptor: PDCD1    # PD-1
+    pathway: "Immune checkpoint"
+  - ligand: SPP1
+    receptor: CD44
+    pathway: "Macrophage-tumor crosstalk"
+  - ligand: MIF
+    receptor: CD74
+    pathway: "Immunosuppression"
+  - ligand: TGFB1
+    receptor: TGFBR1
+    pathway: "TGF-beta signaling"
+  - ligand: CXCL12
+    receptor: CXCR4
+    pathway: "Tumor invasion"
+  - ligand: VEGFA
+    receptor: FLT1
+    pathway: "Angiogenesis"
+  - ligand: LGALS9
+    receptor: HAVCR2   # TIM-3
+    pathway: "T-cell exhaustion"
+  # ── DC ile ilgili L-R çiftleri ─────────────────────────
+  - ligand: CD80
+    receptor: CD28
+    pathway: "DC–T cell co-stimulation (anti-tumor)"
+  - ligand: CD80
+    receptor: CTLA4
+    pathway: "DC–Treg checkpoint (immunosuppressive)"
+  - ligand: CCL19
+    receptor: CCR7
+    pathway: "DC maturation & lymph node migration"
+  - ligand: IL10
+    receptor: IL10RA
+    pathway: "Tolerogenic DC — immunosuppression"
+  - ligand: TGFB1
+    receptor: TGFBR2
+    pathway: "DC-mediated Treg induction"
+  - ligand: XCL1
+    receptor: XCR1
+    pathway: "cDC1 recruitment (anti-tumor)"
+  # ── Makrofaj Rekrutmanı ve Polarizasyonu ────────────────
+  - ligand: CCL2
+    receptor: CCR2
+    pathway: "Monosit rekrutmanı / TAM oluşumu"
+  - ligand: CSF1
+    receptor: CSF1R
+    pathway: "TAM hayatta kalma / farklılaşma"
+  - ligand: CX3CL1
+    receptor: CX3CR1
+    pathway: "Mikroglia homeostazı"
+  - ligand: IL34
+    receptor: CSF1R
+    pathway: "Alternatif TAM aktivasyon"
+  - ligand: CCL5
+    receptor: CCR5
+    pathway: "M2-TAM polarizasyon sinyali"
+  # ── T-Hücre Baskılanması (Immune Checkpoint) ────────────
+  - ligand: CD47
+    receptor: SIRPA
+    pathway: "'Beni yeme' sinyali — fagositoz kaçışı"
+  - ligand: CD274
+    receptor: PDCD1
+    pathway: "PD-L1 / PD-1 immune checkpoint"
+  - ligand: PDCD1LG2
+    receptor: PDCD1
+    pathway: "PD-L2 / PD-1 alternatif checkpoint"
+  - ligand: CD86
+    receptor: CTLA4
+    pathway: "DC–Treg CTLA-4 yolu"
+  - ligand: FGL1
+    receptor: LAG3
+    pathway: "Fibrinojen benzeri ligand — T exhaustion"
+  # ── Makrofaj–Tümör Crosstalk ─────────────────────────────
+  - ligand: MIF
+    receptor: CD74
+    pathway: "Makrofaj göç inhibitörü — immünsüprasyon"
+  - ligand: IL10
+    receptor: IL10RA
+    pathway: "TAM→T hücre baskılama (IL-10 ekseni A)"
+  - ligand: IL10
+    receptor: IL10RB
+    pathway: "TAM→T hücre baskılama (IL-10 ekseni B)"
+  - ligand: TGFB1
+    receptor: TGFBR1
+    pathway: "TGF-β stromal yeniden programlama"
+  # ── T-Hücre Rekrutmanı & Anti-Tümör Yanıt ───────────────
+  - ligand: CXCL9
+    receptor: CXCR3
+    pathway: "CD8+ T rekrutmanı (anti-tümör)"
+  - ligand: CXCL10
+    receptor: CXCR3
+    pathway: "CD8+ T ve NK rekrutmanı (anti-tümör)"
+  - ligand: CXCL11
+    receptor: CXCR3
+    pathway: "T hücre aktivasyonu ve göçü"
+  - ligand: CCL19
+    receptor: CCR7
+    pathway: "DC olgunlaşması / lenf noduna göç"
+  - ligand: CCL21
+    receptor: CCR7
+    pathway: "Naif T hücre yönlendirmesi"
+  # ── Tümör İnvazyonu ve Göç ───────────────────────────────
+  - ligand: HGF
+    receptor: MET
+    pathway: "Tümör hücre migrasyonu / invazyon"
+  - ligand: EGF
+    receptor: EGFR
+    pathway: "Tümör proliferasyonu / invazif kenar"
+  - ligand: SEMA4D
+    receptor: PLXNB1
+    pathway: "Aksonal rehberlik / tümör göçü"
+  # ── Anjiyogenez ve Perivasküler Niş ─────────────────────
+  - ligand: VEGFA
+    receptor: KDR
+    pathway: "Anjiogenez — endotelyal proliferasyon"
+  - ligand: ANGPT1
+    receptor: TEK
+    pathway: "Damar stabilizasyonu"
+  - ligand: ANGPT2
+    receptor: TEK
+    pathway: "Damar destabilizasyonu / yeni damar"
+  - ligand: PDGFB
+    receptor: PDGFRB
+    pathway: "Perisit rekrutmanı / perivasküler niş"
+  - ligand: DLL4
+    receptor: NOTCH1
+    pathway: "Notch — uc damar hücresi seçimi"
+
+
+# -----------------------------------------------------------
+# TME Niş Belirteçleri (Spatial Mikro-Nişler)
+# -----------------------------------------------------------
+tme_niches:
+  perivaskuler_nis:
+    description: "Endotel + Perisit + GSC — vasküler niş"
+    markers:
+      - PECAM1
+      - VWF
+      - CLDN5
+      - KDR
+      - FLT1
+      - ANGPT2
+      - PDGFRB
+      - RGS5
+  hipoksik_nekrotik_cekirdek:
+    description: "Tümör merkezinde düşük O₂, yüksek metabolik stres"
+    markers:
+      - HIF1A
+      - CA9
+      - BNIP3
+      - NDRG1
+      - VEGFA
+      - SLC2A1
+      - LDHA
+  immun_baskici_nis:
+    description: "TAM + Treg yoğun bölge — T hücre tükenmesi"
+    markers:
+      - FOXP3
+      - IL10
+      - TGFB1
+      - IDO1
+      - PDCD1LG2
+      - CD274
+      - HAVCR2
+  invazif_kenar:
+    description: "Tümör-beyin sınırı — maksimum infiltrasyon"
+    markers:
+      - CHI3L1
+      - VIM
+      - FN1
+      - MMP2
+      - MMP9
+      - ITGAV
+      - TWIST1
+
+# -----------------------------------------------------------
+# İmmün Baskılanma Gen Seti (Genişletilmiş)
+# -----------------------------------------------------------
+immune_suppression_extended:
+  metabolic_suppression:     # Metabolik immün baskı
+    - ARG1       # Arginaz — L-arginin tüketimi
+    - NOS2       # iNOS — nitrik oksit (M1'de öldürücü, M2'de izole)
+    - IDO1       # İndolamin oksidaz — triptofan tüketimi
+    - IDO2
+    - TDO2       # Triptofan-2,3-dioksijenaz
+  checkpoint_ligands:
+    - CD274      # PD-L1
+    - PDCD1LG2   # PD-L2
+    - CD47       # Fagositozu engeller
+    - LGALS9     # Galectin-9 (TIM-3 ligandı)
+    - FGL1       # LAG-3 ligandı
+  t_cell_suppression:
+    - HAVCR2     # TIM-3
+    - LAG3
+    - TIGIT
+    - VSIR       # VISTA — yeni checkpoint
+    - CTLA4
+    - FOXP3      # Treg aktivitesi
+
+# -----------------------------------------------------------
+# GNN Spatial Feature Skorları
+# -----------------------------------------------------------
+gnn_spatial_scores:
+  node_features:
+    - hypoxia_score
+    - angiogenesis_score
+    - immune_suppression_score
+    - t_cell_activation_score
+    - macrophage_polarization_score   # M1/M2 oranı
+    - glycolysis_score
+    - oxidative_phosphorylation_score
+    - stemness_score                  # GSC skoru
+    - antigen_presentation_score      # DC kapasitesi
+    - dc_maturation_score
+  edge_features:
+    - lr_communication_score
+    - spatial_proximity_um
+    - ligand_expression
+    - receptor_expression
+
+# -----------------------------------------------------------
+# InferCNV — Kopya Sayısı Varyasyonu Tespiti
+# -----------------------------------------------------------
+infercnv:
+  run_infercnv: true
+  reference_groups:   # Normal (kopya sayısı yok) referans hücreler
+    - endothelial
+    - t_cell
+    - microglia
+    - oligodendrocyte
+  target_groups:      # Şüpheli tümör/reaktif hücreler
+    - malignant_tumor
+    - astrocyte
+    - gbm_stem_cell
+  window_size: 100    # Genomik kayan pencere boyutu
+  threshold: 0.1      # CNV skoru eşiği
+  key_alterations:    # GBM'e özgü bilinen mutasyonlar
+    chr7_gain: [EGFR, MET, CDK6]   # Kromozom 7 artışı
+    chr10_loss: [PTEN, DMBT1]       # Kromozom 10 kaybı
+    chr9p_loss: [CDKN2A, CDKN2B]   # CDKN2A silinmesi
+
+# -----------------------------------------------------------
+# Explainable AI (XAI) — GNN Karar Yorumlama
+# -----------------------------------------------------------
+xai:
+  explainer_method: "GNNExplainer"   # PGExplainer veya Captum da mevcut
+  top_k_edges: 10      # Kararı en çok etkileyen 10 iletişim bağı
+  top_k_nodes: 5       # Kararı en çok etkileyen 5 hücre/spot
+  visualization: "subgraph_heatmap"
+  output_format: "interactive_plotly" # Jüri için interaktif
+  highlight_pathways: true            # İlgili L-R yolunu vurgula
+
+# -----------------------------------------------------------
+# Spatial Trajectory & Pseudotime (PAGA)
+# -----------------------------------------------------------
+trajectory:
+  method: "PAGA"                    # Partition-based graph abstraction
+  root_cell_type: "cd8_t_cell"      # Aktif / sağlıklı T hücresinden başla
+  end_cell_type: "exhausted_t_cell" # Tükenmiş T hücresine doğru çiz
+  spatial_vector_field: true        # Haritada oklu akış yönü
+  additional_trajectories:
+    - start: "m1_macrophage"
+      end: "m2_macrophage"
+      label: "Makrofaj M1→M2 polarizasyon yolu"
+    - start: "cdc1"
+      end: "modc"
+      label: "DC işlevsizleşme yolu"
+  diffusion_pseudotime: true
+  plot_velocity_arrows: true
+
+# -----------------------------------------------------------
+# Klinik Metadata Entegrasyonu
+# -----------------------------------------------------------
+clinical_metadata:
+  include_covariates: true
+  source: "tcga"                    # TCGA-GBM'den çekilecek
+  survival_model: "cox_ph"          # Cox proportional hazards
+  features:
+    patient_demographics:
+      - age_at_diagnosis
+      - gender
+      - kps_score              # Karnofsky Performance Status
+    molecular_profile:
+      - IDH_status             # Mutant vs Wild-type (temel prognostik)
+      - MGMT_promoter_status   # Methylated → TMZ'ye yanıt verir
+      - CDKN2A_deletion
+      - EGFR_amplification
+      - TERT_promoter_status
+    treatment_history:
+      - surgery_extent         # GTR / STR / biopsy
+      - radiotherapy           # Yes/No
+      - temozolomide_tmz       # Yes/No
+      - bevacizumab            # Anti-VEGF tedavi
+    outcomes:
+      - survival_months        # Overall Survival (OS)
+      - progression_free_months
+      - response_to_treatment
+  tme_survival_correlation:  # Hangi TME özellikleri survival ile korelasyon?
+    features_to_correlate:
+      - m2_fraction            # M2-TAM oranı
+      - t_cell_exhaustion_score
+      - stemness_score
+      - hypoxia_score
+      - dc_maturation_score
+      - antigen_presentation_score
+
+# -----------------------------------------------------------
+# Graph Construction
+# -----------------------------------------------------------
+graph:
+  n_neighbors: 6           # KNN for spatial graph
+  spatial_distance_um: 300 # Max distance (microns) for communication
+  edge_weight_alpha: 0.5   # Balance spatial vs. comm. weight
+
+# -----------------------------------------------------------
+# GNN Model
+# -----------------------------------------------------------
+gnn:
+  model: "GAT"             # GraphSAGE or GAT
+  hidden_channels: 256
+  num_heads: 8             # For GAT
+  num_layers: 3
+  dropout: 0.3
+  learning_rate: 0.001
+  epochs: 200
+  batch_size: 128
+  device: "mps"            # M3 Apple Silicon GPU
+
+# -----------------------------------------------------------
+# Drug Matching
+# -----------------------------------------------------------
+drug_matching:
+  dgidb_api: "https://dgidb.org/api/v2"
+  sources:
+    - DrugBank
+    - ChEMBL
+    - TTD
+    - NCI
+  min_interaction_score: 0.5
+
+# -----------------------------------------------------------
+# Visualization
+# -----------------------------------------------------------
+visualization:
+  theme: "dark"
+  colormap_celltypes: "tab20"
+  colormap_expression: "viridis"
+  colormap_communication: "RdYlBu_r"
+  spot_size: 1.5
+  figure_dpi: 300
+
+# -----------------------------------------------------------
+# Cell Cycle Genes (Human)
+# -----------------------------------------------------------
+cell_cycle:
+  s_genes:
+    - MCM5
+    - PCNA
+    - TYMS
+    - FEN1
+    - MCM2
+    - MCM4
+    - RRM1
+    - UNG
+    - GINS2
+    - MCM6
+    - CDCA7
+    - DTL
+    - PRIM1
+    - UHRF1
+    - HELLS
+    - RFC2
+    - RPA2
+    - NASP
+    - RAD51AP1
+    - GMNN
+    - WDR76
+    - SLBP
+    - CCNE2
+    - UBR7
+    - POLD3
+    - MSH2
+    - ATAD2
+    - RAD51
+    - RRM2
+    - CDC45
+    - CDC6
+    - EXO1
+    - TIPIN
+    - DSCC1
+    - BLM
+    - CASP8AP2
+    - USP1
+    - CLSPN
+    - POLA1
+    - CHAF1B
+    - BRIP1
+    - E2F8
+  g2m_genes:
+    - HMGB2
+    - CDK1
+    - NUSAP1
+    - UBE2C
+    - BIRC5
+    - TPX2
+    - TOP2A
+    - NDC80
+    - CKS2
+    - NUF2
+    - CKS1B
+    - MKI67
+    - TMPO
+    - CENPF
+    - TACC3
+    - SMC4
+    - CCNB2
+    - CENPE
+    - AURKB
+    - CCNB1
+    - ECT2
+    - CENPA
+    - CDC20
+    - TTK
+    - CDC25C
+    - KIF20B
+    - PLK1
+    - CEP55
+    - PRC1
+    - KIF2C
+    - KIF11
+    - KIF23
+    - SMC2
+    - DIAPH3
+    - HMMR
+    - KIF15
+    - LBR
+    - SFPQ
+    - ANLN
+    - ANP32E
+    - G2E3
+    - GAS2L3
+    - NCAPD2
+    - NCAPH
+    - NCAPG

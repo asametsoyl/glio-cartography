@@ -5,7 +5,7 @@
 const api = window.glioAPI;
 
 // ── State ────────────────────────────────────────────────────
-const state = {
+const rawState = {
   backendReady: false,
   backendStartupFailed: false,
   licenseValid: false,
@@ -45,6 +45,81 @@ const state = {
   viewTransform: { x: 0, y: 0, k: 1 },
   _medianRisk: null,
 };
+
+// Global state change handler for reactive side effects
+function handleStateChange(prop, value, oldValue) {
+  // 1. Panel/Navigation shifts
+  if (prop === 'currentPanel') {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    
+    const targetPanel = document.getElementById(`panel-${value}`);
+    if (targetPanel) {
+      targetPanel.classList.add('active');
+    } else {
+      console.warn(`Panel panel-${value} not found!`);
+    }
+    
+    const targetNav = document.querySelector(`[data-panel="${value}"]`);
+    if (targetNav) {
+      targetNav.classList.add('active');
+    }
+    
+    if (value === 'monitor') {
+      const cancelBtn = document.getElementById('cancel-btn');
+      const returnSetupBtn = document.getElementById('return-setup-btn');
+      if (rawState.pipelineRunning) {
+        if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+        if (returnSetupBtn) returnSetupBtn.style.display = 'none';
+      } else {
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (returnSetupBtn) returnSetupBtn.style.display = 'inline-flex';
+      }
+    }
+
+    if (value === 'compare' && typeof reloadCompareSelects === 'function') {
+      reloadCompareSelects();
+    }
+  }
+
+  // 2. Monitor panel controls on running state changes
+  if (prop === 'pipelineRunning') {
+    if (rawState.currentPanel === 'monitor') {
+      const cancelBtn = document.getElementById('cancel-btn');
+      const returnSetupBtn = document.getElementById('return-setup-btn');
+      if (value) {
+        if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+        if (returnSetupBtn) returnSetupBtn.style.display = 'none';
+      } else {
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        if (returnSetupBtn) returnSetupBtn.style.display = 'inline-flex';
+      }
+    }
+  }
+
+  // 3. Launch state triggers
+  const launchKeys = ['licenseValid', 'backendReady', 'manualLicenseView', 'backendStartupFailed', 'bootCompleted', 'downloading'];
+  if (launchKeys.includes(prop)) {
+    if (typeof evaluateLaunchState === 'function') {
+      evaluateLaunchState();
+    }
+  }
+}
+
+// Proxied state manager
+const state = new Proxy(rawState, {
+  set(target, prop, value) {
+    const oldValue = target[prop];
+    if (oldValue === value) return true;
+    target[prop] = value;
+    handleStateChange(prop, value, oldValue);
+    return true;
+  },
+  get(target, prop) {
+    return target[prop];
+  }
+});
+
 
 // ── ZONE CONFIG ───────────────────────────────────────────────
 const ZONE_COLORS = {
@@ -181,9 +256,9 @@ window.addEventListener('error', (event) => {
   console.error('[Unhandled Global Error]', event.error);
   // Avoid double warnings for standard three.js context losses
   if (event.message && event.message.includes('WebGL')) {
-    showToast(`WebGL Uyarısı: ${event.message}`, 'warning');
+    showToast(`${window.i18n.t('state.webgl_warning')}: ${event.message}`, 'warning');
   } else {
-    showToast(`Sistem Hatası: ${event.message || 'Bilinmeyen bir çalışma zamanı hatası oluştu.'}`, 'error');
+    showToast(`${window.i18n.t('state.system_error')}: ${event.message || window.i18n.t('state.unknown_runtime_error')}`, 'error');
   }
 });
 
@@ -195,13 +270,13 @@ window.addEventListener('unhandledrejection', (event) => {
   
   // If it's a request timeout or connection issue
   if (msg && (msg.includes('timeout') || msg.includes('Failed to fetch') || msg.includes('NetworkError'))) {
-    showToast(`Bağlantı Hatası: Sunucu zaman aşımına uğradı veya ağ bağlantısı koptu.`, 'error');
+    showToast(window.i18n.t('state.connection_timeout'), 'error');
   } else {
     // Show generic error message in production, details in development mode
     showToast(
       isDev 
-        ? `İşlem Hatası: ${msg || 'Beklenmeyen bir hata oluştu.'}` 
-        : 'Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.',
+        ? `${window.i18n.t('state.process_error')}: ${msg || window.i18n.t('state.unexpected_error')}` 
+        : window.i18n.t('state.unexpected_error_retry'),
       'error'
     );
   }

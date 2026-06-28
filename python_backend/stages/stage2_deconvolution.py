@@ -48,7 +48,14 @@ except (ImportError, AttributeError):
     def _get_cmap(name): return _fallback_cm.get_cmap(name)
 
 from loguru import logger
+import locale_logger
 import yaml
+from pydantic import BaseModel, Field
+from typing import Dict, List
+
+# Pydantic validation schema
+class GlobalDeconvConfig(BaseModel):
+    cell_markers: Dict[str, List[str]] = Field(default_factory=dict)
 
 # Verbosity = 1: only warnings — keeps stdout clean for JSON progress stream
 sc.settings.verbosity = 1
@@ -343,6 +350,19 @@ def _run_cell2location(adata_sc, adata_sp, CELL_MARKERS):
             )
 
     ct_prop_df = pd.DataFrame(abund_arr, index=adata_sp.obs_names, columns=ct_cols)
+
+    # Explicitly clear GPU memory when cell2location completes
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.info("   CUDA cache cleared.")
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+            logger.info("   MPS cache cleared.")
+    except Exception as gpu_err:
+        logger.warning(f"Could not clear PyTorch GPU cache: {gpu_err}")
+
     return ct_prop_df
 
 
@@ -404,25 +424,119 @@ def _run_stereoscope(adata_sc, adata_sp, CELL_MARKERS):
     return ct_prop_df
 
 
-def _score_based_fallback(adata_sp, CELL_MARKERS):
-    """Fallback: stable softmax (with pre-clip) over sc.tl.score_genes scores."""
-    logger.warning("   Fallback: score_genes bazlı softmax dekonvolüsyon...")
-    ct_proportions = {}
-    for cell_type, markers in CELL_MARKERS.items():
-        valid = [m for m in markers if m in adata_sp.var_names]
-        if len(valid) < 3:
-            logger.warning(f"   {cell_type}: insufficient markers ({len(valid)}), skipping.")
-            continue
-        sc.tl.score_genes(adata_sp, valid, score_name=f"score_{cell_type}")
-        ct_proportions[cell_type] = adata_sp.obs[f"score_{cell_type}"].values
+def _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS):
+    """Fallback: Non-Negative Least Squares (NNLS) deconvolution using reference cell profiles."""
+    logger.warning("   Fallback: NNLS dekonvolüsyon başlatılıyor...")
+    from scipy.optimize import nnls
+    import scipy.sparse as sp
+    
+    # 1. Identify valid marker genes present in both scRNA and Spatial datasets
+    all_markers = set()
+    for ct, markers in CELL_MARKERS.items():
+        all_markers.update(markers)
+    
+    valid_genes = [g for g in all_markers if g in adata_sc.var_names and g in adata_sp.var_names]
+    
+    if len(valid_genes) < 5:
+        logger.warning("   NNLS için yeterli ortak marker gen bulunamadı, basit score-based fallback uygulanıyor...")
+        ct_proportions = {}
+        for cell_type, markers in CELL_MARKERS.items():
+            valid = [m for m in markers if m in adata_sp.var_names]
+            if len(valid) >= 1:
+                sc.tl.score_genes(adata_sp, valid, score_name=f"score_{cell_type}")
+                ct_proportions[cell_type] = adata_sp.obs[f"score_{cell_type}"].values
+        if not ct_proportions:
+            exit_with_error("Yeterli marker gen bulunamadı.")
+        scored_cols = list(ct_proportions.keys())
+        raw_arr = np.column_stack([ct_proportions[c] for c in scored_cols])
+        softmax_arr = _stable_softmax(raw_arr, clip=5.0)
+        return pd.DataFrame(softmax_arr, columns=scored_cols, index=adata_sp.obs_names)
 
-    if not ct_proportions:
-        exit_with_error("Fallback dekonvolüsyon için yeterli marker gen bulunamadı.")
+    # 2. Build the signature matrix B (Genes x CellTypes)
+    ct_names = list(CELL_MARKERS.keys())
+    
+    if "cell_type" not in adata_sc.obs.columns:
+        cell_type_scores = {}
+        for cell_type, markers in CELL_MARKERS.items():
+            valid_markers = [m for m in markers if m in adata_sc.var_names]
+            if len(valid_markers) >= 3:
+                sc.tl.score_genes(adata_sc, valid_markers, score_name=f"score_{cell_type}")
+                cell_type_scores[cell_type] = f"score_{cell_type}"
+        score_cols = list(cell_type_scores.values())
+        if score_cols:
+            score_array = adata_sc.obs[score_cols].values
+            max_indices = score_array.argmax(axis=1)
+            adata_sc.obs["cell_type"] = [ct_names[i] for i in max_indices]
+        else:
+            adata_sc.obs["cell_type"] = "unknown"
 
-    scored_cols = list(ct_proportions.keys())
-    raw_arr     = np.column_stack([ct_proportions[c] for c in scored_cols])
-    softmax_arr = _stable_softmax(raw_arr, clip=5.0)
-    return pd.DataFrame(softmax_arr, columns=scored_cols, index=adata_sp.obs_names)
+    B_list = []
+    active_cts = []
+    
+    X_ref = adata_sc[:, valid_genes].X
+    if sp.issparse(X_ref):
+        X_ref = X_ref.toarray()
+    else:
+        X_ref = np.asarray(X_ref)
+        
+    for ct in ct_names:
+        mask = (adata_sc.obs["cell_type"] == ct)
+        if mask.sum() > 0:
+            avg_profile = X_ref[mask].mean(axis=0)
+            B_list.append(avg_profile)
+            active_cts.append(ct)
+        else:
+            avg_profile = np.zeros(len(valid_genes))
+            ct_markers = CELL_MARKERS.get(ct, [])
+            for i, g in enumerate(valid_genes):
+                if g in ct_markers:
+                    avg_profile[i] = 1.0
+            B_list.append(avg_profile)
+            active_cts.append(ct)
+            
+    B = np.column_stack(B_list)
+    
+    # 3. Solve NNLS for each spot in spatial data
+    X_sp = adata_sp[:, valid_genes].X
+    if sp.issparse(X_sp):
+        X_sp = X_sp.toarray()
+    else:
+        X_sp = np.asarray(X_sp)
+        
+    n_spots = X_sp.shape[0]
+    prop_arr = np.zeros((n_spots, len(active_cts)))
+    
+    for i in range(n_spots):
+        y = X_sp[i]
+        coefs, _ = nnls(B, y)
+        coef_sum = coefs.sum()
+        if coef_sum > 0:
+            prop_arr[i] = coefs / coef_sum
+        else:
+            prop_arr[i] = 1.0 / len(active_cts)
+            
+    return pd.DataFrame(prop_arr, columns=active_cts, index=adata_sp.obs_names)
+
+
+
+
+class DeconvolverRegistry:
+    def __init__(self):
+        self._methods = {}
+
+    def register(self, name, handler):
+        self._methods[name.lower()] = handler
+
+    def run(self, name, *args, **kwargs):
+        name_lower = name.lower()
+        if name_lower not in self._methods:
+            raise ValueError(f"Deconvolution method '{name}' is not registered.")
+        return self._methods[name_lower](*args, **kwargs)
+
+deconv_registry = DeconvolverRegistry()
+deconv_registry.register('tangram', lambda adata_sc, adata_sp, marker_genes, CELL_MARKERS: _run_tangram(adata_sc, adata_sp, marker_genes, CELL_MARKERS))
+deconv_registry.register('cell2location', lambda adata_sc, adata_sp, marker_genes, CELL_MARKERS: _run_cell2location(adata_sc, adata_sp, CELL_MARKERS))
+deconv_registry.register('stereoscope', lambda adata_sc, adata_sp, marker_genes, CELL_MARKERS: _run_stereoscope(adata_sc, adata_sp, CELL_MARKERS))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -445,15 +559,39 @@ def main():
     report_progress(5)
 
     # ── Load config markers ─────────────────────────────────
-    config_path = PROJECT_ROOT / "configs" / "config.yaml"
+    import argparse
+    parser = argparse.ArgumentParser(description="Stage 2: Deconvolution")
+    parser.add_argument("--config_path", type=str, default=None, help="Path to config.yaml")
+    args, unknown = parser.parse_known_args()
+
+    config_path_str = args.config_path or os.environ.get("GLIO_CONFIG_PATH")
+    if config_path_str:
+        config_path = Path(config_path_str)
+    else:
+        # Fallback search paths
+        candidates = [
+            PROJECT_ROOT / "configs" / "config.yaml",
+            PROJECT_ROOT / "desktop_app" / "configs" / "config.yaml",
+            Path("configs/config.yaml"),
+            Path("desktop_app/configs/config.yaml")
+        ]
+        config_path = next((c for c in candidates if c.exists()), None)
+
     CELL_MARKERS = {}
-    try:
-        with open(config_path) as f:
-            cfg = yaml.safe_load(f)
-        CELL_MARKERS = cfg.get("cell_markers", {})
-        logger.info(f"   Config yüklendi: {config_path}")
-    except Exception as e:
-        logger.warning(f"   Config yüklenemedi ({e}). Varsayılan markerlar kullanılacak.")
+    config = GlobalDeconvConfig()
+    if config_path and config_path.exists():
+        try:
+            with open(config_path) as f:
+                raw_cfg = yaml.safe_load(f) or {}
+            config = GlobalDeconvConfig(**raw_cfg)
+            CELL_MARKERS = config.cell_markers
+            logger.info(f"   Config loaded and validated via Pydantic: {config_path}")
+        except Exception as e:
+            logger.warning(f"   Config validation failed ({e}), using default fallback markers.")
+    else:
+        logger.warning(f"   Config file not found, using default fallback markers.")
+
+    if not CELL_MARKERS:
         CELL_MARKERS = {
             "Tumor_MES": ["CHI3L1", "CD44", "VIM"],
             "Tumor_OPC": ["PDGFRA", "OLIG1", "OLIG2"],
@@ -580,28 +718,12 @@ def main():
 
     # ── RUN SELECTED DECONVOLUTION METHOD ────────────────────
     logger.info(f"🔬 Dekonvolüsyon yöntemi: {DECONV_METHOD.upper()}")
-    ct_prop_df = None
-
-    if DECONV_METHOD == "cell2location":
-        try:
-            ct_prop_df = _run_cell2location(adata_sc, adata_sp, CELL_MARKERS)
-        except Exception as e:
-            logger.warning(f"   Cell2Location başarısız ({e}). Score-based fallback devrede...")
-            ct_prop_df = _score_based_fallback(adata_sp, CELL_MARKERS)
-
-    elif DECONV_METHOD == "stereoscope":
-        try:
-            ct_prop_df = _run_stereoscope(adata_sc, adata_sp, CELL_MARKERS)
-        except Exception as e:
-            logger.warning(f"   Stereoscope başarısız ({e}). Score-based fallback devrede...")
-            ct_prop_df = _score_based_fallback(adata_sp, CELL_MARKERS)
-
-    else:  # tangram (default)
-        try:
-            ct_prop_df = _run_tangram(adata_sc, adata_sp, marker_genes, CELL_MARKERS)
-        except Exception as e:
-            logger.warning(f"   Tangram başarısız ({e}). Score-based fallback devrede...")
-            ct_prop_df = _score_based_fallback(adata_sp, CELL_MARKERS)
+    
+    try:
+        ct_prop_df = deconv_registry.run(DECONV_METHOD, adata_sc, adata_sp, marker_genes, CELL_MARKERS)
+    except Exception as e:
+        logger.warning(f"   {DECONV_METHOD.upper()} yöntemi başarısız oldu ({e}). NNLS/Score-based fallback devrede...")
+        ct_prop_df = _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS)
 
     # Guarantee ct_prop_df is always a proper DataFrame
     if not isinstance(ct_prop_df, pd.DataFrame):

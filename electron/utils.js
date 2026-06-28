@@ -115,8 +115,19 @@ function getAllowedBaseDirs() {
  * Checks if a resolved path is within the allowed whitelisted base directories,
  * using case-insensitive checks on macOS/Windows and Unicode NFC normalization.
  */
-function isPathAllowed(resolvedPath) {
-  if (!resolvedPath) return false;
+function isPathAllowed(filePath) {
+  if (!filePath) return false;
+  let resolvedPath;
+  try {
+    resolvedPath = fs.realpathSync(filePath);
+  } catch (err) {
+    try {
+      resolvedPath = path.resolve(filePath);
+    } catch {
+      resolvedPath = filePath;
+    }
+  }
+
   const normResolved = resolvedPath.normalize('NFC');
   const allowedDirs = getAllowedBaseDirs();
 

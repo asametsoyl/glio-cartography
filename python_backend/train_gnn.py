@@ -12,11 +12,20 @@ import anndata as ad
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.data import Data
-from torch_geometric.nn import GATv2Conv, SAGEConv, TransformerConv, BatchNorm
+from torch_geometric.data import Data, HeteroData
+from torch_geometric.nn import GATv2Conv, SAGEConv, TransformerConv, BatchNorm, global_mean_pool
 from scipy.spatial import cKDTree
 from scipy.stats import pearsonr, spearmanr
 from loguru import logger
+try:
+    import sys
+    from pathlib import Path
+    _stages_dir = str(Path(__file__).resolve().parent / "stages")
+    if _stages_dir not in sys.path:
+        sys.path.insert(0, _stages_dir)
+    import locale_logger
+except Exception as _le:
+    logger.warning(f"Could not load locale_logger in train_gnn.py: {_le}")
 try:
     import optuna
     from optuna.trial import Trial
@@ -36,6 +45,7 @@ _ap.add_argument('--clinical-mgmt', type=float, default=None)
 _ap.add_argument('--clinical-idh',  type=float, default=None)
 _ap.add_argument('--clinical-kps',  type=float, default=None)
 _ap.add_argument('--imputation-mode', default='worst')
+_ap.add_argument('--optuna-trials', type=int, default=None)
 _args, _ = _ap.parse_known_args()
 
 CLINICAL_AGE  = _args.clinical_age
@@ -64,6 +74,33 @@ default_spatial = os.path.join(GLIO_OUTPUT_DIR, "preprocessing", "spatial", "spa
 if not os.path.exists(default_spatial):
     default_spatial = "data/processed/spatial_deconvolved.h5ad"
 SPATIAL_PATH = os.environ.get("GLIO_SPATIAL_PATH", default_spatial)
+
+class GeneExpressionCache:
+    def __init__(self, adata):
+        self.adata = adata
+        self.var_names_lower = {g.lower(): g for g in adata.var_names}
+        self.cache = {}
+
+    def get_gene(self, name: str) -> np.ndarray | None:
+        name_lower = name.lower()
+        if name_lower not in self.cache:
+            # Prevent memory leaks from unbounded cache growth during permutations
+            if len(self.cache) >= 1000:
+                first_key = next(iter(self.cache))
+                del self.cache[first_key]
+            exact_name = self.var_names_lower.get(name_lower)
+            if exact_name is not None:
+                try:
+                    col_idx = self.adata.var_names.get_loc(exact_name)
+                    e = self.adata.X[:, col_idx]
+                except Exception:
+                    e = self.adata[:, exact_name].X
+                e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
+                self.cache[name_lower] = e.astype(np.float32)
+            else:
+                self.cache[name_lower] = None
+        return self.cache[name_lower]
+
 
 def exit_with_error(message: str) -> None:
     logger.error(message)
@@ -154,13 +191,11 @@ LR_PAIRS = [
     ('cxcl10', 'cxcr3',   'chemokine'),
     ('cxcl11', 'cxcr3',   'chemokine'),
     ('cxcl16', 'cxcr6',   'chemokine'),
-    ('ccl2',   'ccr2',    'chemokine'),
     ('ccl3',   'ccr1',    'chemokine'),
     ('ccl3',   'ccr5',    'chemokine'),
     ('ccl4',   'ccr5',    'chemokine'),
     ('ccl5',   'ccr1',    'chemokine'),
     ('ccl5',   'ccr3',    'chemokine'),
-    ('ccl5',   'ccr5',    'chemokine'),
     ('ccl7',   'ccr2',    'chemokine'),
     ('ccl8',   'ccr2',    'chemokine'),
     ('ccl20',  'ccr6',    'chemokine'),
@@ -239,8 +274,7 @@ LR_PAIRS = [
     ('wnt5a',  'ror2',    'stemness_wnt_notch'),
     ('wnt3a',  'fzd1',    'stemness_wnt_notch'),
     ('wnt3a',  'lrp5',    'stemness_wnt_notch'),
-    ('dkk1',   'lrp6',    'stemness_wnt_notch'),
-    ('postn',  'itgav',   'stemness_wnt_notch')
+    ('dkk1',   'lrp6',    'stemness_wnt_notch')
 ]
 
 # ============================================================
@@ -353,50 +387,18 @@ GBM_DRUG_DB = {
 # ============================================================
 # GRAPH VERİSİ OLUŞTURMA
 # ============================================================
-def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
+def build_graph_data(adata, k_neighbors: int | None = None, gene_cache: GeneExpressionCache | None = None) -> HeteroData:
     """
-    Graph verisi oluşturur.
-
-    Düzeltmeler / FAZ 1:
-      [BUG-1]  CT_TO_COARSE_IDX dolduruldu
-      [BUG-2]  coarse_props adata.obsm'dan alınıyor
-      [BUG-6]  Çift yönlü (reciprocal) kenarlar eklendi
-      [BIO-4]  Zone signature'ları genişletildi
-      [FAZ1-K] Adaptif RBF Kernel — K=8 (<3k), K=16 (3k–10k), K=24 (>10k)
-      [FAZ1-C] Klinik metadata node feature (AGE/MGMT/IDH/KPS)
+    Graph verisini HeteroData olarak oluşturur.
+    contacts ve diffuses olmak üzere iki ayrı kenar tipi (edge type) tanımlanır.
+    Klinik veriler early-broadcast edilmeyip graph-level late fusion için ayrılır.
+    Mesafeler veri boyutuna göre seçilen K (8/16/24) boyutlu RBF kernel ile kodlanır.
     """
-    logger.info("Graph verisi oluşturuluyor...")
+    logger.info("Graph verisi (HeteroData) oluşturuluyor...")
     n_spots = adata.n_obs
 
-    # [FAZ1-K] Adaptif k (veri büyüklüğüne göre otomatik RBF granülaritesi)
-    if k_neighbors is None:
-        if n_spots < 3000:
-            k_neighbors = 8
-        elif n_spots < 10000:
-            k_neighbors = 16
-        else:
-            k_neighbors = 24
-    logger.info(f"   [AdaptiveRBF] n_spots={n_spots} → k_neighbors={k_neighbors}")
-
-    # --- Gene expression cache ---
-    var_names_lower = {g.lower(): g for g in adata.var_names}
-    gene_cache: dict[str, np.ndarray | None] = {}
-
-    def get_gene(name: str) -> np.ndarray | None:
-        name_lower = name.lower()
-        if name_lower not in gene_cache:
-            exact_name = var_names_lower.get(name_lower)
-            if exact_name is not None:
-                try:
-                    col_idx = adata.var_names.get_loc(exact_name)
-                    e = adata.X[:, col_idx]
-                except Exception:
-                    e = adata[:, exact_name].X
-                e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
-                gene_cache[name_lower] = e.astype(np.float32)
-            else:
-                gene_cache[name_lower] = None
-        return gene_cache[name_lower]
+    if gene_cache is None:
+        gene_cache = GeneExpressionCache(adata)
 
     # ============ NODE FEATURES ============
     # (A) PCA — z-score
@@ -424,7 +426,6 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
             return 'Stromal'
         return None
 
-    # [BUG-1] ct_to_coarse_idx doldur (local dictionary for thread safety)
     ct_to_coarse_idx = {}
     coarse_map = {'Tumor': 0, 'Myeloid': 1, 'T_Cell': 2, 'Stromal': 3}
     for i, ct in enumerate(ct_names):
@@ -441,20 +442,11 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
             v = adata.obs[col].values.astype(float)
             niche[:, i] = (v - v.mean()) / (v.std() + 1e-8)
 
+    # Node attributes (Klinik veriler burada broadcast edilmez, late fusion için clinical_x'e ayrılır)
     x = np.hstack([pca, ct_prop, niche]).astype(np.float32)
-
-    # [FAZ1-C] Klinik metadata node feature — tüm sporlara broadcast et (normalize edilmiş)
-    clin_age  = np.full((n_spots, 1), CLINICAL_AGE  / 100.0, dtype=np.float32)  # ölçekleme [0-1.2]
-    clin_mgmt = np.full((n_spots, 1), CLINICAL_MGMT,           dtype=np.float32)  # zaten [0-1]
-    clin_idh  = np.full((n_spots, 1), CLINICAL_IDH,            dtype=np.float32)  # zaten [0-1]
-    clin_kps  = np.full((n_spots, 1), CLINICAL_KPS  / 100.0,  dtype=np.float32)  # ölçekleme [0-1]
-    x = np.hstack([x, clin_age, clin_mgmt, clin_idh, clin_kps]).astype(np.float32)
-
-    logger.info(f"   Node features: {x.shape} "
-                f"(PCA:{pca_dim} + CT:{ct_prop.shape[1]} + Niche:{niche.shape[1]} + Clin:4)")
+    logger.info(f"   Node features: {x.shape} (PCA:{pca_dim} + CT:{ct_prop.shape[1]} + Niche:{niche.shape[1]})")
 
     # ============ COARSE PROPORTIONS ============
-    # [BUG-2] FIX: adata.obsm'dan al, sütun topla
     coarse_props = np.zeros((n_spots, 4), dtype=np.float32)
     for i, ct in enumerate(ct_names):
         group = get_coarse_group(ct)
@@ -465,45 +457,86 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
     tumor_indices  = [i for i, n in enumerate(ct_names) if get_coarse_group(n) == 'Tumor']
     myeloid_indices= [i for i, n in enumerate(ct_names) if get_coarse_group(n) == 'Myeloid']
 
-    # ============ EDGE INDEX (kNN spatial + reciprocal) ============
-    # [BUG-6] Her kenar için ters yönü de oluştur (L-R yönlülük)
+    # ============ SPATIAL EDGE INDEX DEFINITION ============
     coords = adata.obsm['spatial'].astype(np.float32)
     tree = cKDTree(coords)
-    dists, idxs = tree.query(coords, k=k_neighbors + 1)
+    # RBF ve spatial komşuluk için adaptif K seçimi
+    if k_neighbors is None:
+        if n_spots < 3000:
+            K = 8
+        elif n_spots < 10000:
+            K = 16
+        else:
+            K = 24
+    else:
+        K = k_neighbors
 
-    src_list, dst_list, dist_list = [], [], []
-    seen = set()
+    max_k = max(24, K + 1)
+    dists, idxs = tree.query(coords, k=max_k)
+
+    # Hücre-hücre temas mesafesi (center-to-center) tespiti
+    dists_1st = dists[:, 1]
+    dists_cc = np.median(dists_1st) + 1e-8
+
+    contact_thresh = 1.25 * dists_cc
+    diffusion_thresh = 5.0 * dists_cc
+
+    seen_contacts = set()
+    seen_diffuses = set()
+
+    contact_src, contact_dst, contact_dist = [], [], []
+    diffuse_src, diffuse_dst, diffuse_dist = [], [], []
+
     for i in range(n_spots):
-        for j in range(1, k_neighbors + 1):
-            nb = idxs[i, j]
-            d  = dists[i, j]
-            # İleri kenar
-            if (i, nb) not in seen:
-                src_list.append(i);  dst_list.append(nb); dist_list.append(d)
-                seen.add((i, nb))
-            # [BUG-6] Geri kenar (reciprocal)
-            if (nb, i) not in seen:
-                src_list.append(nb); dst_list.append(i);  dist_list.append(d)
-                seen.add((nb, i))
+        for k_idx in range(1, max_k):
+            nb = idxs[i, k_idx]
+            d = dists[i, k_idx]
+            # contacts
+            if d <= contact_thresh:
+                if (i, nb) not in seen_contacts:
+                    contact_src.append(i); contact_dst.append(nb); contact_dist.append(d)
+                    seen_contacts.add((i, nb))
+                if (nb, i) not in seen_contacts:
+                    contact_src.append(nb); contact_dst.append(i); contact_dist.append(d)
+                    seen_contacts.add((nb, i))
+            # diffuses
+            elif d <= diffusion_thresh:
+                if (i, nb) not in seen_diffuses:
+                    diffuse_src.append(i); diffuse_dst.append(nb); diffuse_dist.append(d)
+                    seen_diffuses.add((i, nb))
+                if (nb, i) not in seen_diffuses:
+                    diffuse_src.append(nb); diffuse_dst.append(i); diffuse_dist.append(d)
+                    seen_diffuses.add((nb, i))
 
-    src = np.array(src_list, dtype=np.int64)
-    dst = np.array(dst_list, dtype=np.int64)
-    edge_index = torch.tensor([src, dst], dtype=torch.long)
-    spatial_dist = np.array(dist_list, dtype=np.float32)
-    n_edges = len(src_list)
-    logger.info(f"   Edges: {n_edges} (k={k_neighbors}, bidirectional)")
+    if len(diffuse_src) == 0:
+        diffuse_src, diffuse_dst, diffuse_dist = contact_src.copy(), contact_dst.copy(), contact_dist.copy()
 
-    med = np.median(spatial_dist) + 1e-8
-    spatial_prox = np.exp(-spatial_dist / med).reshape(-1, 1)
+    contact_edge_index = torch.tensor([contact_src, contact_dst], dtype=torch.long)
+    diffuse_edge_index = torch.tensor([diffuse_src, diffuse_dst], dtype=torch.long)
 
-    # ============ EDGE ATTRIBUTES — L-R ============
-    lr_raw = np.zeros((n_edges, len(LR_PAIRS)), dtype=np.float32)
+    logger.info(f"   Edges: contacts={len(contact_src)}, diffuses={len(diffuse_src)}")
+
+    # ============ CONTACT EDGE ATTRIBUTES (RBF + L-R + cell compatibility) ============
+    contact_dist_arr = np.array(contact_dist, dtype=np.float32)
+    d_min = contact_dist_arr.min() if len(contact_dist_arr) > 0 else 0.0
+    d_max = contact_dist_arr.max() if len(contact_dist_arr) > 0 else 1.0
+
+    # Decouple RBF kernel size from graph neighbor count K
+    K_rbf = int(os.environ.get("GLIO_RBF_KERNELS", "10"))
+    mu = np.linspace(d_min, d_max, K_rbf)
+    sigma = (d_max - d_min) / (K_rbf - 1) if K_rbf > 1 else 1.0
+    beta = 1.0 / (2.0 * sigma**2 + 1e-8)
+    rbf_feats = np.exp(-beta * (contact_dist_arr.reshape(-1, 1) - mu)**2)
+
+    # L-R features
+    n_contact_edges = len(contact_src)
+    lr_raw = np.zeros((n_contact_edges, len(LR_PAIRS)), dtype=np.float32)
     lr_found = 0
     for p_idx, (lig, rec, _) in enumerate(LR_PAIRS):
-        le, re = get_gene(lig), get_gene(rec)
+        le, re = gene_cache.get_gene(lig), gene_cache.get_gene(rec)
         if le is not None and re is not None:
             lr_found += 1
-            lr_raw[:, p_idx] = le[src] * re[dst]
+            lr_raw[:, p_idx] = le[contact_src] * re[contact_dst]
 
     lr_scores = np.log1p(lr_raw)
     lr_mean = lr_scores.mean(axis=0, keepdims=True)
@@ -511,41 +544,44 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
     lr_scores = (lr_scores - lr_mean) / lr_std
     logger.info(f"   L-R pairs: {lr_found}/{len(LR_PAIRS)} found")
 
-    # Hücre-tip uyumsuzluğu (heterojenlik)
-    cell_compat = np.zeros((n_edges, 1), dtype=np.float32)
-    for e_idx in range(n_edges):
-        pi = coarse_props[src[e_idx]]
-        pj = coarse_props[dst[e_idx]]
+    # Cell compatibility
+    cell_compat = np.zeros((n_contact_edges, 1), dtype=np.float32)
+    for e_idx in range(n_contact_edges):
+        pi = coarse_props[contact_src[e_idx]]
+        pj = coarse_props[contact_dst[e_idx]]
         cos = np.dot(pi, pj) / (np.linalg.norm(pi) * np.linalg.norm(pj) + 1e-8)
         cell_compat[e_idx] = 1.0 - cos
 
-    edge_attr = np.hstack([spatial_prox, lr_scores, cell_compat]).astype(np.float32)
-    logger.info(f"   Edge attr: {edge_attr.shape}")
+    contact_edge_attr = np.hstack([rbf_feats, lr_scores, cell_compat]).astype(np.float32)
+    logger.info(f"   Contact Edge attr: {contact_edge_attr.shape} (RBF:{K_rbf} + LR:{len(LR_PAIRS)} + Compat:1)")
 
     # ============ LABELS ============
     y = ct_prop.astype(np.float32)
 
-    # Zone pseudo-labels (z-score per gene, then softmax)
+    # Zone labels (pseudo-labels)
     zone_scores = np.zeros((n_spots, len(ZONE_NAMES)), dtype=np.float32)
     for z_idx, zone in enumerate(ZONE_NAMES):
         sig_genes = ZONE_SIGNATURES[zone]
-        valid = [get_gene(g) for g in sig_genes if get_gene(g) is not None]
+        valid = [gene_cache.get_gene(g) for g in sig_genes if gene_cache.get_gene(g) is not None]
         if valid:
             zscored = [(g - g.mean()) / (g.std() + 1e-8) for g in valid]
             zone_scores[:, z_idx] = np.mean(zscored, axis=0)
 
-    zone_exp  = np.exp(zone_scores - zone_scores.max(axis=1, keepdims=True))
+    diff_scores = zone_scores - zone_scores.max(axis=1, keepdims=True)
+    # Clip to avoid floating point underflows leading to division by zero
+    diff_scores = np.clip(diff_scores, -20.0, 0.0)
+    zone_exp  = np.exp(diff_scores)
     zone_probs = zone_exp / (zone_exp.sum(axis=1, keepdims=True) + 1e-8)
 
-    # TCGA survival (varsa)
-    survival_months = np.zeros(n_spots, dtype=np.float32)
-    tcga_risk       = np.zeros(n_spots, dtype=np.float32)
+    # Patient/Slide level survival labels
+    survival_val = 0.0
+    tcga_risk_val = 0.0
     if 'survival_months' in adata.obs.columns:
-        survival_months = adata.obs['survival_months'].values.astype(np.float32)
+        survival_val = float(adata.obs['survival_months'].values[0])
     if 'tcga_risk' in adata.obs.columns:
-        tcga_risk = adata.obs['tcga_risk'].values.astype(np.float32)
+        tcga_risk_val = float(adata.obs['tcga_risk'].values[0])
 
-    # Pseudotime / velocity (scVelo opsiyonel)
+    # Pseudotime
     pseudotime = np.zeros(n_spots, dtype=np.float32)
     vec_x = np.zeros(n_spots, dtype=np.float32)
     vec_y = np.zeros(n_spots, dtype=np.float32)
@@ -559,7 +595,7 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
         vec_y = vel[:, 1] if vel.shape[1] > 1 else np.zeros(n_spots, dtype=np.float32)
 
     # ============ SPLIT ============
-    rng = np.random.RandomState(42)
+    rng = np.random.default_rng(42)
     idx = rng.permutation(n_spots)
     n_tr, n_va = int(0.7 * n_spots), int(0.15 * n_spots)
     train_mask = torch.zeros(n_spots, dtype=torch.bool)
@@ -570,32 +606,44 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
     test_mask[idx[n_tr + n_va:]]     = True
     logger.info(f"   Split: Train={train_mask.sum()}, Val={val_mask.sum()}, Test={test_mask.sum()}")
 
-    data = Data(
-        x              = torch.tensor(x),
-        edge_index     = edge_index,
-        edge_attr      = torch.tensor(edge_attr),
-        y              = torch.tensor(y),
-        zone_y         = torch.tensor(zone_probs),
-        coarse_y       = torch.tensor(coarse_props),   # [BUG-2] artık doğru kaynak
-        survival_y     = torch.tensor(survival_months),
-        tcga_risk_y    = torch.tensor(tcga_risk),
-        pseudotime     = torch.tensor(pseudotime),
-        vec_x          = torch.tensor(vec_x),
-        vec_y          = torch.tensor(vec_y),
-        pos            = torch.tensor(coords),
-        train_mask     = train_mask,
-        val_mask       = val_mask,
-        test_mask      = test_mask,
-    )
-    data.ct_names       = ct_names
-    data.ct_to_coarse_idx = ct_to_coarse_idx
-    data.tumor_indices  = tumor_indices
-    data.myeloid_indices= myeloid_indices
-    data.pca_dim        = pca_dim           # [BUG-5] counterfactual için
-    data.src_arr        = src               # JSON export için
-    data.dst_arr        = dst
+    # ============ HETERODATA BUILD ============
+    data = HeteroData()
+    data['spot'].x = torch.tensor(x, dtype=torch.float32)
+    data['spot'].y = torch.tensor(y, dtype=torch.float32)
+    data['spot'].zone_y = torch.tensor(zone_probs, dtype=torch.float32)
+    data['spot'].coarse_y = torch.tensor(coarse_props, dtype=torch.float32)
+    data['spot'].pos = torch.tensor(coords, dtype=torch.float32)
+    data['spot'].train_mask = train_mask
+    data['spot'].val_mask = val_mask
+    data['spot'].test_mask = test_mask
 
-    logger.info(f"   ✅ {data}")
+    # Add edges
+    data['spot', 'contacts', 'spot'].edge_index = contact_edge_index
+    data['spot', 'contacts', 'spot'].edge_attr = torch.tensor(contact_edge_attr, dtype=torch.float32)
+    data['spot', 'diffuses', 'spot'].edge_index = diffuse_edge_index
+
+    # Add patient/graph-level fields at the root
+    data.clinical_x = torch.tensor([[CLINICAL_AGE / 100.0, CLINICAL_MGMT, CLINICAL_IDH, CLINICAL_KPS / 100.0]], dtype=torch.float32)
+    data.survival_y = torch.tensor([survival_val], dtype=torch.float32)
+    data.tcga_risk_y = torch.tensor([tcga_risk_val], dtype=torch.float32)
+    data.pseudotime = torch.tensor(pseudotime, dtype=torch.float32)
+    data.vec_x = torch.tensor(vec_x, dtype=torch.float32)
+    data.vec_y = torch.tensor(vec_y, dtype=torch.float32)
+
+    # Metadata
+    data.ct_names = ct_names
+    data.ct_to_coarse_idx = ct_to_coarse_idx
+    data.tumor_indices = tumor_indices
+    data.myeloid_indices = myeloid_indices
+    data.pca_dim = pca_dim
+    data.src_arr = np.array(contact_src, dtype=np.int64)
+    data.dst_arr = np.array(contact_dst, dtype=np.int64)
+
+    logger.info(f"   ✅ HeteroData: {data}")
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     return data
 
 
@@ -604,15 +652,13 @@ def build_graph_data(adata, k_neighbors: int | None = None) -> Data:
 # ============================================================
 class GlioCartographyGNN(nn.Module):
     """
-    Multi-task HeteroGNN — FAZ 1:
+    Multi-task HeteroGNN — FAZ 1 & 3:
       - Cell-type proportion prediction (Focal MSE)
       - Zone classification (KL-div + Focal)
-      - Survival regression (RankCox pairwise)
+      - Patient-level survival regression (Late Fusion + RankCox)
       - Drug score (L-R aktivite bazlı MLP)
       - Online EMA DGI contrastive
       - Biology-guided attention regularization
-
-    [FAZ1-ARCH] SAGEConv → GATv2Conv (edge_dim desteği — SAGEConv edge feature almaz!)
     """
     def __init__(self, in_ch: int, edge_dim: int, n_ct: int, n_zones: int,
                  hidden: int = 128, heads: int = 4, drop: float = 0.3,
@@ -633,28 +679,21 @@ class GlioCartographyGNN(nn.Module):
             nn.Linear(edge_dim, 64), nn.ELU(), nn.Dropout(drop),
             nn.Linear(64, hidden))
 
-        # GAT layers (contact edges — L-R biologically guided)
-        self.gats      = nn.ModuleList()
-        self.gat_norms = nn.ModuleList()
-        for _ in range(n_gat):
+        # Heterogeneous parallel message passing layers
+        self.gats  = nn.ModuleList()
+        self.sages = nn.ModuleList()
+        self.norms = nn.ModuleList()
+        self.n_layers = max(n_gat, n_sage)
+        for _ in range(self.n_layers):
             self.gats.append(GATv2Conv(
                 hidden, hidden // heads, heads=heads,
                 edge_dim=hidden, dropout=drop,
                 concat=True, add_self_loops=True))
-            self.gat_norms.append(BatchNorm(hidden))
+            self.sages.append(SAGEConv(
+                hidden, hidden, normalize=True))
+            self.norms.append(BatchNorm(hidden))
 
-        # [FAZ1-ARCH] diffuses edges: GATv2Conv yerine SAGEConv değil!
-        # SAGEConv edge_dim almaz; formülde e_{ij,r} terimi var → GATv2Conv kullan
-        self.diff_gats      = nn.ModuleList()
-        self.diff_gat_norms = nn.ModuleList()
-        for _ in range(max(1, n_sage)):  # n_sage parametresini re-use et
-            self.diff_gats.append(GATv2Conv(
-                hidden, hidden // heads, heads=heads,
-                edge_dim=hidden, dropout=drop,
-                concat=True, add_self_loops=True))
-            self.diff_gat_norms.append(BatchNorm(hidden))
-
-        # Opsiyonel long-range
+        # Opsiyonel long-range contacts transformer
         if use_transformer:
             self.trans      = TransformerConv(hidden, hidden // 2, heads=2, concat=True)
             self.trans_norm = BatchNorm(hidden)
@@ -673,9 +712,9 @@ class GlioCartographyGNN(nn.Module):
             nn.Linear(hidden, 64), nn.ELU(), nn.Dropout(drop),
             nn.Linear(64, n_zones))
 
-        # [FEAT-2] Survival regression head (→ RankCox skoru)
+        # [FEAT-2] Survival regression head (g + X_clinical -> late fusion)
         self.survival_head = nn.Sequential(
-            nn.Linear(hidden, 32), nn.ELU(), nn.Dropout(drop),
+            nn.Linear(hidden + 4, 32), nn.ELU(), nn.Dropout(drop),
             nn.Linear(32, 1))
 
         # [FEAT-1] Drug score head (0–1 çıktı için Sigmoid)
@@ -685,39 +724,41 @@ class GlioCartographyGNN(nn.Module):
 
         self.proj = nn.Linear(hidden, 32)   # Contrastive projection
 
-    def forward(self, data: Data, return_attention: bool = False):
-        x       = self.node_enc(data.x)
-        edge_emb= self.edge_enc(data.edge_attr)
-        ei      = data.edge_index
+        # [FAZ1-Kendall] Learnable loss scale factors (6 tasks):
+        # 0: ct, 1: zone, 2: surv, 3: dgi, 4: smooth, 5: attn_reg
+        self.loss_scale_factors = nn.Parameter(torch.zeros(6))
+
+    def forward(self, data: HeteroData, return_attention: bool = False):
+        x       = self.node_enc(data['spot'].x)
+        edge_emb= self.edge_enc(data['spot', 'contacts', 'spot'].edge_attr)
+        
+        contacts_ei = data['spot', 'contacts', 'spot'].edge_index
+        diffuses_ei = data['spot', 'diffuses', 'spot'].edge_index
 
         attn_weights_per_layer = []
 
-        # Contact-edge stream (L-R guided GATv2)
-        for gat, norm in zip(self.gats, self.gat_norms):
+        for gat, sage, norm in zip(self.gats, self.sages, self.norms):
             res = x
             if return_attention:
-                x, (attn_ei, aw) = gat(x, ei, edge_attr=edge_emb,
-                                        return_attention_weights=True)
+                x_contacts, (attn_ei, aw) = gat(x, contacts_ei, edge_attr=edge_emb,
+                                                 return_attention_weights=True)
                 attn_weights_per_layer.append((attn_ei, aw))
             else:
-                x = gat(x, ei, edge_attr=edge_emb)
+                x_contacts = gat(x, contacts_ei, edge_attr=edge_emb)
+                
+            x_diffuses = sage(x, diffuses_ei)
+            
+            # Hetero aggregation
+            x = x_contacts + x_diffuses
+            
             x = norm(x)
             x = F.elu(x)
             x = F.dropout(x, self.drop, self.training)
             x = x + res
 
-        # [FAZ1-ARCH] diffuses-edge stream: GATv2Conv (NOT SAGEConv — edge features required)
-        for gat, norm in zip(self.diff_gats, self.diff_gat_norms):
-            res = x
-            x   = gat(x, ei, edge_attr=edge_emb)
-            x   = norm(x)
-            x   = F.elu(x)
-            x   = F.dropout(x, self.drop, self.training)
-            x   = x + res
-
         if self.use_transformer:
             res = x
-            x   = self.trans(x, ei)
+            x   = self.trans(x, contacts_ei)
             x   = self.trans_norm(x)
             x   = F.elu(x)
             x   = F.dropout(x, self.drop, self.training)
@@ -732,9 +773,21 @@ class GlioCartographyGNN(nn.Module):
 
         ct       = F.softmax(self.ct_head(x), dim=-1)
         zone     = self.zone_head(x)
-        survival = self.survival_head(x).squeeze(-1)
         drug_sc  = self.drug_head(x).squeeze(-1)
         emb      = self.proj(x)
+
+        # Graph-level late fusion survival prediction
+        batch = getattr(data, 'batch', None)
+        if batch is None:
+            batch = torch.zeros(x.shape[0], dtype=torch.long, device=x.device)
+        g = global_mean_pool(x, batch)  # (num_graphs, hidden)
+        
+        clinical_x = getattr(data, 'clinical_x', None)
+        if clinical_x is None:
+            clinical_x = torch.zeros((g.shape[0], 4), dtype=torch.float32, device=x.device)
+            
+        fusion_emb = torch.cat([g, clinical_x], dim=-1)  # (num_graphs, hidden + 4)
+        survival = self.survival_head(fusion_emb).squeeze(-1)  # (num_graphs,)
 
         if return_attention:
             return ct, zone, survival, drug_sc, emb, attn_weights_per_layer
@@ -749,8 +802,9 @@ class GlioCartographyGNN(nn.Module):
         s = self.ema_global.unsqueeze(0).expand(h.shape[0], -1)  # (N, hidden)
         pos_scores = self.dgi_disc(h, s).squeeze(-1)             # (N,)
 
-        # Sahte (corrupt) çiftler — permütasyon
-        h_perm     = h[torch.randperm(h.shape[0], device=h.device)]
+        # Sahte (corrupt) çiftler — permütasyon (deterministik için generator kullanalım)
+        g = torch.Generator(device=h.device).manual_seed(42)
+        h_perm     = h[torch.randperm(h.shape[0], generator=g, device=h.device)]
         neg_scores = self.dgi_disc(h_perm, s).squeeze(-1)        # (N,)
 
         labels_pos = torch.ones_like(pos_scores)
@@ -770,7 +824,7 @@ class GlioCartographyGNN(nn.Module):
             logger.info("⚠️ Eski GATConv (v1) checkpoint'i tespit edildi. Model GATConv layer'ları ile re-initialize ediliyor...")
             from torch_geometric.nn import GATConv
             self.gats = nn.ModuleList()
-            for _ in range(len(self.gat_norms)):
+            for _ in range(len(self.norms)):
                 self.gats.append(GATConv(
                     self.gats_in_dim, self.gats_out_dim, heads=self.gats_heads,
                     edge_dim=self.gats_edge_dim, dropout=self.drop,
@@ -782,16 +836,37 @@ class GlioCartographyGNN(nn.Module):
 
 
 # ============================================================
-# ADAPTIVE FOCAL LOSS — FAZ 1
+# ADAPTIVE FOCAL LOSS — FAZ 1 (v3.1: per-task gamma + class weight smoothing)
 # ============================================================
+def compute_class_weights(y: torch.Tensor, eps: float = 0.01) -> torch.Tensor:
+    """
+    [FAZ1-v3.1] Smoothed class weight hesabı: w_c = 1 / sqrt(freq_c + eps)
+    Sert inverse-frequency yerine karekök yumuşatması kullanılır;
+    nadir sınıflar aşırı ağırlık almaz, eğitim stabilitesi korunur.
+    y: (N, C) — cell-type proportion ground truth
+    """
+    freq_c = y.mean(dim=0).clamp(min=eps)          # (C,)  — her tip için ortalama oran
+    w_c = 1.0 / (freq_c.sqrt() + eps)              # smoothed inverse-freq
+    w_c = w_c / (w_c.sum() + 1e-8) * w_c.shape[0] # normalize (ortalama ≈ 1.0)
+    return w_c.detach()                             # ağırlık sabit — gradyan geçirmez
+
+
 def adaptive_focal_ct_loss(pred: torch.Tensor, true: torch.Tensor,
-                           gamma: float = 2.0) -> torch.Tensor:
+                           gamma: float = 1.5,
+                           class_weights: torch.Tensor | None = None) -> torch.Tensor:
     """
     Focal MSE: ağır hücreler için kayıp ağırlıklandırması.
-    Per-sample alpha = ters frekans ağırlığı, gamma ile modüle edilir.
-    Dominant hücre tipi olan spotlar daha fazla ceza alır → class imbalance azalır.
+    [v3.1] class_weights: (C,) — compute_class_weights() çıktısı (per-class)
+           gamma default 2.0 → 1.5 (celltype görevi için daha ılımlı)
     """
-    mse = F.mse_loss(pred, true, reduction='none').sum(dim=-1)  # (N,)
+    mse_per = F.mse_loss(pred, true, reduction='none')   # (N, C)
+
+    if class_weights is not None:
+        # Per-class smoothed ağırlık
+        w = class_weights.to(mse_per.device).unsqueeze(0)  # (1, C)
+        mse_per = mse_per * w
+
+    mse = mse_per.sum(dim=-1)                             # (N,)
     # pt: dominant hücrenin ortalama doğruluğu [0,1]
     pt = 1.0 - mse.detach().clamp(0, 1)
     focal_weight = (1.0 - pt) ** gamma
@@ -836,7 +911,10 @@ def rankcox_loss(risk_scores: torch.Tensor,
 
 
 # ============================================================
-# LOSS v3.1 — PCGrad için task-ayrık kayıplar
+# LOSS v3.2 — PCGrad için task-ayrık kayıplar
+# [v3.2] gamma_ct / gamma_zone ayrıştırıldı (1.5 / 2.5)
+# [v3.2] class_weights parametresi eklendi
+# [v3.2] warmup_attn_reg — epoch bazlı dinamik lam_attn_reg desteği
 # ============================================================
 def compute_loss(ct_pred, ct_true,
                  zone_logits, zone_true,
@@ -848,53 +926,69 @@ def compute_loss(ct_pred, ct_true,
                  lam_surv: float = 0.3, lam_dgi: float = 0.1,
                  lam_attn_reg: float = 0.05,
                  focal_gamma: float = 2.0,
+                 gamma_ct: float = 1.5,
+                 gamma_zone: float = 2.5,
                  survival_mean: float = 0.0, survival_std: float = 1.0,
-                 lr_prior_weight: torch.Tensor | None = None):
+                 lr_prior_weight: torch.Tensor | None = None,
+                 class_weights: torch.Tensor | None = None):
     """
     [FAZ1] Per-task kayıpları ayrı döndür (PCGrad surgery için gerekli).
-    Ayrıca total loss de hesaplanır.
+    [v3.2] gamma_ct ve gamma_zone görev bazlı ayrıştırıldı.
+           class_weights ile smoothed class weight ağırlıklandırması eklendi.
     """
     m = mask
 
-    # L1: Cell-type — [FAZ1] Adaptive Focal MSE (class imbalance)
-    loss_ct = adaptive_focal_ct_loss(ct_pred[m], ct_true[m], gamma=focal_gamma)
+    # L1: Cell-type — [v3.2] Adaptive Focal MSE — per-task gamma_ct + class_weights
+    loss_ct = adaptive_focal_ct_loss(
+        ct_pred[m], ct_true[m],
+        gamma=gamma_ct,
+        class_weights=class_weights)
 
-    # L2: Zone KL-divergence
-    loss_zone = F.kl_div(
+    # L2: Zone — [v3.2] KL-div + Focal Zone ağırlığı gamma_zone ile
+    zone_kl = F.kl_div(
         F.log_softmax(zone_logits[m], dim=-1),
-        zone_true[m], reduction='batchmean')
+        zone_true[m], reduction='none').sum(dim=-1)  # (N,)
+    # Focal-zone weighting: zor (düşük olasılıklı) spotlara daha ağırlık ver
+    pt_zone = (zone_true[m].max(dim=-1).values).clamp(0, 1)
+    focal_zone_w = (1.0 - pt_zone.detach()) ** gamma_zone
+    loss_zone = (focal_zone_w * zone_kl).mean()
 
-    # L3: [FAZ1-RankCox] Pairwise survival loss (mini-batch safe)
-    loss_surv = rankcox_loss(survival_pred[m], survival_true[m])
+    # L3: [FAZ1-RankCox] Patient-level pairwise survival loss (late fusion)
+    loss_surv = rankcox_loss(survival_pred, survival_true)
 
     # L4: [EMA-DGI] Online contrastive loss
     loss_dgi = model.dgi_loss(h[m]) if m.sum().item() > 10 else torch.tensor(0.0, device=ct_pred.device)
 
-    # L5: Spatial smoothness
+    # L5: Spatial smoothness (contacts kenarlarında hesaplanır)
     s_idx, d_idx = edge_index
     diff         = h[s_idx] - h[d_idx]
     loss_smooth  = (diff ** 2).mean()
 
     # L6: [FAZ1-ATTN-REG] Biology-guided attention regularization
-    # LR prior'a dayalı ağırlıklandırma — yüksek LR aktivitesi olan kenarlar
-    # yüksek attention almalı (negatif KL yönlendiricisi)
+    # lam_attn_reg epoch bazlı dinamik olarak train_model() tarafından hesaplanır
     loss_attn_reg = torch.tensor(0.0, device=ct_pred.device)
-    if lr_prior_weight is not None and lr_prior_weight.shape[0] > 0:
-        # lr_prior_weight: (E,) kenar başına L-R aktivite ağırlığı [0,1]
-        # Öğrenilen attention (L5 smooth ağırlığından türetilebilir ama burada proxy)
-        # Basit: yüksek LR'de düşük smooth olmalı → düşük loss
-        lr_smooth_diff = (diff ** 2).sum(dim=-1)  # (E,)
-        # LR yüksek ise kenar önemli → smooth baskılanır (ters)
-        lr_weight = lr_prior_weight[:lr_smooth_diff.shape[0]]
-        loss_attn_reg = (lr_weight * lr_smooth_diff).mean()
+    if lr_prior_weight is not None and lr_prior_weight.numel() > 0:
+        lr_smooth_diff = (diff ** 2).sum(dim=-1)
+        assert lr_prior_weight.shape[0] == lr_smooth_diff.shape[0], \
+            f"Shape mismatch: lr_prior_weight {lr_prior_weight.shape} vs lr_smooth_diff {lr_smooth_diff.shape}"
+        loss_attn_reg = (lr_prior_weight * lr_smooth_diff).mean()
 
-    # Toplam
-    total = (lam_ct    * loss_ct    +
-             lam_zone  * loss_zone  +
-             lam_smooth* loss_smooth+
-             lam_surv  * loss_surv  +
-             lam_dgi   * loss_dgi   +
-             lam_attn_reg * loss_attn_reg)
+    # Toplam (Kendall et al. log-variance uncertainty weighting vs static fallback)
+    if hasattr(model, 'loss_scale_factors') and model.loss_scale_factors is not None:
+        s = model.loss_scale_factors
+        total = (torch.exp(-s[0]) * loss_ct + s[0] +
+                 torch.exp(-s[1]) * loss_zone + s[1] +
+                 torch.exp(-s[2]) * loss_surv + s[2] +
+                 torch.exp(-s[3]) * loss_dgi + s[3] +
+                 torch.exp(-s[4]) * loss_smooth + s[4] +
+                 torch.exp(-s[5]) * loss_attn_reg + s[5])
+    else:
+        total = (lam_ct    * loss_ct    +
+                 lam_zone  * loss_zone  +
+                 lam_smooth* loss_smooth+
+                 lam_surv  * loss_surv  +
+                 lam_dgi   * loss_dgi   +
+                 lam_attn_reg * loss_attn_reg)
 
     task_losses = {
         'ct':      loss_ct,
@@ -914,28 +1008,49 @@ def compute_loss(ct_pred, ct_true,
 # PCGrad — Manuel Gradyan Cerrahisi (FAZ 1)
 # ============================================================
 def pcgrad_step(model: nn.Module, opt: torch.optim.Optimizer,
-                task_losses: dict[str, torch.Tensor]) -> None:
+                 task_losses: dict[str, torch.Tensor],
+                 remaining_loss: torch.Tensor) -> None:
     """
     [FAZ1-PCGrad] Her görevin gradyanını hesapla, çakışan gradyanları yansıt,
-    ardından tek step() yap.
-    Çakışma: cos(g_i, g_j) < 0 → g_i, g_j'nin normal bileşeni çıkarılır.
-
-    NOT: Bu implementasyon .backward(retain_graph=True) kullanır.
-    Bağımsız task sayısı az tutulur (ct, zone, surv) performans için.
+    kalan kayıpları (DGI/smooth) ekle ve tek bir optimizer step() yap.
     """
-    pcgrad_tasks = ['ct', 'zone', 'surv']   # DGI/smooth global ağırlıklı eklenir
+    pcgrad_tasks = ['ct', 'zone', 'surv']
     params = [p for p in model.parameters() if p.requires_grad]
 
-    grad_list: list[list[torch.Tensor | None]] = []
-    for t_idx, task_key in enumerate(pcgrad_tasks):
+    # 1) Hangi kayıpların gradyan gerektirdiğini bul
+    active_losses = []
+    for task_key in pcgrad_tasks:
         loss = task_losses[task_key]
-        opt.zero_grad()
-        retain = (t_idx < len(pcgrad_tasks) - 1)
-        loss.backward(retain_graph=retain)
-        grads = [p.grad.clone() if p.grad is not None else None for p in params]
-        grad_list.append(grads)
+        if loss.requires_grad:
+            active_losses.append((task_key, loss))
+    
+    if remaining_loss.requires_grad:
+        active_losses.append(('remaining', remaining_loss))
 
-    # Gradyan cerrahisi
+    if not active_losses:
+        return
+
+    # Görev bazlı gradyan listelerini hazırla
+    grad_map = {t: [None for _ in params] for t in pcgrad_tasks}
+    grad_rem = [None for _ in params]
+
+    # 2) Aktif kayıplar için sırayla backward çalıştır (sonuncu adımda retain_graph=False)
+    for idx, (name, loss) in enumerate(active_losses):
+        opt.zero_grad()
+        is_last = (idx == len(active_losses) - 1)
+        loss.backward(retain_graph=not is_last)
+        
+        # Gradyanları kopyala
+        grads = [p.grad.clone() if p.grad is not None else None for p in params]
+        if name in pcgrad_tasks:
+            grad_map[name] = grads
+        else:
+            grad_rem = grads
+
+    # List formatına çevir
+    grad_list = [grad_map[t] for t in pcgrad_tasks]
+
+    # 3) PCGrad Cerrahisi
     for i in range(len(pcgrad_tasks)):
         for j in range(len(pcgrad_tasks)):
             if i == j:
@@ -945,12 +1060,12 @@ def pcgrad_step(model: nn.Module, opt: torch.optim.Optimizer,
                     continue
                 gi_flat = gi.flatten()
                 gj_flat = gj.flatten()
-                cos = torch.dot(gi_flat, gj_flat) / (gi_flat.norm() * gj_flat.norm() + 1e-8)
-                if cos < 0:
+                dot = torch.dot(gi_flat, gj_flat)
+                if dot < 0:
                     # gi'den gj doğrultusundaki bileşeni çıkar
-                    grad_list[i][p_idx] = gi - cos * gj
+                    grad_list[i][p_idx] = gi - (dot / (gj_flat.norm()**2 + 1e-8)) * gj
 
-    # Düzeltilmiş gradyanları ata
+    # 4) Gradyanları birleştir ve ata
     opt.zero_grad()
     for p_idx, p in enumerate(params):
         merged = None
@@ -958,6 +1073,9 @@ def pcgrad_step(model: nn.Module, opt: torch.optim.Optimizer,
             g = grads[p_idx]
             if g is not None:
                 merged = g if merged is None else merged + g
+        rem_g = grad_rem[p_idx]
+        if rem_g is not None:
+            merged = rem_g if merged is None else merged + rem_g
         if merged is not None:
             p.grad = merged
 
@@ -969,7 +1087,14 @@ def pcgrad_step(model: nn.Module, opt: torch.optim.Optimizer,
 # ============================================================
 # TRAINING — FAZ 1 (PCGrad + RankCox + EMA DGI + Focal)
 # ============================================================
-def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=None):
+def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_callback=None):
+    """
+    [v3.2] Yeni özellikler:
+      - Attention warmup: ilk ATTN_WARMUP_EPOCHS epoch γ_attn=0, sonra Cosine Annealing rampa
+      - Temperature (τ) decay: warmup sonrası attention prior giderek keskinleşir
+      - Per-task focal gamma: gamma_ct=1.5 (celltype), gamma_zone=2.5 (zone)
+      - Class weight smoothing: 1/√freq ile hesaplanan per-class ağırlıklar
+    """
     if cfg is None:
         cfg = {}
 
@@ -985,26 +1110,35 @@ def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=
     lam_zone    = cfg.get('lam_zone', 0.5)
     lam_smooth  = cfg.get('lam_smooth', 0.2)
     lam_surv    = cfg.get('lam_surv', 0.3)
-    lam_dgi     = cfg.get('lam_dgi', 0.1)
-    lam_attn_reg= cfg.get('lam_attn_reg', 0.05)
-    focal_gamma = cfg.get('focal_gamma', 2.0)
+    lam_dgi     = cfg.get('lam_dgi', cfg.get('lam_contr', 0.1))
+    lam_attn_reg_max = cfg.get('lam_attn_reg', 0.05)  # warmup sonrası hedef değer
+    # [v3.2] Per-task focal gamma
+    gamma_ct    = cfg.get('gamma_ct', 1.5)
+    gamma_zone  = cfg.get('gamma_zone', 2.5)
     wd          = cfg.get('wd', 1e-4)
     patience    = cfg.get('patience', 40)
-    use_pcgrad  = cfg.get('use_pcgrad', True)   # [FAZ1-PCGrad]
+    use_pcgrad  = cfg.get('use_pcgrad', True)
+
+    # [v3.2] Attention warmup / temperature decay parametreleri
+    ATTN_WARMUP_EPOCHS = cfg.get('attn_warmup_epochs', 15)  # ilk N epoch: γ_attn=0
+    tau_init    = cfg.get('tau_init', 1.0)   # başlangıç attention temperature
+    tau_min     = cfg.get('tau_min', 0.1)    # minimum temperature (en sert kısıt)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f"Training on device: {device} | PCGrad={'ON' if use_pcgrad else 'OFF'}")
+    logger.info(
+        f"Training on device: {device} | PCGrad={'ON' if use_pcgrad else 'OFF'} "
+        f"| Warmup={ATTN_WARMUP_EPOCHS}ep | γ_ct={gamma_ct} γ_zone={gamma_zone}")
 
-    n_ct   = data.y.shape[1]
-    n_zones= data.zone_y.shape[1]
+    n_ct   = data['spot'].y.shape[1]
+    n_zones= data['spot'].zone_y.shape[1]
 
-    # Pre-calculate global survival mean/std on train mask (deprecated — RankCox kullanıyoruz)
-    train_surv = data.survival_y[data.train_mask]
+    # Pre-calculate global survival mean/std (RankCox uses raw times, but keep dummy values)
+    train_surv = data.survival_y
     survival_mean = float(train_surv.mean().item()) if train_surv.abs().sum() > 0 else 0.0
     survival_std  = float(train_surv.std().item())  if train_surv.abs().sum() > 0 else 1.0
 
     model = GlioCartographyGNN(
-        data.x.shape[1], data.edge_attr.shape[1],
+        data['spot'].x.shape[1], data['spot', 'contacts', 'spot'].edge_attr.shape[1],
         n_ct, n_zones, hidden, heads, drop, n_gat, n_sage, use_trans
     ).to(device)
     data = data.to(device)
@@ -1012,14 +1146,20 @@ def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=
     opt   = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=1e-6)
 
-    # [FAZ1-ATTN-REG] L-R prior weight: her kenar için normalize edilmiş L-R aktivite
-    # edge_attr: [spatial_prox(1), lr_scores(N_lr), cell_compat(1)]
-    n_lr_cols = data.edge_attr.shape[1] - 2  # spatial_prox ve cell_compat hariç
+    # [FAZ1-ATTN-REG] Ham L-R kenar aktiviteleri (Boltzmann normalize için ayrılmış)
+    n_lr_cols  = len(LR_PAIRS)
+    total_cols = data['spot', 'contacts', 'spot'].edge_attr.shape[1]
+    K_rbf      = total_cols - n_lr_cols - 1
+    lr_edge_raw: torch.Tensor | None = None
     if n_lr_cols > 0:
-        lr_edge_mean = data.edge_attr[:, 1:1 + n_lr_cols].abs().mean(dim=1)  # (E,)
-        lr_prior = (lr_edge_mean - lr_edge_mean.min()) / (lr_edge_mean.max() - lr_edge_mean.min() + 1e-8)
-    else:
-        lr_prior = None
+        # Clamp to min 0.0 to focus on positive deviations above average (z-score >= 0)
+        lr_edge_raw = data['spot', 'contacts', 'spot'].edge_attr[:, K_rbf:K_rbf + n_lr_cols].clamp(min=0.0).mean(dim=1)
+
+    # [v3.2] Smoothed class weights (1/√freq) — eğitim seti üzerinden hesaplanır
+    train_mask_cpu = data['spot'].train_mask
+    y_train = data['spot'].y[train_mask_cpu]
+    class_weights = compute_class_weights(y_train).to(device)
+    logger.info(f"   Class weights (smoothed 1/√freq): min={class_weights.min():.3f} max={class_weights.max():.3f}")
 
     best_val, best_state = float('inf'), None
     hist = {'train': [], 'val': [], 'comp': []}
@@ -1028,43 +1168,59 @@ def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=
     for ep in range(1, epochs + 1):
         model.train()
 
+        # ── [v3.2] Epoch bazlı attention warmup + temperature decay ────────────
+        if ep <= ATTN_WARMUP_EPOCHS:
+            # Warmup dönemi: γ sıfır, L-R kısıt pasif
+            lam_attn_reg = 0.0
+            tau = tau_init
+            lr_prior: torch.Tensor | None = None
+        else:
+            # Cosine Annealing rampası (warmup sonrası)
+            post_ep     = ep - ATTN_WARMUP_EPOCHS
+            post_total  = max(1, epochs - ATTN_WARMUP_EPOCHS)
+            cos_factor  = 0.5 * (1.0 - torch.cos(torch.tensor(torch.pi * post_ep / post_total)).item())
+            lam_attn_reg = lam_attn_reg_max * cos_factor
+            # Temperature decay: tau_init → tau_min (attention giderek keskinleşir)
+            tau = tau_init - (tau_init - tau_min) * cos_factor
+            tau = max(tau_min, tau)
+            # Boltzmann-normalize L-R prior (sıcaklık tau ile)
+            if lr_edge_raw is not None:
+                lr_prior_logit = lr_edge_raw / (tau + 1e-8)
+                lr_prior = torch.softmax(lr_prior_logit, dim=0) * lr_prior_logit.shape[0]
+            else:
+                lr_prior = None
+
+        if ep == ATTN_WARMUP_EPOCHS + 1:
+            logger.info(f"   🔬 Epoch {ep}: Attention regularization devreye girdi "
+                        f"(γ_attn={lam_attn_reg:.4f}, τ={tau:.3f})")
+        # ────────────────────────────────────────────────────────────────────────
+
         # Forward pass
         ct_p, zone_p, surv_p, _, emb, h = model(data)
 
         total, task_losses, comp = compute_loss(
-            ct_p, data.y, zone_p, data.zone_y, surv_p, data.survival_y,
-            h, data.coarse_y, data.train_mask, data.edge_index,
+            ct_p, data['spot'].y, zone_p, data['spot'].zone_y, surv_p, data.survival_y,
+            h, data['spot'].coarse_y, data['spot'].train_mask, data['spot', 'contacts', 'spot'].edge_index,
             model=model,
             lam_ct=lam_ct, lam_zone=lam_zone,
             lam_smooth=lam_smooth, lam_surv=lam_surv,
             lam_dgi=lam_dgi, lam_attn_reg=lam_attn_reg,
-            focal_gamma=focal_gamma,
-            lr_prior_weight=lr_prior)
+            gamma_ct=gamma_ct, gamma_zone=gamma_zone,
+            lr_prior_weight=lr_prior,
+            class_weights=class_weights)
 
         if use_pcgrad:
-            # [FAZ1-PCGrad] Gradyan cerrahisi — 3 ana görev (ct, zone, surv)
-            # DGI + smooth + attn_reg gradyanları pcgrad sonrası eklenir
+            # PCGrad step with correct accumulation and graph release
             remaining = (
                 lam_smooth   * task_losses['smooth'] +
                 lam_dgi      * task_losses['dgi'] +
                 lam_attn_reg * task_losses['attn_reg']
             )
-            # 1) Ana görevler için PCGrad surgery (kendi içinde opt.step() yapar)
             pcgrad_step(model, opt,
                         {'ct':   lam_ct   * task_losses['ct'],
                          'zone': lam_zone * task_losses['zone'],
-                         'surv': lam_surv * task_losses['surv']})
-            # 2) Kalan kayıplar (DGI/smooth/attn) için ayrı accumulate+step
-            #    Grafın zaten PCGrad tarafından tüketildiği için retain=True gerekli
-            #    — ama burada task_losses içindeki tensorler zaten detached değil.
-            #    Güvenli yol: retain_graph=True ile ek bir backward.
-            if remaining.item() > 1e-8:
-                try:
-                    remaining.backward(retain_graph=False)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                    opt.step()
-                except RuntimeError:
-                    pass  # Grafın zaten serbest bırakılmış olması durumunda geç
+                         'surv': lam_surv * task_losses['surv']},
+                        remaining_loss=remaining)
         else:
             opt.zero_grad()
             total.backward()
@@ -1077,14 +1233,15 @@ def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=
         with torch.no_grad():
             ct_v, zone_v, surv_v, _, emb_v, h_v = model(data)
             vtotal, _, vcomp = compute_loss(
-                ct_v, data.y, zone_v, data.zone_y, surv_v, data.survival_y,
-                h_v, data.coarse_y, data.val_mask, data.edge_index,
+                ct_v, data['spot'].y, zone_v, data['spot'].zone_y, surv_v, data.survival_y,
+                h_v, data['spot'].coarse_y, data['spot'].val_mask, data['spot', 'contacts', 'spot'].edge_index,
                 model=model,
                 lam_ct=lam_ct, lam_zone=lam_zone,
                 lam_smooth=lam_smooth, lam_surv=lam_surv,
                 lam_dgi=lam_dgi, lam_attn_reg=lam_attn_reg,
-                focal_gamma=focal_gamma,
-                lr_prior_weight=lr_prior)
+                gamma_ct=gamma_ct, gamma_zone=gamma_zone,
+                lr_prior_weight=lr_prior,
+                class_weights=class_weights)
 
         hist['train'].append(comp['total'])
         hist['val'].append(vcomp['total'])
@@ -1102,7 +1259,7 @@ def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=
                 f"   Ep {ep:3d}/{epochs}: T={comp['total']:.4f} "
                 f"(CT={comp['ct']:.4f} Z={comp['zone']:.4f} "
                 f"Surv={comp['surv']:.4f} DGI={comp['dgi']:.4f} "
-                f"Smooth={comp['smooth']:.4f}) | V={vcomp['total']:.4f}")
+                f"AttnReg={comp['attn_reg']:.4f} τ={tau:.3f}) | V={vcomp['total']:.4f}")
 
         if epoch_callback and (ep % 10 == 0 or ep == 1 or ep == epochs):
             epoch_callback(ep, epochs)
@@ -1129,7 +1286,10 @@ def train_model(data: Data, trial=None, cfg: dict | None = None, epoch_callback=
 # ============================================================
 # OPTUNA
 # ============================================================
-def objective(trial, data: Data, epoch_callback=None) -> float:
+def objective(trial, data: HeteroData, epoch_callback=None) -> float:
+    """
+    [v3.2] Optuna search space'e per-task focal gamma parametreleri eklendi.
+    """
     cfg = {
         'hidden':         trial.suggest_categorical('hidden', [64, 128, 256]),
         'heads':          trial.suggest_categorical('heads', [2, 4]),
@@ -1144,6 +1304,13 @@ def objective(trial, data: Data, epoch_callback=None) -> float:
         'lam_smooth':     trial.suggest_float('lam_smooth', 0.05, 0.5),
         'lam_surv':       trial.suggest_float('lam_surv', 0.1, 0.5),
         'wd':             trial.suggest_float('wd', 1e-5, 1e-3, log=True),
+        # [v3.2] Per-task focal gamma — görev bazlı sınıf dengesi
+        'gamma_ct':       trial.suggest_float('gamma_ct', 0.5, 2.5),    # celltype: 1.5 default
+        'gamma_zone':     trial.suggest_float('gamma_zone', 1.0, 3.5),  # zone: 2.5 default
+        # [v3.2] Attention warmup
+        'attn_warmup_epochs': trial.suggest_int('attn_warmup_epochs', 5, 25),
+        'tau_init':       trial.suggest_float('tau_init', 0.5, 2.0),
+        'tau_min':        trial.suggest_float('tau_min', 0.05, 0.3),
         'epochs': 200, 'patience': 30,
     }
     _, _, bv = train_model(data, trial=trial, cfg=cfg, epoch_callback=epoch_callback)
@@ -1153,26 +1320,25 @@ def objective(trial, data: Data, epoch_callback=None) -> float:
 # ============================================================
 # COUNTERFACTUAL — [BUG-5] ct_start dinamik
 # ============================================================
-def counterfactual_knockout(model: nn.Module, data: Data,
+def counterfactual_knockout(model: nn.Module, data: HeteroData,
                              ct_names: list[str], knockout_type: str) -> np.ndarray | None:
     """
     Belirli hücre tipini lokal olarak sıfırlayıp komşuluk ilişkileri (parakrin) boyunca yayılımını simüle et.
     """
     model.eval()
     data_mod = data.clone()
-    n_spots = data.x.shape[0]
+    n_spots = data['spot'].x.shape[0]
 
     # Dinamik offset
     ct_start = data.pca_dim
-    ko_indices = [i for i, n in enumerate(ct_names) if knockout_type in n]
+    ko_indices = [i for i, n in enumerate(ct_names) if knockout_type.lower() in n.lower()]
 
     if not ko_indices:
         logger.warning(f"   '{knockout_type}' ct_names içinde bulunamadı")
         return None
 
     # Hedef hücrelerin yoğun olduğu spotları (lokal müdahale alanı) seç
-    # Use adaptive threshold: pick top 5% or top 50 spots, whichever is smaller, but at least 1 spot
-    ko_sum = data.x[:, [ct_start + idx for idx in ko_indices]].sum(dim=1)
+    ko_sum = data['spot'].x[:, [ct_start + idx for idx in ko_indices]].sum(dim=1)
     min_spots = max(1, min(50, int(0.05 * n_spots)))
     q_val = 1.0 - (min_spots / n_spots)
     q_val = max(0.0, min(1.0, q_val))
@@ -1189,13 +1355,13 @@ def counterfactual_knockout(model: nn.Module, data: Data,
         zone_orig = F.softmax(zone_orig, dim=-1)
 
     # Müdahale: Sadece hedef spotlarda hücre oranlarını sıfırla
-    data_mod.x = data_mod.x.clone()
+    data_mod['spot'].x = data_mod['spot'].x.clone()
     for idx in ko_indices:
         col = ct_start + idx
-        if col < data_mod.x.shape[1]:
-            data_mod.x[target_spots, col] = 0.0
+        if col < data_mod['spot'].x.shape[1]:
+            data_mod['spot'].x[target_spots, col] = 0.0
         else:
-            logger.warning(f"   Knockout index {col} feature dim {data_mod.x.shape[1]} dışında")
+            logger.warning(f"   Knockout index {col} feature dim {data_mod['spot'].x.shape[1]} dışında")
 
     # Ko-müdahale forward pass (GNN message passing parakrin yayılımı yapar)
     with torch.no_grad():
@@ -1203,7 +1369,7 @@ def counterfactual_knockout(model: nn.Module, data: Data,
         zone_ko = F.softmax(zone_ko, dim=-1)
 
     # Parakrin etki analizi (komşuluk analizi)
-    edge_index = data.edge_index
+    edge_index = data['spot', 'contacts', 'spot'].edge_index
     src, dst = edge_index[0], edge_index[1]
     
     src_arr = src.cpu().numpy()
@@ -1243,7 +1409,7 @@ def counterfactual_knockout(model: nn.Module, data: Data,
 # ============================================================
 # L-R & GENE REGULATION COUNTERFACTUAL SIMULATORS
 # ============================================================
-def counterfactual_lr_blockade(model: nn.Module, data: Data,
+def counterfactual_lr_blockade(model: nn.Module, data: HeteroData,
                               lr_names: list[str], lr_target: str,
                               inhibition_rate: float = 1.0) -> np.ndarray | None:
     """
@@ -1268,12 +1434,13 @@ def counterfactual_lr_blockade(model: nn.Module, data: Data,
         return None
             
     # 2. Modify edge_attr column corresponding to this L-R pair
-    # In build_graph_data: edge_attr = np.hstack([spatial_prox, lr_scores, cell_compat])
-    # The L-R scores start at index 1 and span len(LR_PAIRS) columns.
-    col_idx = 1 + lr_idx
+    # In contacts edge_attr: [rbf_feats, lr_scores, cell_compat]
+    total_cols = data_mod['spot', 'contacts', 'spot'].edge_attr.shape[1]
+    K = total_cols - len(lr_names) - 1
+    col_idx = K + lr_idx
     
-    if col_idx >= data_mod.edge_attr.shape[1]:
-        logger.warning(f"   L-R index {col_idx} edge_attr dim {data_mod.edge_attr.shape[1]} dışında")
+    if col_idx >= total_cols:
+        logger.warning(f"   L-R index {col_idx} edge_attr dim {total_cols} dışında")
         return None
         
     # Original forward pass
@@ -1283,12 +1450,12 @@ def counterfactual_lr_blockade(model: nn.Module, data: Data,
         
     # Perform blockade: set expression of target L-R pair to its minimum value across all edges
     # (representing total block) or reduce it proportionally
-    current_col = data_mod.edge_attr[:, col_idx].clone()
+    current_col = data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx].clone()
     min_val = float(torch.min(current_col))
     
     # Apply inhibition
-    data_mod.edge_attr = data_mod.edge_attr.clone()
-    data_mod.edge_attr[:, col_idx] = current_col * (1.0 - inhibition_rate) + min_val * inhibition_rate
+    data_mod['spot', 'contacts', 'spot'].edge_attr = data_mod['spot', 'contacts', 'spot'].edge_attr.clone()
+    data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx] = current_col * (1.0 - inhibition_rate) + min_val * inhibition_rate
     
     # Counterfactual forward pass
     with torch.no_grad():
@@ -1299,7 +1466,7 @@ def counterfactual_lr_blockade(model: nn.Module, data: Data,
     return delta_zone.cpu().numpy()
 
 
-def counterfactual_gene_regulation(model: nn.Module, data: Data,
+def counterfactual_gene_regulation(model: nn.Module, data: HeteroData,
                                   lr_names: list[str], lr_pairs: list[tuple[str, str, str]],
                                   gene_target: str, reg_type: str = 'knockdown',
                                   rate: float = 1.0) -> np.ndarray | None:
@@ -1329,19 +1496,22 @@ def counterfactual_gene_regulation(model: nn.Module, data: Data,
         zone_orig = F.softmax(zone_orig, dim=-1)
         
     # 2. Modify edge_attr columns for all affected L-R pairs
-    data_mod.edge_attr = data_mod.edge_attr.clone()
+    data_mod['spot', 'contacts', 'spot'].edge_attr = data_mod['spot', 'contacts', 'spot'].edge_attr.clone()
+    total_cols = data_mod['spot', 'contacts', 'spot'].edge_attr.shape[1]
+    K = total_cols - len(lr_names) - 1
+    
     for lr_idx in affected_indices:
-        col_idx = 1 + lr_idx
-        if col_idx < data_mod.edge_attr.shape[1]:
-            current_col = data_mod.edge_attr[:, col_idx].clone()
+        col_idx = K + lr_idx
+        if col_idx < total_cols:
+            current_col = data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx].clone()
             if reg_type == 'knockdown':
                 min_val = float(torch.min(current_col))
                 # Push values toward the minimum representing suppression
-                data_mod.edge_attr[:, col_idx] = current_col * (1.0 - rate) + min_val * rate
+                data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx] = current_col * (1.0 - rate) + min_val * rate
             else: # overexpression
                 max_val = float(torch.max(current_col))
                 # Push values toward the maximum representing activation
-                data_mod.edge_attr[:, col_idx] = current_col * (1.0 - rate) + max_val * rate
+                data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx] = current_col * (1.0 - rate) + max_val * rate
                 
     # Counterfactual forward pass
     with torch.no_grad():
@@ -1355,28 +1525,13 @@ def counterfactual_gene_regulation(model: nn.Module, data: Data,
 # ============================================================
 # PATHWAY SCORING
 # ============================================================
-def compute_pathway_scores(adata) -> dict[str, np.ndarray]:
-    var_names_lower = {g.lower(): g for g in adata.var_names}
-    gene_cache = {}
-    def get_gene(name: str):
-        name_lower = name.lower()
-        if name_lower not in gene_cache:
-            exact_name = var_names_lower.get(name_lower)
-            if exact_name is not None:
-                try:
-                    col_idx = adata.var_names.get_loc(exact_name)
-                    e = adata.X[:, col_idx]
-                except Exception:
-                    e = adata[:, exact_name].X
-                e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
-                gene_cache[name_lower] = e.astype(np.float32)
-            else:
-                gene_cache[name_lower] = None
-        return gene_cache[name_lower]
+def compute_pathway_scores(adata, gene_cache: GeneExpressionCache | None = None) -> dict[str, np.ndarray]:
+    if gene_cache is None:
+        gene_cache = GeneExpressionCache(adata)
     
     pathway_scores = {}
     for path_name, genes in PATHWAY_SIGNATURES.items():
-        valid_genes = [get_gene(g) for g in genes if get_gene(g) is not None]
+        valid_genes = [gene_cache.get_gene(g) for g in genes if gene_cache.get_gene(g) is not None]
         if valid_genes:
             pathway_scores[path_name] = np.mean(valid_genes, axis=0)
         else:
@@ -1387,37 +1542,43 @@ def compute_pathway_scores(adata) -> dict[str, np.ndarray]:
 # ============================================================
 # ATTENTION EXPORT — [BUG-4]
 # ============================================================
-def export_attention_to_json(model: nn.Module, data: Data, adata,
+def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
                               ct_names: list[str],
                               zone_preds: np.ndarray,
                               drug_scores: np.ndarray,
                               survival_preds: np.ndarray,
                               out_path: str,
-                              ct_preds: np.ndarray | None = None) -> None:
+                              ct_preds: np.ndarray | None = None,
+                              gene_cache: GeneExpressionCache | None = None) -> None:
     """
     [BUG-4] FIX: GATv2 attention weight'lerini hesapla, her spot için
     en yüksek 10 komşuyu JSON'a yaz.
-    Frontend spot.edges = {dstId: weight} biçimini bekliyor.
     """
     logger.info("Attention weight'ler export ediliyor...")
     model.eval()
 
+    if gene_cache is None:
+        gene_cache = GeneExpressionCache(adata)
+
     with torch.no_grad():
         _, _, _, _, _, attn_layers = model(data, return_attention=True)
 
-    # Son GAT katmanının attention weight'lerini kullan
     if not attn_layers:
         logger.warning("   Attention layer bulunamadı")
         return
 
-    attn_ei, aw = attn_layers[-1]
-    # aw shape: (n_edges, n_heads) — head ortalaması al
-    attn_mean = aw.mean(dim=-1).cpu().numpy()   # (n_edges,)
+    # Average attention weights across all GATv2 layers to capture multi-layer hierarchy
+    attn_mean_list = [aw.mean(dim=-1) for _, aw in attn_layers]
+    stacked_attn = torch.stack(attn_mean_list, dim=0)
+    attn_mean = stacked_attn.mean(dim=0).cpu().numpy()  # (n_edges,)
+    
+    # We can use the edge_index from the last layer (they are identical)
+    attn_ei = attn_layers[-1][0]
     attn_src  = attn_ei[0].cpu().numpy()
     attn_dst  = attn_ei[1].cpu().numpy()
 
     # Spot başına en yüksek 10 bağlantıyı topla
-    n_spots    = data.x.shape[0]
+    n_spots    = data['spot'].x.shape[0]
     spot_edges: list[dict] = [{} for _ in range(n_spots)]
 
     for e_idx in range(len(attn_src)):
@@ -1427,7 +1588,6 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
         if di not in spot_edges[si] or spot_edges[si][di] < w:
             spot_edges[si][di] = w
 
-    # En yüksek 10'a kırp
     for si in range(n_spots):
         top10 = dict(sorted(spot_edges[si].items(),
                             key=lambda kv: kv[1], reverse=True)[:10])
@@ -1437,14 +1597,16 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
     zone_argmax = zone_preds.argmax(axis=1)
 
     # Drug → L-R eşleşmesi (en yüksek L-R bazlı)
-    lr_cols_start = 1  # edge_attr: [spatial_prox, lr_scores..., cell_compat]
-    lr_cols_end   = 1 + len(LR_PAIRS)
+    ea = data['spot', 'contacts', 'spot'].edge_attr.cpu().numpy()
+    total_cols = ea.shape[1]
+    K = total_cols - len(LR_PAIRS) - 1
+    lr_cols_start = K
+    lr_cols_end   = K + len(LR_PAIRS)
 
     # Her spot için toplam L-R aktivitesini hesapla (gelen kenar ortalaması)
     spot_lr_sum = np.zeros((n_spots, len(LR_PAIRS)), dtype=np.float32)
     spot_lr_cnt = np.zeros(n_spots, dtype=np.int32)
-    ea = data.edge_attr.cpu().numpy()
-    edge_index_np = data.edge_index.cpu().numpy()
+    edge_index_np = data['spot', 'contacts', 'spot'].edge_index.cpu().numpy()
     for e_idx in range(ea.shape[0]):
         di = int(edge_index_np[1, e_idx])
         spot_lr_sum[di] += ea[e_idx, lr_cols_start:lr_cols_end]
@@ -1452,7 +1614,7 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
     spot_lr_avg = spot_lr_sum / (spot_lr_cnt[:, None] + 1e-8)
 
     # Pathway scores
-    pathway_scores = compute_pathway_scores(adata)
+    pathway_scores = compute_pathway_scores(adata, gene_cache=gene_cache)
 
     # Build attention map to get GNN weights on edges
     attn_map = {}
@@ -1466,38 +1628,19 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
     # Calculate global cell-cell communication
     cell_cell_communication = {}
     n_ct = len(ct_names)
-    src_nodes = data.src_arr if hasattr(data, 'src_arr') else data.edge_index[0].cpu().numpy()
-    dst_nodes = data.dst_arr if hasattr(data, 'dst_arr') else data.edge_index[1].cpu().numpy()
+    src_nodes = data.src_arr if hasattr(data, 'src_arr') else data['spot', 'contacts', 'spot'].edge_index[0].cpu().numpy()
+    dst_nodes = data.dst_arr if hasattr(data, 'dst_arr') else data['spot', 'contacts', 'spot'].edge_index[1].cpu().numpy()
     W_edges = np.array([attn_map.get((u, v), 0.0) for u, v in zip(src_nodes, dst_nodes)], dtype=np.float32)
     
     if ct_preds is not None:
         y_np = ct_preds
     else:
-        y_np = data.y.cpu().numpy() if isinstance(data.y, torch.Tensor) else data.y
-
-    # Helper function to load genes dynamically in export
-    var_names_lower = {g.lower(): g for g in adata.var_names}
-    gene_cache = {}
-    def get_gene(name: str):
-        name_lower = name.lower()
-        if name_lower not in gene_cache:
-            exact_name = var_names_lower.get(name_lower)
-            if exact_name is not None:
-                try:
-                    col_idx = adata.var_names.get_loc(exact_name)
-                    e = adata.X[:, col_idx]
-                except Exception:
-                    e = adata[:, exact_name].X
-                e = e.toarray().flatten() if hasattr(e, 'toarray') else np.asarray(e).flatten()
-                gene_cache[name_lower] = e.astype(np.float32)
-            else:
-                gene_cache[name_lower] = None
-        return gene_cache[name_lower]
+        y_np = data['spot'].y.cpu().numpy() if isinstance(data['spot'].y, torch.Tensor) else data['spot'].y
 
     for p_idx, (lig, rec, _) in enumerate(LR_PAIRS):
         lr_key = f"{lig.upper()}-{rec.upper()}"
-        le = get_gene(lig)
-        re = get_gene(rec)
+        le = gene_cache.get_gene(lig)
+        re = gene_cache.get_gene(rec)
         if le is not None and re is not None:
             lr_edges = np.log1p(le[src_nodes] * re[dst_nodes])
             weight_e = W_edges * lr_edges
@@ -1540,7 +1683,10 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
             weighted_val = np.sum(zone_preds[:, z_idx] * spot_lr_avg[:, p_idx]) / w_sum
             zonal_contrast["lr_pairs"][zone_name][lr_key] = float(weighted_val)
 
-    coords = data.pos.cpu().numpy()
+    coords = data['spot'].pos.cpu().numpy()
+    
+    # Graph-level survival value broadcast to spots
+    global_surv = float(survival_preds[0]) if survival_preds.ndim > 0 else float(survival_preds)
 
     spots_out = []
     for si in range(n_spots):
@@ -1586,8 +1732,8 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
             "drug_target": lr_key,
             "drug_lr_basis": lr_key,
             "drug_status": "Klinik Aşama",
-            "tcga_risk": float(np.clip(survival_preds[si], 0, 1)),
-            "survival_months": float(max(0.0, survival_preds[si] * 20)),
+            "tcga_risk": float(np.clip(global_surv, 0, 1)),
+            "survival_months": float(max(0.0, global_surv * 20)),
             "pseudotime": float(data.pseudotime[si]) if hasattr(data, 'pseudotime') else 0.0,
             "vec_x": float(data.vec_x[si]) if hasattr(data, 'vec_x') else 0.0,
             "vec_y": float(data.vec_y[si]) if hasattr(data, 'vec_y') else 0.0,
@@ -1645,9 +1791,6 @@ def export_attention_to_json(model: nn.Module, data: Data, adata,
         logger.warning(f"   L-R detailed summary oluşturulamadı: {e_lr_sum}")
 
 
-# ============================================================
-# MAIN
-# ============================================================
 def main() -> None:
     os.makedirs(OUT_DIR, exist_ok=True)
     logger.info("=" * 70)
@@ -1659,6 +1802,8 @@ def main() -> None:
     np.random.seed(42)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(42)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Running main on device: {device}")
@@ -1667,13 +1812,20 @@ def main() -> None:
     if not os.path.exists(SPATIAL_PATH):
         exit_with_error(f"Spatial deconvolution data not found at: {SPATIAL_PATH}. Stage 2 tamamlandı mı?")
     adata = ad.read_h5ad(SPATIAL_PATH)
+    gene_cache = GeneExpressionCache(adata)
 
     logger.info("2. Graph oluşturuluyor...")
-    data    = build_graph_data(adata)  # k_neighbors=None → adaptif seçim
+    data    = build_graph_data(adata, gene_cache=gene_cache)
     ct_names= data.ct_names
 
     # ── Optuna ──────────────────────────────────────────────
-    logger.info("3. Optuna hiperparametre araması (2 trial)...")
+    env_trials = os.environ.get("GLIO_OPTUNA_TRIALS")
+    cli_trials = _args.optuna_trials
+    if cli_trials is not None:
+        n_optuna_trials = cli_trials
+    else:
+        n_optuna_trials = int(env_trials) if env_trials and env_trials.isdigit() else 10
+    logger.info(f"3. Optuna hiperparametre araması ({n_optuna_trials} trial)...")
     if optuna is None:
         exit_with_error("Optuna kütüphanesi yüklü değil! Lütfen 'pip install optuna' ile kurun.")
         
@@ -1681,7 +1833,7 @@ def main() -> None:
         direction='minimize', study_name='glio_gnn_v3',
         pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=30))
     study.optimize(lambda t: objective(t, data),
-                   n_trials=2, show_progress_bar=True)
+                   n_trials=n_optuna_trials, show_progress_bar=True)
 
     bp = study.best_params
     logger.info(f"\n   ✅ Optuna best val: {study.best_value:.4f}")
@@ -1701,18 +1853,18 @@ def main() -> None:
     with torch.no_grad():
         ct_pred, zone_pred, surv_pred, drug_pred, emb, _ = model(data)
 
-    test_mse = F.mse_loss(ct_pred[data.test_mask],
-                          data.y[data.test_mask]).item()
+    test_mask = data['spot'].test_mask
+    test_mse = F.mse_loss(ct_pred[test_mask],
+                          data['spot'].y[test_mask]).item()
     logger.info(f"   Test CT MSE: {test_mse:.6f}")
 
-    ct_p_np = ct_pred[data.test_mask].cpu().numpy()
-    ct_t_np = data.y[data.test_mask].cpu().numpy()
+    ct_p_np = ct_pred[test_mask].cpu().numpy()
+    ct_t_np = data['spot'].y[test_mask].cpu().numpy()
     corrs   = {}
     logger.info("   Per-celltype korelasyonlar:")
     for i, ct in enumerate(ct_names):
         pred_vec = ct_p_np[:, i]
         true_vec = ct_t_np[:, i]
-        # Guard against zero-variance to prevent Pearson/Spearman correlation exceptions
         if np.std(pred_vec) < 1e-8 or np.std(true_vec) < 1e-8:
             logger.warning(f"     {ct:25s}: Pearson/Spearman hesaplanamadı — sıfır/sabit varyans.")
             corrs[ct] = {'pearson_r': 0.0, 'spearman_r': 0.0}
@@ -1741,7 +1893,6 @@ def main() -> None:
             for z_idx, zn in enumerate(ZONE_NAMES):
                 logger.info(f"     {zn:35s}: Δ = {delta[:, z_idx].mean():+.4f}")
 
-    # ── Additional Counterfactual blockade and regulation simulations ──
     logger.info("\n6b. L-R blockade ve Gen Regülasyonu simülasyonları...")
     lr_names = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
     delta_lr = counterfactual_lr_blockade(model, data, lr_names, "VEGFA-KDR", inhibition_rate=1.0)
@@ -1762,6 +1913,12 @@ def main() -> None:
     surv_np  = surv_pred.cpu().numpy()
     drug_np  = drug_pred.cpu().numpy()
 
+    try:
+        from safetensors.torch import save_file
+        save_file(model.state_dict(), f'{OUT_DIR}/glio_gnn_v3.safetensors')
+        logger.info("   Model saved in safetensors format.")
+    except ImportError:
+        pass
     torch.save(model.state_dict(), f'{OUT_DIR}/glio_gnn_v3.pt')
     np.save(f'{OUT_DIR}/spatial_embeddings.npy',  emb.cpu().numpy())
     np.save(f'{OUT_DIR}/zone_predictions.npy',    zone_np)
@@ -1769,14 +1926,14 @@ def main() -> None:
     np.save(f'{OUT_DIR}/survival_predictions.npy',surv_np)
     np.save(f'{OUT_DIR}/drug_scores.npy',         drug_np)
 
-    # [BUG-4] Attention + full JSON export
     export_attention_to_json(
         model, data, adata, ct_names,
         zone_preds      = zone_np,
         drug_scores     = drug_np,
         survival_preds  = surv_np,
         out_path        = f'{OUT_DIR}/data.json',
-        ct_preds        = ct_pred.cpu().numpy()
+        ct_preds        = ct_pred.cpu().numpy(),
+        gene_cache      = gene_cache
     )
 
     summary_info = {
@@ -1786,41 +1943,48 @@ def main() -> None:
         "best_val_loss": study.best_value,
         "zones": ZONE_NAMES,
         "ct_names": ct_names,
-        "node_dim": data.x.shape[1],
-        "edge_dim": data.edge_attr.shape[1]
+        "node_dim": data['spot'].x.shape[1],
+        "edge_dim": data['spot', 'contacts', 'spot'].edge_attr.shape[1]
     }
     with open(f'{OUT_DIR}/gnn_summary.json', 'w', encoding='utf-8') as f:
         json.dump(summary_info, f, ensure_ascii=False, indent=2)
 
     # ── Grafikler ───────────────────────────────────────────
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle('GNN Eğitim — v3.0', fontsize=14, fontweight='bold', color='white')
+    
+    # Dynamic Theme Configuration
+    theme = os.environ.get("GLIO_THEME", "dark").lower()
+    text_color = "black" if theme == "light" else "white"
+    bg_outer = "#ffffff" if theme == "light" else "#0d1117"
+    bg_inner = "#f0f0f0" if theme == "light" else "#1a1a2e"
+    
+    fig.suptitle('GNN Eğitim — v3.0', fontsize=14, fontweight='bold', color=text_color)
 
     axes[0].plot(hist['train'], label='Train', color='#E63946', alpha=0.8)
     axes[0].plot(hist['val'],   label='Val',   color='#457B9D', alpha=0.8)
-    axes[0].set_xlabel('Epoch', color='white')
-    axes[0].set_ylabel('Loss', color='white')
-    axes[0].legend(facecolor='#1a1a2e', labelcolor='white')
-    axes[0].set_title('Train vs Val Loss', color='white')
-    axes[0].set_facecolor('#1a1a2e')
-    axes[0].tick_params(colors='white')
+    axes[0].set_xlabel('Epoch', color=text_color)
+    axes[0].set_ylabel('Loss', color=text_color)
+    axes[0].legend(facecolor=bg_inner, labelcolor=text_color)
+    axes[0].set_title('Train vs Val Loss', color=text_color)
+    axes[0].set_facecolor(bg_inner)
+    axes[0].tick_params(colors=text_color)
 
     comp_map = [('ct','#E63946'), ('zone','#2A9D8F'),
-                ('contr','#F4A261'), ('smooth','#457B9D'), ('surv','#E9C46A')]
+                ('dgi','#F4A261'), ('smooth','#457B9D'), ('surv','#E9C46A')]
     for key, clr in comp_map:
         axes[1].plot([c[key] for c in hist['comp']],
                      label=key.upper(), color=clr, alpha=0.8)
-    axes[1].set_xlabel('Epoch', color='white')
-    axes[1].set_ylabel('Component', color='white')
-    axes[1].legend(facecolor='#1a1a2e', labelcolor='white')
-    axes[1].set_title('Loss Bileşenleri', color='white')
-    axes[1].set_facecolor('#1a1a2e')
-    axes[1].tick_params(colors='white')
+    axes[1].set_xlabel('Epoch', color=text_color)
+    axes[1].set_ylabel('Component', color=text_color)
+    axes[1].legend(facecolor=bg_inner, labelcolor=text_color)
+    axes[1].set_title('Loss Bileşenleri', color=text_color)
+    axes[1].set_facecolor(bg_inner)
+    axes[1].tick_params(colors=text_color)
 
-    fig.patch.set_facecolor('#0d1117')
+    fig.patch.set_facecolor(bg_outer)
     plt.tight_layout()
     fig.savefig(f'{OUT_DIR}/training_history_v3.png',
-                dpi=200, facecolor='#0d1117', bbox_inches='tight')
+                dpi=200, facecolor=bg_outer, bbox_inches='tight')
     plt.close()
 
     logger.info(f"\n✅ GNN v3.0 tamamlandı!")

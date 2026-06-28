@@ -130,7 +130,7 @@ function setBackendStatus(ready) {
     DOM.backendDot.className = ready ? 'status-dot connected' : 'status-dot error';
   }
   if (DOM.backendStatus) {
-    DOM.backendStatus.textContent = ready ? 'Bileşenler bağlandı' : 'Bileşenler bağlanamadı';
+    DOM.backendStatus.textContent = ready ? window.i18n.t('diagnostics.connected') : window.i18n.t('diagnostics.connection_failed');
   }
 
   if (ready) {
@@ -138,7 +138,7 @@ function setBackendStatus(ready) {
   } else {
     // If the application has already fully booted, show a non-intrusive warning instead of blocking UI
     if (state.bootCompleted) {
-      showWarningToast('Bağlantı Hatası: Analiz sunucusu ile bağlantı koptu. Yeniden bağlanmaya çalışılıyor...');
+      showWarningToast(window.i18n.t('diagnostics.connection_lost'));
     } else {
       showConnectionError();
     }
@@ -155,13 +155,13 @@ async function activateLicense() {
     if (DOM.licenseError) DOM.licenseError.classList.add('hidden');
 
     if (!key) { 
-      showLicenseError('Lisans anahtarı girin.'); 
+      showLicenseError(window.i18n.t('license.enter_key')); 
       return; 
     }
 
     // Basic format validator
     if (!key.startsWith('GCARTO-')) {
-      showLicenseError('Geçersiz lisans anahtarı formatı. Örnek: GCARTO-XXXX-XXXX');
+      showLicenseError(window.i18n.t('license.invalid_format'));
       return;
     }
 
@@ -181,14 +181,14 @@ async function activateLicense() {
         }
       }
     } else {
-      showLicenseError(result.reason || 'Geçersiz lisans');
+      showLicenseError(result.reason || window.i18n.t('license.invalid_key'));
     }
   } catch (err) {
     console.error('[License] Activation error:', err);
     showErrorToast(
       isDev 
-        ? `Lisans doğrulama hatası: ${err.message}` 
-        : 'Lisans doğrulama sırasında bir hata oluştu. Lütfen tekrar deneyin.'
+        ? `${window.i18n.t('license.validation_error')}: ${err.message}` 
+        : window.i18n.t('license.validation_failed_retry')
     );
   }
 }
@@ -227,8 +227,8 @@ function showLicenseWaitingState() {
   if (state.licenseValid && state.backendStartupFailed) {
     showConnectionError();
   } else {
-    if (DOM.checkingMsg) DOM.checkingMsg.textContent = 'Lisans tanındı, lütfen bekleyiniz...';
-    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = 'Uygulama sunucusuna bağlanılıyor...';
+    if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('license.recognized_wait');
+    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = window.i18n.t('license.connecting_server');
     
     if (DOM.premiumLoader) DOM.premiumLoader.style.display = '';
     toggleElement(DOM.connectionErrorContainer, false);
@@ -259,14 +259,14 @@ function showConnectionError() {
   toggleElement(DOM.licenseCheckingState, true);
   toggleElement(DOM.licenseFormContainer, false);
 
-  if (DOM.checkingMsg) DOM.checkingMsg.textContent = '⚠️ Bileşen Bağlantı Hatası';
+  if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('diagnostics.component_connection_error');
   
   // Safe DOM construction to prevent innerHTML XSS vulnerabilities
   if (DOM.checkingSubmsg) {
     DOM.checkingSubmsg.textContent = '';
-    DOM.checkingSubmsg.appendChild(document.createTextNode('Glio-Cartography Bileşenleri başlatılamadı veya yanıt vermiyor.'));
+    DOM.checkingSubmsg.appendChild(document.createTextNode(window.i18n.t('diagnostics.components_failed_to_start')));
     DOM.checkingSubmsg.appendChild(document.createElement('br'));
-    DOM.checkingSubmsg.appendChild(document.createTextNode('Lütfen uygulamanın gerekli bileşenleri kurmasına izin verin veya internet bağlantınızı kontrol edin.'));
+    DOM.checkingSubmsg.appendChild(document.createTextNode(window.i18n.t('diagnostics.components_install_or_internet_check')));
   }
   
   // Hide loading ring
@@ -283,7 +283,7 @@ function showConnectionError() {
   if (DOM.logPreview) {
     DOM.logPreview.textContent = lastBackendLogs.length > 0 
       ? lastBackendLogs.join('\n') 
-      : 'Bağlantı bekleniyor... Log kaydı bulunamadı.';
+      : window.i18n.t('diagnostics.waiting_for_connection_no_log');
     DOM.logPreview.scrollTop = DOM.logPreview.scrollHeight;
   }
 }
@@ -309,8 +309,8 @@ function hideConnectionError() {
   if (state.licenseValid && state.backendStartupFailed) {
     // Keep error message
   } else {
-    if (DOM.checkingMsg) DOM.checkingMsg.textContent = 'Sistem başlatılıyor...';
-    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = 'Uygulama sunucusuna bağlanılıyor...';
+    if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('license.initializing');
+    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = window.i18n.t('license.connecting_server');
   }
 }
 
@@ -329,8 +329,8 @@ async function selectCustomPython() {
     console.error('[Python path selection] Error:', err);
     showErrorToast(
       isDev 
-        ? `Bileşen seçimi sırasında hata oluştu: ${err.message}` 
-        : 'Bileşen seçimi sırasında bir hata oluştu.'
+        ? `${window.i18n.t('diagnostics.component_selection_error')}: ${err.message}` 
+        : window.i18n.t('diagnostics.component_selection_failed')
     );
   }
 }
@@ -340,12 +340,12 @@ async function retryBackendConnection() {
     toggleElement(DOM.connectionErrorContainer, false);
     if (DOM.premiumLoader) DOM.premiumLoader.style.display = '';
     
-    if (DOM.checkingMsg) DOM.checkingMsg.textContent = 'Yeniden başlatılıyor...';
-    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = 'Glio-Cartography bileşenleri başlatılıyor...';
+    if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('common.restarting');
+    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = window.i18n.t('diagnostics.components_starting');
     
     // Add separator to keep log context instead of wiping entirely
     lastBackendLogs.push('────────────────────────────────────────');
-    lastBackendLogs.push('🔄 Yeniden bağlantı denemesi başlatıldı...');
+    lastBackendLogs.push(window.i18n.t('diagnostics.reconnection_attempt'));
     if (DOM.logPreview) {
       DOM.logPreview.textContent = lastBackendLogs.join('\n');
       DOM.logPreview.scrollTop = DOM.logPreview.scrollHeight;
@@ -408,9 +408,9 @@ async function downloadRuntime() {
       showLicenseWaitingState();
       toggleElement(DOM.downloadProgressContainer, true);
       
-      if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '🔌 Sunucuya bağlanılıyor...';
-      if (DOM.checkingMsg) DOM.checkingMsg.textContent = 'Bileşenler Kuruluyor...';
-      if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = 'Glio-Cartography için gerekli bileşenler indiriliyor. Lütfen bekleyiniz...';
+      if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.connecting_server_plug');
+      if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('diagnostics.components_installing');
+      if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = window.i18n.t('diagnostics.downloading_wait');
       
       const ok = await api.downloadRuntime();
       if (ok && ok.success) {
@@ -422,11 +422,11 @@ async function downloadRuntime() {
       state.downloadAttempted = false; // Allow retry
 
       // Show friendly error
-      if (DOM.checkingMsg) DOM.checkingMsg.textContent = '❌ İndirme Başarısız';
+      if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('update.download_failed');
       if (DOM.checkingSubmsg) {
         DOM.checkingSubmsg.textContent = isDev 
-          ? `Bileşenler indirilemedi: ${err.message}` 
-          : 'Bileşenler indirilemedi. Lütfen internet bağlantınızı kontrol edin ve tekrar deneyin.';
+          ? `${window.i18n.t('diagnostics.components_download_error')}: ${err.message}` 
+          : window.i18n.t('diagnostics.components_download_failed_retry')
       }
       
       toggleElement(DOM.downloadProgressContainer, false);
@@ -463,8 +463,8 @@ function handleDownloadProgress(data) {
     toggleElement(DOM.connectionErrorContainer, false);
     if (DOM.premiumLoader) DOM.premiumLoader.style.display = 'none';
 
-    if (DOM.checkingMsg) DOM.checkingMsg.textContent = 'Bileşenler Kuruluyor...';
-    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = 'Glio-Cartography için gerekli bileşenler otomatik olarak yapılandırılıyor.';
+    if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('diagnostics.components_installing');
+    if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = window.i18n.t('diagnostics.components_auto_configuring');
   } else {
     // Keep them disabled if completed, to prevent race conditions before auto-retry
     if (data.status !== 'completed') {
@@ -476,20 +476,20 @@ function handleDownloadProgress(data) {
 
   // Update layout values
   if (data.status === 'downloading_vc') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '📥 Glio-Cartography sistem bileşenleri indiriliyor...';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.downloading_system_components');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = `${data.percent}%`;
     if (DOM.downloadProgressBarFill) DOM.downloadProgressBarFill.style.width = `${data.percent}%`;
     if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = `${data.received} MB / ${data.total} MB`;
   } else if (data.status === 'installing_vc') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '⚙️ Glio-Cartography sistem bileşenleri kuruluyor (Lütfen bekleyiniz)...';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.installing_system_components');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = '50%';
     if (DOM.downloadProgressBarFill) {
       DOM.downloadProgressBarFill.style.width = '50%';
       DOM.downloadProgressBarFill.style.background = 'linear-gradient(90deg, #7c3aed, #00d4ff)';
     }
-    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = 'Yönetici izni penceresi açılabilir, lütfen onaylayın.';
+    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = window.i18n.t('diagnostics.admin_permission_request');
   } else if (data.status === 'downloading') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '📥 Glio-Cartography bileşenleri indiriliyor...';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.downloading_components');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = `${data.percent}%`;
     if (DOM.downloadProgressBarFill) {
       DOM.downloadProgressBarFill.style.width = `${data.percent}%`;
@@ -497,25 +497,25 @@ function handleDownloadProgress(data) {
     }
     if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = `${data.received} MB / ${data.total} MB`;
   } else if (data.status === 'extracting') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '📦 Glio-Cartography bileşenleri kuruluyor (Arşiv açılıyor)...';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.extracting_components');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = '100%';
     if (DOM.downloadProgressBarFill) {
       DOM.downloadProgressBarFill.style.width = '100%';
       DOM.downloadProgressBarFill.style.background = 'linear-gradient(90deg, #7c3aed, #00d4ff)';
     }
-    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = 'Bu işlem 1-2 dakika sürebilir...';
+    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = window.i18n.t('diagnostics.this_may_take_minutes');
   } else if (data.status === 'configuring') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '⚙️ Glio-Cartography bileşenleri yapılandırılıyor...';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.configuring_components');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = '100%';
-    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = 'Yapılandırma tamamlanıyor...';
+    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = window.i18n.t('diagnostics.configuring_completing');
   } else if (data.status === 'completed') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '✅ Kurulum başarıyla tamamlandı!';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.install_success');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = '100%';
     if (DOM.downloadProgressBarFill) {
       DOM.downloadProgressBarFill.style.width = '100%';
       DOM.downloadProgressBarFill.style.background = 'linear-gradient(90deg, #10b981, #059669)';
     }
-    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = 'Glio-Cartography bileşenleri başlatılıyor...';
+    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = window.i18n.t('diagnostics.components_starting');
     
     // Explicitly lock retry button to avoid double-clicking
     if (DOM.btnRetryConnection) DOM.btnRetryConnection.disabled = true;
@@ -525,10 +525,10 @@ function handleDownloadProgress(data) {
       retryBackendConnection().catch(() => {});
     }, 2000);
   } else if (data.status === 'failed') {
-    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = '❌ Kurulum başarısız oldu.';
+    if (DOM.downloadProgressStatus) DOM.downloadProgressStatus.textContent = window.i18n.t('diagnostics.install_failed');
     if (DOM.downloadProgressPercent) DOM.downloadProgressPercent.textContent = '-';
     if (DOM.downloadProgressBarFill) DOM.downloadProgressBarFill.style.width = '0%';
-    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = data.error || 'Bilinmeyen hata';
+    if (DOM.downloadProgressInfo) DOM.downloadProgressInfo.textContent = data.error || window.i18n.t('common.unknown_error');
     
     showConnectionError();
   }
@@ -542,11 +542,11 @@ async function copyMachineId(btn) {
     
     await navigator.clipboard.writeText(id);
     if (targetBtn) {
-      targetBtn.textContent = '✅ Kopyalandı';
-      setTimeout(() => { targetBtn.textContent = '📋 Kopyala'; }, 2000);
+      targetBtn.textContent = '✅ ' + window.i18n.t('common.copied');
+      setTimeout(() => { targetBtn.textContent = '📋 ' + window.i18n.t('common.copy'); }, 2000);
     }
   } catch (err) {
     console.error('[MachineID] Clipboard copy failed:', err);
-    showErrorToast('Panoya kopyalama başarısız oldu. Lütfen manuel olarak kopyalayın.');
+    showErrorToast(window.i18n.t('license.copy_failed'));
   }
 }

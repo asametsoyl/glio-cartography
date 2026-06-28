@@ -177,6 +177,7 @@ class PipelineStartRequest(BaseModel):
     clinical_idh: Optional[float] = None        # IDH mutasyon skoru [0.0–1.0]; None → imputation
     clinical_kps: Optional[int] = None          # Karnofsky Performance Score [0–100]; None → imputation
     imputation_mode: Optional[str] = "worst"    # "worst" | "median"
+    lang: Optional[str] = "tr"                  # Arayüz dili (tr | en)
 
 
 class LicenseCheckRequest(BaseModel):
@@ -238,6 +239,7 @@ async def start_pipeline(req: PipelineStartRequest):
             clinical_idh=req.clinical_idh,
             clinical_kps=req.clinical_kps,
             imputation_mode=req.imputation_mode or "worst",
+            lang=req.lang or "tr"
         )
 
     # Start pipeline task; store reference to prevent GC
@@ -457,29 +459,57 @@ async def simulate_knockout(
         data = build_graph_data(adata, k_neighbors=6)
         ct_names = data.ct_names
 
-        in_ch = data.x.shape[1]
-        edge_dim = data.edge_attr.shape[1]
+        in_ch = data['spot'].x.shape[1]
+        edge_dim = data['spot', 'contacts', 'spot'].edge_attr.shape[1]
         model = GlioCartographyGNN(in_ch=in_ch, edge_dim=edge_dim, n_ct=len(ct_names), n_zones=len(ZONE_NAMES))
-        model.load_state_dict(torch.load(model_path, map_location="cpu"))
+        # Try loading safetensors format first if package available and file exists
+        loaded_sf = False
+        try:
+            from safetensors.torch import load_file as sf_load_file
+            sf_path = model_path.with_suffix(".safetensors")
+            if sf_path.exists():
+                model.load_state_dict(sf_load_file(sf_path, device="cpu"))
+                logger.info(f"   GNN model loaded via safetensors from {sf_path}")
+                loaded_sf = True
+        except Exception as sf_err:
+            logger.warning(f"   Failed to load safetensors model: {sf_err}")
+            
+        if not loaded_sf:
+            model.load_state_dict(torch.load(model_path, map_location="cpu"))
+            logger.info(f"   GNN model loaded via torch.load from {model_path}")
         model.eval()
 
         if simulation_mode == "cell":
-            ko_query = ko_type_safe
-            if ko_type_safe == "TAM":
-                for term in ["macrophage", "tam", "microglia", "myeloid"]:
-                    if any(term in cn.lower() for cn in ct_names):
-                        ko_query = term
+            ko_query = ko_type_safe.lower()
+            # Map frontend options to deconvolution dataset terms
+            CT_FRONTEND_TO_BACKEND_MAP = {
+                "tam_macrophage": "macrophage",
+                "t_cells": "t_cell",
+                "b_cells": "nk_cell",
+                "oligodendrocytes": "oligodendrocyte",
+                "mural": "pericyte",
+                "astrocytes": "astrocyte",
+                "tumor_mes": "stem_cell",
+                "tumor_ac": "malignant",
+                "tumor_npc": "malignant",
+                "tumor_opc": "malignant",
+            }
+            if ko_query in CT_FRONTEND_TO_BACKEND_MAP:
+                ko_query = CT_FRONTEND_TO_BACKEND_MAP[ko_query]
+
+            matched_cts = [cn for cn in ct_names if ko_query in cn.lower()]
+            if matched_cts:
+                ko_query = matched_cts[0]
+            else:
+                found_fallback = False
+                for cn in ct_names:
+                    if any(part in cn.lower() for part in ko_query.replace('-', '_').split('_')):
+                        ko_query = cn
+                        found_fallback = True
                         break
-            elif ko_type_safe == "T_Cell":
-                for term in ["t_cell", "t cell", "tcell", "lymphocyte"]:
-                    if any(term in cn.lower() for cn in ct_names):
-                        ko_query = term
-                        break
-            elif ko_type_safe == "Tumor_MES":
-                for term in ["malignant", "mes", "stem_cell", "tumor"]:
-                    if any(term in cn.lower() for cn in ct_names):
-                        ko_query = term
-                        break
+                if not found_fallback:
+                    ko_query = ct_names[0]
+
             delta = counterfactual_knockout(model, data, ct_names, ko_query)
             if delta is None:
                 raise ValueError(f"Hücre tipi eşleşmedi: {ko_type_safe}")
@@ -934,9 +964,369 @@ async def get_pathway_image(
         raise HTTPException(status_code=500, detail=f"Harita üretim hatası: {e}")
 
 
+
+# =============================================================
+# Kohort Analizi Endpoints  (FAZ D)
+# =============================================================
+class CohortRequest(BaseModel):
+    """Birden fazla output_dir'i alarak kohort analizi yapar."""
+    output_dirs: list[str]
+
+
+@app.get("/cohort/features")
+async def get_cohort_features(output_dir: str):
+    """
+    Tek hasta için cohort_features.json döner.
+    Yoksa GNN data.json'dan dinamik olarak üretir.
+    """
+    out = validate_output_dir(output_dir)
+    feat_path = out / "gnn" / "cohort_features.json"
+
+    if feat_path.exists():
+        return await _read_json_async(feat_path)
+
+    # Fallback: data.json'dan mini feature vektörü çıkar
+    data_path = out / "gnn" / "data.json"
+    if not data_path.exists():
+        raise HTTPException(status_code=404, detail="Analiz henüz tamamlanmamış (data.json yok)")
+
+    data_json = await _read_json_async(data_path)
+    spots = data_json.get("spots", [])
+    if not spots:
+        raise HTTPException(status_code=404, detail="Spot verisi bulunamadı")
+
+    import numpy as np
+    ct_keys = list(spots[0].get("ct", {}).keys())
+    zone_keys = list(spots[0].get("zones", {}).keys())
+
+    ct_matrix  = np.array([[s.get("ct", {}).get(k, 0) for k in ct_keys] for s in spots], dtype=float)
+    zon_matrix = np.array([[s.get("zones", {}).get(k, 0) for k in zone_keys] for s in spots], dtype=float)
+    risks      = [s.get("tcga_risk", 0.0) for s in spots]
+
+    features = {
+        "patient_id":  out.name,
+        "ct_means":    {k: float(ct_matrix[:, i].mean())  for i, k in enumerate(ct_keys)},
+        "zone_means":  {k: float(zon_matrix[:, i].mean()) for i, k in enumerate(zone_keys)},
+        "risk_score":  float(np.mean(risks)),
+        "n_spots":     len(spots),
+    }
+    return features
+
+
+@app.post("/cohort/compute")
+async def compute_cohort(req: CohortRequest):
+    """
+    Birden fazla hastanın özellik vektörlerini toplar,
+    PCA (2D) ve MMD mesafe matrisini hesaplar.
+
+    Yanıt: {patients, mmd_matrix, pca_variance, status}
+    """
+    if not req.output_dirs:
+        raise HTTPException(status_code=400, detail="En az 1 output_dir gereklidir")
+
+    def _collect_and_compute():
+        import numpy as np
+        from sklearn.decomposition import PCA  # type: ignore
+
+        patient_records = []
+        for raw_dir in req.output_dirs:
+            try:
+                out = validate_output_dir(raw_dir)
+            except HTTPException:
+                continue
+
+            feat_path = out / "gnn" / "cohort_features.json"
+            data_path = out / "gnn" / "data.json"
+
+            features = None
+            if feat_path.exists():
+                try:
+                    with open(feat_path, encoding="utf-8") as fh:
+                        features = json.load(fh)
+                except Exception:
+                    pass
+
+            if features is None and data_path.exists():
+                try:
+                    with open(data_path, encoding="utf-8") as fh:
+                        data_json = json.load(fh)
+                    spots = data_json.get("spots", [])
+                    if spots:
+                        ct_keys  = list(spots[0].get("ct", {}).keys())
+                        zon_keys = list(spots[0].get("zones", {}).keys())
+                        ct_m  = np.array([[s.get("ct", {}).get(k, 0)    for k in ct_keys]  for s in spots])
+                        zon_m = np.array([[s.get("zones", {}).get(k, 0) for k in zon_keys] for s in spots])
+                        features = {
+                            "patient_id": out.name,
+                            "ct_means":   {k: float(ct_m[:, i].mean())  for i, k in enumerate(ct_keys)},
+                            "zone_means": {k: float(zon_m[:, i].mean()) for i, k in enumerate(zon_keys)},
+                            "risk_score": float(np.mean([s.get("tcga_risk", 0.0) for s in spots])),
+                            "n_spots":    len(spots),
+                        }
+                except Exception:
+                    pass
+
+            if features:
+                patient_records.append(features)
+
+        if not patient_records:
+            raise ValueError("Hiçbir geçerli hasta verisi bulunamadı")
+
+        # Özellik vektörlerini birleştir
+        all_keys = sorted({k for rec in patient_records for k in list(rec.get("ct_means", {}).keys()) + list(rec.get("zone_means", {}).keys())})
+        feature_matrix = []
+        for rec in patient_records:
+            row = [rec.get("ct_means", {}).get(k, rec.get("zone_means", {}).get(k, 0.0)) for k in all_keys]
+            feature_matrix.append(row)
+
+        X = np.array(feature_matrix, dtype=float)
+
+        # PCA (2D)
+        pca_variance = [1.0, 0.0]
+        pca_coords = X[:, :2].tolist() if X.shape[1] >= 2 else ([[0.0, 0.0]] * len(patient_records))
+        if X.shape[0] >= 2 and X.shape[1] >= 2:
+            n_comp = min(2, X.shape[0] - 1, X.shape[1])
+            pca = PCA(n_components=n_comp)
+            coords = pca.fit_transform(X)
+            pca_variance = pca.explained_variance_ratio_.tolist()
+            pca_coords = coords.tolist()
+            if coords.shape[1] == 1:
+                pca_coords = [[c[0], 0.0] for c in pca_coords]
+
+        # MMD mesafe matrisi (RBF kernel, median gamma)
+        n = len(patient_records)
+        mmd_matrix = [[0.0] * n for _ in range(n)]
+        if n >= 2:
+            dists = np.linalg.norm(X[:, None] - X[None, :], axis=-1)
+            gamma = 1.0 / (2.0 * (np.median(dists[dists > 0]) ** 2 + 1e-8))
+
+            def _rbf(a, b):
+                d = np.linalg.norm(a - b)
+                return np.exp(-gamma * d ** 2)
+
+            for i in range(n):
+                for j in range(i, n):
+                    if i == j:
+                        mmd_matrix[i][j] = 0.0
+                    else:
+                        kaa = _rbf(X[i], X[i])
+                        kbb = _rbf(X[j], X[j])
+                        kab = _rbf(X[i], X[j])
+                        mmd2 = float(kaa + kbb - 2 * kab)
+                        mmd_matrix[i][j] = mmd_matrix[j][i] = round(max(0.0, mmd2), 6)
+
+        patients_out = []
+        for idx, rec in enumerate(patient_records):
+            cx, cy = (pca_coords[idx][0], pca_coords[idx][1]) if idx < len(pca_coords) else (0.0, 0.0)
+            patients_out.append({
+                "id":         rec.get("patient_id", f"Patient-{idx}"),
+                "x":          round(float(cx), 4),
+                "y":          round(float(cy), 4),
+                "risk":       round(rec.get("risk_score", 0.0), 4),
+                "n_spots":    rec.get("n_spots", 0),
+            })
+
+        return {
+            "patients":     patients_out,
+            "mmd_matrix":   mmd_matrix,
+            "pca_variance": pca_variance,
+            "n_features":   len(all_keys),
+            "feature_keys": all_keys,
+            "status":       "ok",
+        }
+
+    try:
+        result = await asyncio.to_thread(_collect_and_compute)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Kohort analizi hatası")
+        raise HTTPException(status_code=500, detail=f"Kohort analizi hatası: {exc}") from exc
+
+
+# =============================================================
+# OmniPath SQLite Cache  (FAZ E)
+# =============================================================
+def _get_omnipath_db_path() -> Path:
+    """userData/database/omnipath_cache.db yolunu döner."""
+    user_data = Path(os.environ.get("GLIO_USER_DATA", Path.home() / ".glio_cartography"))
+    db_dir = user_data / "database"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    return db_dir / "omnipath_cache.db"
+
+
+def _omnipath_db_get(endpoint: str, ttl_days: int = 90) -> dict | None:
+    """SQLite önbellekten TTL-kontrollü veri çeker."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    db_path = _get_omnipath_db_path()
+    try:
+        con = sqlite3.connect(str(db_path), timeout=10)
+        cur = con.execute(
+            "SELECT data, fetched_at FROM omnipath_cache WHERE endpoint=?", (endpoint,)
+        )
+        row = cur.fetchone()
+        con.close()
+        if row:
+            data_str, fetched_at_str = row
+            fetched_at = datetime.fromisoformat(fetched_at_str)
+            if datetime.now() - fetched_at < timedelta(days=ttl_days):
+                return json.loads(data_str)
+    except Exception as e:
+        logger.warning(f"[OmniPath cache] Okuma hatası: {e}")
+    return None
+
+
+def _omnipath_db_set(endpoint: str, data: dict) -> None:
+    """SQLite önbelleğe yazar (upsert)."""
+    import sqlite3
+    from datetime import datetime
+    db_path = _get_omnipath_db_path()
+    try:
+        con = sqlite3.connect(str(db_path), timeout=10)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS omnipath_cache "
+            "(endpoint TEXT PRIMARY KEY, data TEXT, fetched_at TEXT)"
+        )
+        con.execute(
+            "INSERT OR REPLACE INTO omnipath_cache(endpoint, data, fetched_at) VALUES(?,?,?)",
+            (endpoint, json.dumps(data, ensure_ascii=False), datetime.now().isoformat())
+        )
+        con.commit()
+        con.close()
+    except Exception as e:
+        logger.warning(f"[OmniPath cache] Yazma hatası: {e}")
+
+
+@app.get("/omnipath/lr-database")
+async def get_omnipath_lr_database(force_refresh: bool = False):
+    """
+    OmniPath LigRecExtra koleksiyonunu döner.
+    Cache TTL: 90 gün.
+    force_refresh=true ile önbellek yenilenir.
+    """
+    endpoint = "lr_database"
+    if not force_refresh:
+        cached = await asyncio.to_thread(_omnipath_db_get, endpoint, 90)
+        if cached:
+            return {**cached, "cache": True}
+
+    def _fetch():
+        try:
+            import urllib.request
+            url = (
+                "https://omnipathdb.org/intercell"
+                "?datasets=ligrecextra&fields=sources,references,transmitter_domains,"
+                "receiver_domains&format=json&limit=5000"
+            )
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+            # Sonuçları sadeleştir
+            pairs = [
+                {
+                    "source": r.get("source_genesymbol", ""),
+                    "target": r.get("target_genesymbol", ""),
+                    "category": r.get("category", ""),
+                    "databases": r.get("sources", ""),
+                }
+                for r in (raw if isinstance(raw, list) else raw.get("data", []))
+                if r.get("source_genesymbol") and r.get("target_genesymbol")
+            ]
+            return {"pairs": pairs, "n_pairs": len(pairs)}
+        except Exception as e:
+            raise ValueError(f"OmniPath API erişim hatası: {e}") from e
+
+    try:
+        result = await asyncio.to_thread(_fetch)
+        await asyncio.to_thread(_omnipath_db_set, endpoint, result)
+        return {**result, "cache": False}
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/omnipath/pathways")
+async def get_omnipath_pathways(gene: str, force_refresh: bool = False):
+    """
+    Verilen gen için OmniPath protein etkileşim ağlarını döner.
+    Cache TTL: 7 gün.
+    """
+    endpoint = f"pathways_{gene.upper()}"
+    if not force_refresh:
+        cached = await asyncio.to_thread(_omnipath_db_get, endpoint, 7)
+        if cached:
+            return {**cached, "cache": True}
+
+    def _fetch():
+        try:
+            import urllib.request
+            safe_gene = "".join(c for c in gene.upper() if c.isalnum() or c in "-_")
+            url = (
+                f"https://omnipathdb.org/interactions"
+                f"?partners={safe_gene}&datasets=omnipath&fields=sources,references&format=json&limit=500"
+            )
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+            interactions = [
+                {
+                    "source": r.get("source_genesymbol", ""),
+                    "target": r.get("target_genesymbol", ""),
+                    "is_directed": r.get("is_directed", 0),
+                    "is_stimulation": r.get("is_stimulation", 0),
+                    "is_inhibition": r.get("is_inhibition", 0),
+                }
+                for r in (raw if isinstance(raw, list) else raw.get("data", []))
+                if r.get("source_genesymbol") and r.get("target_genesymbol")
+            ]
+            return {"gene": safe_gene, "interactions": interactions, "n": len(interactions)}
+        except Exception as e:
+            raise ValueError(f"OmniPath pathway API hatası: {e}") from e
+
+    try:
+        result = await asyncio.to_thread(_fetch)
+        await asyncio.to_thread(_omnipath_db_set, endpoint, result)
+        return {**result, "cache": False}
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/omnipath/sync")
+async def sync_omnipath():
+    """LigRecExtra önbelleğini zorla yeniler."""
+    try:
+        result = await get_omnipath_lr_database(force_refresh=True)
+        return {"status": "synced", "n_pairs": result.get("n_pairs", 0)}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Sync hatası: {exc}") from exc
+
+
+@app.post("/omnipath/clear-cache")
+async def clear_omnipath_cache():
+    """OmniPath SQLite önbelleğini tamamen siler."""
+    import sqlite3
+    db_path = _get_omnipath_db_path()
+
+    def _clear():
+        if db_path.exists():
+            con = sqlite3.connect(str(db_path), timeout=10)
+            con.execute("DELETE FROM omnipath_cache")
+            count = con.execute("SELECT changes()").fetchone()[0]
+            con.commit()
+            con.close()
+            return count
+        return 0
+
+    try:
+        deleted = await asyncio.to_thread(_clear)
+        return {"status": "cleared", "deleted_entries": deleted}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Cache temizleme hatası: {exc}") from exc
+
+
 # =============================================================
 # Main / Stage routing
 # =============================================================
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Glio-Cartography backend server")
     parser.add_argument("--port", type=int, default=8765)

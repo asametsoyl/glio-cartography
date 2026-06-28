@@ -57,7 +57,7 @@ console.log(
 // Register local:// scheme as privileged BEFORE app ready (Electron requirement)
 protocol.registerSchemesAsPrivileged([{
   scheme: 'local',
-  privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true, bypassCSP: true }
+  privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true, bypassCSP: false }
 }]);
 
 // ── Module imports (after scheme registration) ────────────────
@@ -113,6 +113,14 @@ function createWindow() {
 
   mainWindow.webContents.on('console-message', (_event, _level, message, line) => {
     console.log(`[Renderer L${line}]: ${message}`);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Main Error] Main frame failed to load: ${validatedURL} (${errorDescription}, Code: ${errorCode})`);
+  });
+
+  mainWindow.webContents.on('did-fail-provisional-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Main Error] Subresource failed to load: ${validatedURL} (${errorDescription}, Code: ${errorCode})`);
   });
 }
 
