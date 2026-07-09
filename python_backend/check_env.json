@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-26T12:22:14.811910+00:00",
+  "timestamp": "2026-07-09T09:06:03.995214+00:00",
   "platform": "Darwin 25.4.0 (arm64)",
   "status": "error",
   "python": {
@@ -140,15 +140,15 @@
     "error": "Port 8765 is busy (active connection succeeded)"
   },
   "ram": {
-    "available_gb": 1.82,
+    "available_gb": 1.15,
     "total_gb": 8.0,
     "ok": false,
     "required_gb": 8.0,
     "status": "warning",
-    "error": "Insufficient RAM: 1.8 GB available (8.0 GB required)"
+    "error": "Insufficient RAM: 1.1 GB available (8.0 GB required)"
   },
   "errors": [
     "Port 8765 is busy (active connection succeeded)",
-    "Insufficient RAM: 1.8 GB available (8.0 GB required)"
+    "Insufficient RAM: 1.1 GB available (8.0 GB required)"
   ]
 }

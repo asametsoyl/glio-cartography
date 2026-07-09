@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const { validateLicense } = require('./license');
+const { validateLicense, saveOnlineActivation } = require('./license');
 const { getMachineId } = require('./machine-id');
 const { getLogPath, isPathAllowed, safeSend: safeSendUtil } = require('./utils');
 const {
@@ -180,16 +180,84 @@ function registerIpcHandlers() {
     }
   });
 
-  // ── License ──────────────────────────────────────────────────
-  ipcMain.handle('get-machine-id', () => getMachineId());
-  ipcMain.handle('validate-license', (_, key) => validateLicense(key));
+  // ── License ─────────────────────────────────────────────────────────
+  // Machine ID artık kullanıcıya gösterilmiyor — sadece internal olarak kullanılıyor
 
-  ipcMain.handle('save-license', (_, key) => {
-    const result = validateLicense(key); // RSA ve imza kontrolü burada çalışır
-    return result.valid;
+  // Mevcut cache veya portable.gcart'tan lisansı doğrula
+  ipcMain.handle('validate-cached-license', () => {
+    return validateLicense(app.getAppPath());
   });
 
-  ipcMain.handle('get-stored-license', () => _store ? _store.get('license') : null);
+  // Online Aktivasyon: kullanıcı sadece lisans anahtarını girer
+  ipcMain.handle('activate-license-online', async (_, licenseKey) => {
+    if (!licenseKey || !licenseKey.startsWith('GCARTO-')) {
+      return { success: false, error: 'Geçersiz lisans anahtarı formatı.' };
+    }
+
+    const machineId = getMachineId(); // Kullanıcı bunu görmez
+    const serverUrl = process.env.LICENSE_SERVER_URL || 'https://gliocartography.com';
+
+    try {
+      // JWT token al (gerekirse)
+      const storedToken = _store ? _store.get('api_token', null) : null;
+      if (!storedToken) {
+        return { success: false, error: 'Lütfen önce web sitesinde giriş yapın ve lisans anahtarınızı kopyalayın.' };
+      }
+
+      const response = await new Promise((resolve, reject) => {
+        const url = new URL('/api/licenses/activate', serverUrl);
+        const body = JSON.stringify({ license_key: licenseKey, machine_id: machineId });
+        const options = {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            'Authorization': `Bearer ${storedToken}`,
+          },
+        };
+        const lib = url.protocol === 'https:' ? require('https') : require('http');
+        const req = lib.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
+            catch { resolve({ status: res.statusCode, body: data }); }
+          });
+        });
+        req.on('error', reject);
+        req.setTimeout(15000, () => { req.destroy(new Error('Request timed out')); });
+        req.write(body);
+        req.end();
+      });
+
+      if (response.status === 200 && response.body.success) {
+        const { offline_token, expiry_date, institution } = response.body;
+        const saved = saveOnlineActivation({ offlineToken: offline_token, expiryDate: expiry_date, institution });
+        console.log('[License] Online activation successful, token cached:', saved);
+        return {
+          success: true,
+          expiryDate: expiry_date,
+          institution: institution || null,
+        };
+      } else {
+        const errMsg = response.body?.error || `Sunucu hatası (${response.status})`;
+        console.warn('[License] Activation failed:', errMsg);
+        return { success: false, error: errMsg };
+      }
+    } catch (err) {
+      console.error('[License] Network error during activation:', err.message);
+      return { success: false, error: 'Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.' };
+    }
+  });
+
+  // API token kaydetme (web dashboard'dan kopyalanıp yapıştırılan JWT)
+  ipcMain.handle('save-api-token', (_, token) => {
+    if (_store && token) _store.set('api_token', token);
+    return true;
+  });
 
   // ── Python Path ──────────────────────────────────────────────
   ipcMain.handle('save-custom-python-path', (_, pythonPath) => {

@@ -29,8 +29,8 @@ const DOM = {
   downloadProgressInfo: null,
   btnSelectPython: null,
   btnRetryConnection: null,
-  machineIdDisplay: null,
-  btnCopy: null,
+  machineIdDisplay: null,  // Kaldırıldı — Machine ID artık UI'da gösterilmiyor
+  btnCopy: null,           // Kaldırıldı
 };
 
 // Populate element cache
@@ -58,8 +58,7 @@ function cacheDOM() {
   DOM.downloadProgressInfo = document.getElementById('download-progress-info');
   DOM.btnSelectPython = document.getElementById('btn-select-python');
   DOM.btnRetryConnection = document.getElementById('btn-retry-connection');
-  DOM.machineIdDisplay = document.getElementById('machine-id-display');
-  DOM.btnCopy = document.querySelector('.btn-copy');
+  // machineIdDisplay ve btnCopy artık mevcut değil (Machine ID UI'dan kaldırıldı)
 }
 
 // Initialise caching
@@ -150,26 +149,36 @@ function setBackendStatus(ready) {
 // LICENSE
 // ══════════════════════════════════════════════════════════════
 async function activateLicense() {
+  const key = DOM.licenseInput ? DOM.licenseInput.value.trim().toUpperCase() : '';
+  if (DOM.licenseError) DOM.licenseError.classList.add('hidden');
+
+  if (!key) {
+    showLicenseError(window.i18n.t('license.enter_key'));
+    return;
+  }
+  if (!key.startsWith('GCARTO-')) {
+    showLicenseError(window.i18n.t('license.invalid_format'));
+    return;
+  }
+
+  // Butonu yükleniyor durumuna geçir
+  const btn = document.getElementById('btn-activate-license');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ ' + (window.i18n.t('license.activating') || 'Etkinleştiriliyor...') + '</span>';
+  }
+
   try {
-    const key = DOM.licenseInput ? DOM.licenseInput.value.trim().toUpperCase() : '';
-    if (DOM.licenseError) DOM.licenseError.classList.add('hidden');
+    // Machine ID arka planda alınır — kullanıcı görmez
+    const result = await api.activateLicenseOnline(key);
 
-    if (!key) { 
-      showLicenseError(window.i18n.t('license.enter_key')); 
-      return; 
-    }
-
-    // Basic format validator
-    if (!key.startsWith('GCARTO-')) {
-      showLicenseError(window.i18n.t('license.invalid_format'));
-      return;
-    }
-
-    const result = await api.validateLicense(key);
-    if (result.valid) {
-      await api.saveLicense(key);
+    if (result.success) {
       state.licenseValid = true;
-      
+      const expiryStr = result.expiryDate ? ` (• ${result.expiryDate})` : '';
+      const instStr   = result.institution ? ` — ${result.institution}` : '';
+      if (DOM.checkingMsg) DOM.checkingMsg.textContent = window.i18n.t('license.recognized_wait');
+      if (DOM.checkingSubmsg) DOM.checkingSubmsg.textContent = `✅${instStr}${expiryStr}`;
+
       const stateObj = await api.getBackendState();
       if (isValidBackendState(stateObj) && stateObj.status === 'runtime-missing') {
         triggerAutoDownload();
@@ -181,15 +190,30 @@ async function activateLicense() {
         }
       }
     } else {
-      showLicenseError(result.reason || window.i18n.t('license.invalid_key'));
+      const errMsg = result.error || window.i18n.t('license.invalid_key');
+      showLicenseError(errMsg);
+      // Aktivasyon başarısız — butonu yeniden etkinleştir
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>' + window.i18n.t('license.activate') + '</span>';
+      }
+      // İnternet yok hatasıysa offline notunu göster
+      if (errMsg.includes('bağlanam') || errMsg.includes('timeout') || errMsg.includes('network')) {
+        const offlineNote = document.getElementById('license-offline-note');
+        if (offlineNote) offlineNote.style.display = 'block';
+      }
     }
   } catch (err) {
     console.error('[License] Activation error:', err);
-    showErrorToast(
-      isDev 
-        ? `${window.i18n.t('license.validation_error')}: ${err.message}` 
+    showLicenseError(
+      isDev
+        ? `${window.i18n.t('license.validation_error')}: ${err.message}`
         : window.i18n.t('license.validation_failed_retry')
     );
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span>' + window.i18n.t('license.activate') + '</span>';
+    }
   }
 }
 
@@ -534,19 +558,5 @@ function handleDownloadProgress(data) {
   }
 }
 
-async function copyMachineId(btn) {
-  try {
-    const targetBtn = btn || DOM.btnCopy || document.querySelector('.btn-copy');
-    const id = DOM.machineIdDisplay ? DOM.machineIdDisplay.textContent : '';
-    if (!id) return;
-    
-    await navigator.clipboard.writeText(id);
-    if (targetBtn) {
-      targetBtn.textContent = '✅ ' + window.i18n.t('common.copied');
-      setTimeout(() => { targetBtn.textContent = '📋 ' + window.i18n.t('common.copy'); }, 2000);
-    }
-  } catch (err) {
-    console.error('[MachineID] Clipboard copy failed:', err);
-    showErrorToast(window.i18n.t('license.copy_failed'));
-  }
-}
+// copyMachineId — Machine ID artık UI'da gösterilmiyor, bu fonksiyon kaldırıldı
+// (Eski referanslar no-op handler'a yönlendirildi)

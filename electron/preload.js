@@ -4,11 +4,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('glioAPI', {
-  // License
-  getMachineId: () => ipcRenderer.invoke('get-machine-id'),
-  validateLicense: (key) => ipcRenderer.invoke('validate-license', key),
-  saveLicense: (key) => ipcRenderer.invoke('save-license', key),
-  getStoredLicense: () => ipcRenderer.invoke('get-stored-license'),
+  // License — Machine ID ASLA renderer'a açılmıyor
+  validateCachedLicense: () => ipcRenderer.invoke('validate-cached-license'),
+  activateLicenseOnline: (key) => ipcRenderer.invoke('activate-license-online', key),
+  saveApiToken: (token) => ipcRenderer.invoke('save-api-token', token),
 
   // File system
   selectFolder: () => ipcRenderer.invoke('select-folder'),

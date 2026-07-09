@@ -2210,3 +2210,199 @@ body {
 }
 
 
+
+/* ══════════════════════════════════════════════════════════
+   TÜMÖR HARİTASI PANEL — app-tumor-map styles
+   ══════════════════════════════════════════════════════════ */
+
+/* Ana iki-sütun yerleşim */
+.tumor-map-layout {
+  display: grid;
+  grid-template-columns: 1fr 230px;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+/* SVG canvas wrap */
+.tumor-map-canvas-wrap {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: hsl(222,25%,5%);
+  min-height: 260px;
+}
+
+/* Overlay region labels (üst kısım, SVG üstünde float) */
+.tumor-map-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 0 0 8px;
+  gap: 0;
+}
+.tmo-region {
+  position: absolute;
+  top: 10px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  opacity: 0;  /* SVG içi etiketler kullanılıyor, bu gizli */
+}
+
+/* Legend paneli */
+.tumor-map-legend {
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  overflow-y: auto;
+}
+
+.tm-legend-section { display: flex; flex-direction: column; gap: 0.38rem; }
+
+.tm-legend-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.tm-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+/* Çizgi örnekleri */
+.tm-ln {
+  display: inline-block;
+  width: 26px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.tm-ln--dash {
+  background: none !important;
+  border-top: 2.5px dashed;
+}
+
+/* Hücre örnekleri */
+.tm-cell {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* İstatistik grid */
+.tm-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+.tm-stat {
+  background: rgba(255,255,255,0.05);
+  border-radius: 7px;
+  padding: 0.4rem;
+  text-align: center;
+}
+.tm-stat__val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent, #00FFCC);
+  line-height: 1;
+}
+.tm-stat__lbl {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Terapötik Öneri Tablosu ─────────────────────────────── */
+.tm-recs {
+  margin-top: 0.25rem;
+}
+.tm-recs__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  color: var(--text);
+}
+.tm-recs-table-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.tm-recs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.tm-recs-table th {
+  background: rgba(255,255,255,0.05);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.tm-recs-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: var(--text);
+  vertical-align: middle;
+}
+.tm-recs-table tr:last-child td { border-bottom: none; }
+.tm-recs-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+/* Hedef badge */
+.tm-tgt {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.tgt-pdl1  { background: hsl(355,55%,28%); color: hsl(355,75%,72%); }
+.tgt-spp1  { background: hsl(270,48%,24%); color: hsl(270,68%,73%); }
+.tgt-gbm   { background: hsl(355,52%,26%); color: hsl(355,72%,70%); }
+.tgt-micro { background: hsl(145,42%,18%); color: hsl(145,62%,62%); }
+
+/* Kanıt badge */
+.tm-ev {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.ev-high { background: hsl(145,48%,18%); color: hsl(145,62%,60%); }
+.ev-med  { background: hsl(38,55%,18%);  color: hsl(38,90%,62%); }
+.ev-low  { background: hsl(355,48%,20%); color: hsl(355,72%,62%); }
+
+/* Durum badge */
+.tm-st {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.st-trial    { background: hsl(210,55%,22%); color: hsl(210,78%,68%); }
+.st-preclin  { background: hsl(270,48%,20%); color: hsl(270,68%,68%); }
+.st-approved { background: hsl(145,48%,18%); color: hsl(145,62%,60%); }
+.st-research { background: hsl(222,28%,22%); color: hsl(220,15%,62%); }
+

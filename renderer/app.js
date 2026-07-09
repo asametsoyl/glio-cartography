@@ -12,22 +12,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const licVer = document.getElementById('license-app-version');
   if (licVer) licVer.textContent = `v${ver}`;
 
-  // Machine ID
-  const mid = await api.getMachineId();
-  document.getElementById('machine-id-display').textContent = mid;
-
-  // Check stored license
-  const stored = await api.getStoredLicense();
-  if (stored) {
-    const result = await api.validateLicense(stored.key);
-    if (result.valid) {
+  // Lisans kontrolü: cache → portable.gcart → lisans ekranı
+  // Machine ID artık renderer'a hiç geçmiyor
+  try {
+    const result = await api.validateCachedLicense();
+    if (result && result.valid) {
       state.licenseValid = true;
       showLicenseWaitingState();
     } else {
       state.licenseValid = false;
       showLicenseFormState();
+      // İnternet yoksa USB notunu göster
+      const offlineNote = document.getElementById('license-offline-note');
+      if (result && !result.valid && result.reason && offlineNote) {
+        offlineNote.style.display = 'block';
+      }
     }
-  } else {
+  } catch (e) {
+    console.error('[License] validateCachedLicense error:', e);
     state.licenseValid = false;
     showLicenseFormState();
   }
@@ -321,8 +323,8 @@ function initEventListeners() {
     { selector: '#btn-select-python', handler: () => {
       if (typeof selectCustomPython === 'function') selectCustomPython();
     }},
-    { selector: '.btn-copy', handler: (e, el) => {
-      if (typeof copyMachineId === 'function') copyMachineId(el);
+    { selector: '.btn-copy', handler: (_e, _el) => {
+      // Machine ID kopya butonu artık UI'dan kaldırıldı — no-op
     }},
     { selector: '#btn-activate-license', handler: () => {
       if (typeof activateLicense === 'function') activateLicense();
@@ -374,6 +376,12 @@ function initEventListeners() {
       if (typeof clearLog === 'function') clearLog();
     }},
     { selector: '.btn-load-results', handler: () => {
+      if (typeof loadResults === 'function') loadResults();
+    }},
+    { selector: '#btn-refresh-signaling', handler: () => {
+      if (typeof loadResults === 'function') loadResults();
+    }},
+    { selector: '#btn-refresh-contrast', handler: () => {
       if (typeof loadResults === 'function') loadResults();
     }},
     { selector: '#btn-open-output-folder', handler: () => {

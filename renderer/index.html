@@ -64,7 +64,7 @@
         <div class="logo-icon">🧠</div>
         <h1 data-i18n="app.title">Glio-Cartography</h1>
         <p class="logo-sub" data-i18n="app.subtitle">Spatial Tumor Microenvironment Analysis Platform</p>
-        <span class="version-badge"><span id="license-app-version">v3.1</span> · <span data-i18n="license.licensed">Lisanslı</span></span>
+        <span class="version-badge"><span id="license-app-version">v3.2</span> · <span data-i18n="license.licensed">Lisanslı</span></span>
       </div>
 
       <!-- Başlangıç / Yükleme Durumu -->
@@ -127,12 +127,7 @@
       </div>
 
       <div class="license-form hidden" id="license-form-container">
-        <!-- Makine ID — kullanıcı bu değeri lisans talebinde kullanır -->
-        <div class="machine-id-block">
-          <label><span data-i18n="license.machine_id">Makine Kimliği</span> <span class="u-color-muted u-font-normal" data-i18n="license.machine_id_desc">(lisans talebinde bu değeri gönderin)</span></label>
-          <div class="machine-id-value" id="machine-id-display" data-i18n="state.loading">Yükleniyor...</div>
-          <button class="btn-copy">📋 <span data-i18n="common.copy">Kopyala</span></button>
-        </div>
+        <!-- Lisans Aktivasyon Formu — Machine ID kaldırıldı -->
         <div class="input-group">
           <label for="license-input" data-i18n="license.key">Lisans Anahtarı</label>
           <input type="text" id="license-input" placeholder="GCARTO-XXXX-XXXX-XXXX-XXXX" spellcheck="false"
@@ -146,7 +141,11 @@
           <span data-i18n="license.contact">Lisans anahtarı almak için web sitemizi ziyaret edin:</span>
           <a href="#" onclick="window.glioAPI.openExternal('https://gliocartography.com/login.html?next=checkout'); return false;" class="license-contact-link">gliocartography.com</a>
         </div>
+        <div class="license-offline-note" id="license-offline-note" style="display:none;">
+          <span style="font-size:0.78rem;color:var(--text-muted);">📡 <span data-i18n="license.no_internet_note">İnternet bağlantısı yok mu? USB/CD ile taşınabilir lisans kullanıyorsanız uygulamayı yeniden başlatın — otomatik tanınacaktır.</span></span>
+        </div>
       </div>
+
     </div>
   </div>
 
@@ -187,6 +186,9 @@
         </div>
         <div class="nav-item" data-panel="results">
           <span class="nav-icon">🗺️</span> <span data-i18n="nav.results">Sonuçlar</span>
+        </div>
+        <div class="nav-item" data-panel="tumor-map">
+          <span class="nav-icon">🔬</span> <span>Tümör Haritası</span>
         </div>
         <div class="nav-item" data-panel="signaling">
           <span class="nav-icon">🔗</span> <span data-i18n="nav.signaling">Sinyalleşme</span>
@@ -728,18 +730,145 @@
       </div>
 
       <!-- ── CELL-CELL SIGNALING PANEL ─────────────────────── -->
+      <!-- ── TÜMÖR HARİTASI PANEL ──────────────────────────────── -->
+      <div id="panel-tumor-map" class="panel">
+        <div class="panel-header">
+          <h2>🔬 <span data-i18n="tumor_map.title">Tümör Mikroçevre Haritası</span></h2>
+          <div class="results-actions">
+            <button class="btn-secondary" id="btn-tumor-map-export" data-i18n-title="tumor_map.export_title" title="SVG olarak indir"><span data-i18n="tumor_map.export_btn">📥 SVG İndir</span></button>
+            <button class="btn-secondary" id="btn-tumor-map-refresh" data-i18n-title="common.refresh" title="Yenile">🔄 <span data-i18n="common.refresh">Yenile</span></button>
+          </div>
+        </div>
+
+        <!-- Veri yokken uyarı -->
+        <div id="tumor-map-no-data" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:380px;gap:14px;color:var(--text-muted);">
+          <span style="font-size:4rem;opacity:0.5;">🧬</span>
+          <p style="margin:0;font-size:1.05rem;font-weight:600;color:var(--text-primary);" data-i18n="tumor_map.no_data_title">Analiz Başlatılmadı</p>
+          <p style="margin:0;font-size:0.85rem;opacity:0.65;text-align:center;max-width:320px;" data-i18n="tumor_map.no_data_desc">Tümör mikroçevre haritası, pipeline analizi tamamlandıktan sonra gerçek veri ile dinamik olarak oluşturulacak.</p>
+          <button class="btn-primary" onclick="showPanel('setup')" style="margin-top:8px;" data-i18n="tumor_map.start_pipeline">▶ Pipeline'ı Başlat</button>
+        </div>
+
+        <!-- Görselleştirme alanı -->
+        <div id="tumor-map-content" style="display:none;">
+          <div class="tumor-map-layout">
+            <!-- SVG Kanvas -->
+            <div class="tumor-map-canvas-wrap">
+              <svg id="tumor-map-svg" viewBox="0 0 900 540"
+                   style="width:100%;height:auto;border-radius:10px;display:block;background:hsl(222,25%,6%);">
+              </svg>
+              <!-- Sınır açıklamaları dinamik olarak SVG içinde app-tumor-map.js tarafından çizilir -->
+            </div>
+
+            <!-- Sağ Legend + İstatistik -->
+            <div class="tumor-map-legend">
+              <div class="tm-legend-section">
+                <div class="tm-legend-title" data-i18n="tumor_map.lines_title">Çizgiler</div>
+                <div class="tm-legend-row">
+                  <span class="tm-ln" style="background:hsl(270,62%,42%);"></span> <span data-i18n="tumor_map.core_boundary">Tümör Çekirdeği</span>
+                </div>
+                <div class="tm-legend-row">
+                  <span class="tm-ln tm-ln--dash" style="border-color:hsl(38,95%,55%);"></span> <span data-i18n="tumor_map.invasion_boundary">İstilacı Sınır</span>
+                </div>
+                <div class="tm-legend-row">
+                  <span class="tm-ln tm-ln--dash" style="border-color:hsl(145,65%,45%);"></span> <span data-i18n="tumor_map.healthy_boundary">Sağlıklı Beyin</span>
+                </div>
+              </div>
+
+              <div class="tm-legend-section">
+                <div class="tm-legend-title" data-i18n="tumor_map.cell_types_title">Hücre Tipleri</div>
+                <div class="tm-legend-row">
+                  <span class="tm-cell" style="background:hsl(355,75%,55%);border-radius:50%;"></span>
+                  <span data-i18n="tumor_map.gbm_cells">GBM Hücreleri</span> &mdash; <strong id="tm-count-gbm">—</strong>
+                </div>
+                <div class="tm-legend-row">
+                  <span class="tm-cell" style="background:hsl(210,80%,55%);border-radius:50%;"></span>
+                  <span data-i18n="tumor_map.t_cells">T-Hücreleri</span> &mdash; <strong id="tm-count-tcell">—</strong>
+                </div>
+                <div class="tm-legend-row">
+                  <span class="tm-cell" style="background:hsl(145,65%,45%);clip-path:polygon(50% 0%,0% 100%,100% 100%);"></span>
+                  <span data-i18n="tumor_map.microglia">Mikroglia</span> &mdash; <strong id="tm-count-micro">—</strong>
+                </div>
+                <div class="tm-legend-row">
+                  <span class="tm-cell" style="background:hsl(185,60%,45%);border-radius:2px;"></span>
+                  <span data-i18n="tumor_map.astrocyte">Astrosit</span> &mdash; <strong id="tm-count-astro">—</strong>
+                </div>
+                <div class="tm-legend-row" style="opacity:0.65;">
+                  <span class="tm-cell" style="background:hsl(0,0%,58%);border-radius:50%;width:7px;height:7px;opacity:0.6;"></span>
+                  <span data-i18n="tumor_map.unknown">Belirsiz / Sınıflandırılamayan</span> &mdash; <strong id="tm-count-unknown">—</strong>
+                </div>
+              </div>
+
+              <div class="tm-legend-section">
+                <div class="tm-legend-title" data-i18n="tumor_map.signal_pathway">Sinyal Yolu</div>
+                <div class="tm-legend-row">
+                  <span style="display:inline-block;width:24px;height:2px;background:hsl(355,75%,55%);vertical-align:middle;"></span>
+                  PD-L1 → PD-1
+                </div>
+                <div class="tm-legend-row">
+                  <span style="display:inline-block;width:24px;height:2px;background:#7a7a9d;vertical-align:middle;"></span>
+                  SPP1 → CD44
+                </div>
+              </div>
+
+              <!-- İstatistik kutuları -->
+              <div class="tm-legend-section">
+                <div class="tm-legend-title" data-i18n="tumor_map.cell_distribution">Hücre Dağılımı</div>
+                <div class="tm-stats-grid">
+                  <div class="tm-stat">
+                    <div class="tm-stat__val" id="tm-pct-core">—</div>
+                    <div class="tm-stat__lbl" data-i18n="tumor_map.tumor_pct">Tümör %</div>
+                  </div>
+                  <div class="tm-stat">
+                    <div class="tm-stat__val" id="tm-pct-inv">—</div>
+                    <div class="tm-stat__lbl" data-i18n="tumor_map.invasive_pct">İstilacı %</div>
+                  </div>
+                  <div class="tm-stat">
+                    <div class="tm-stat__val" id="tm-pct-healthy">—</div>
+                    <div class="tm-stat__lbl" data-i18n="tumor_map.healthy_pct">Sağlıklı %</div>
+                  </div>
+                  <div class="tm-stat">
+                    <div class="tm-stat__val" id="tm-total-spots">—</div>
+                    <div class="tm-stat__lbl" data-i18n="tumor_map.total_spots">Toplam Spot</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Terapötik Öneri Tablosu -->
+          <div class="tm-recs">
+            <div class="tm-recs__title" data-i18n="tumor_map.recs_title">💊 Terapötik Molekül Önerileri</div>
+            <div class="tm-recs-table-wrap">
+              <table class="tm-recs-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="tumor_map.col_target">Hedef</th>
+                    <th data-i18n="tumor_map.col_drug">İlaç / Molekül</th>
+                    <th data-i18n="tumor_map.col_class">Sınıf</th>
+                    <th data-i18n="tumor_map.col_evidence">Kanıt Düzeyi</th>
+                    <th data-i18n="tumor_map.col_status">Durum</th>
+                  </tr>
+                </thead>
+                <tbody id="tm-recs-body">
+                  <!-- Dinamik olarak app-tumor-map.js tarafından doldurulur -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- ── SİNYAL PANEL ──────────────────────────────── -->
       <div id="panel-signaling" class="panel">
         <div class="panel-header">
           <h2>🔗 <span data-i18n="nav.signaling">Hücre-Hücre Sinyalleşmesi</span></h2>
           <div class="results-actions">
             <button class="btn-primary" id="btn-open-lr-catalog" style="margin-right: 8px;" data-i18n="signaling.lr_catalog_btn">🧬 L-R Kataloğu</button>
-            <button class="btn-secondary btn-load-results">🔄 <span data-i18n="common.refresh">Yenile</span></button>
+            <button class="btn-secondary" id="btn-refresh-signaling">🔄 <span data-i18n="common.refresh">Yenile</span></button>
           </div>
         </div>
         <div id="signaling-placeholder" class="results-placeholder">
           <div class="placeholder-icon">🔗</div>
           <p data-i18n="signaling.placeholder">Analiz tamamlandıktan sonra hücre-hücre iletişim haritası burada görüntülenecek.</p>
-          <button class="btn-primary btn-load-results" data-i18n="common.load_data">Verileri Yükle</button>
         </div>
 
         <div id="signaling-container" class="signaling-layout hidden">
@@ -818,19 +947,19 @@
           </div>
         </div>
       </div>
+      </div>
 
       <!-- ── ZONAL CONTRAST PANEL ─────────────────────────── -->
       <div id="panel-contrast" class="panel">
         <div class="panel-header">
           <h2>📊 <span data-i18n="contrast.title">Zonal Kontrast Karşılaştırması</span></h2>
           <div class="results-actions">
-            <button class="btn-secondary btn-load-results">🔄 <span data-i18n="common.refresh">Yenile</span></button>
+            <button class="btn-secondary" id="btn-refresh-contrast">🔄 <span data-i18n="common.refresh">Yenile</span></button>
           </div>
         </div>
         <div id="contrast-placeholder" class="results-placeholder">
           <div class="placeholder-icon">📊</div>
           <p data-i18n="contrast.placeholder">Analiz tamamlandıktan sonra patolojik bölgeler arası karşılaştırma grafikleri burada görüntülenecek.</p>
-          <button class="btn-primary btn-load-results" data-i18n="common.load_data">Verileri Yükle</button>
         </div>
 
         <div id="contrast-container" class="contrast-layout hidden">
@@ -1441,6 +1570,7 @@
   <script src="app-pipeline.js"></script>
   <script src="app-analytics.js"></script>
   <script src="app-profiles.js"></script>
+  <script src="app-tumor-map.js"></script>
   <script src="app.js"></script>
   <script type="module" src="app-spatial-3d.js"></script>
 </body>

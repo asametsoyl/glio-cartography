@@ -80,6 +80,10 @@ function handleStateChange(prop, value, oldValue) {
     if (value === 'compare' && typeof reloadCompareSelects === 'function') {
       reloadCompareSelects();
     }
+
+    if (value === 'tumor-map' && typeof drawTumorMap === 'function') {
+      drawTumorMap();
+    }
   }
 
   // 2. Monitor panel controls on running state changes
