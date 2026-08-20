@@ -4,11 +4,14 @@ import json
 import urllib.request
 import ssl
 
-# Bypass SSL certificate verification for dynamic web downloads (KEGG, Cytoscape, etc.)
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
+# KEGG/Cytoscape indirmeleri için sertifika doğrulaması atlanan, bu modüle
+# ÖZEL bir SSL context. Önceki sürüm `ssl._create_default_https_context`'i
+# global olarak değiştiriyordu — bu, aynı Python sürecinde çalışan BAŞKA
+# HER HTTPS isteğini (ilgisiz modüller, güncelleme kontrolü vb. dahil)
+# sertifika doğrulamasız/MITM'e açık hale getiriyordu (bkz. denetim raporu
+# bulgusu D-20). Artık yalnızca bu modülün kendi `urlopen()` çağrılarına
+# `context=_UNVERIFIED_SSL_CONTEXT` ile açıkça geçiriliyor.
+_UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -32,7 +35,7 @@ def download_frontend_assets():
             logger.info("🌐 Cytoscape.js indiriliyor: %s", url)
             os.makedirs(renderer_dir, exist_ok=True)
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10.0) as response:
+            with urllib.request.urlopen(req, timeout=10.0, context=_UNVERIFIED_SSL_CONTEXT) as response:
                 path.write_bytes(response.read())
             logger.info("   ✅ Cytoscape.js yerel olarak kaydedildi: %s", path)
         except Exception as e:
@@ -190,9 +193,23 @@ def find_lr_degs(adata, ligand: str, receptor: str, data_json_path = None, activ
     # Log Fold Change (Log2 FC)
     log_fc = np.log2(m1 + 1e-5) - np.log2(m2 + 1e-5)
 
+    # Çoklu test düzeltmesi (Benjamini-Hochberg FDR) — birkaç bin genlik bir
+    # panelde ham p<0.05 taraması şans eseri yüzlerce yanlış pozitif "DEG"
+    # üretebilir; bu şişirilmiş liste sonradan Fisher's exact zenginleştirme
+    # testine giriş verisi olarak besleniyordu (bkz. denetim raporu C-07).
+    try:
+        from statsmodels.stats.multitest import multipletests
+        finite_mask = np.isfinite(p_vals)
+        q_vals = np.ones_like(p_vals)
+        if finite_mask.any():
+            _, q_vals[finite_mask], _, _ = multipletests(p_vals[finite_mask], method="fdr_bh")
+    except Exception as e_fdr:
+        logger.warning(f"BH-FDR düzeltmesi uygulanamadı ({e_fdr}), ham p-değerleri kullanılıyor.")
+        q_vals = p_vals
+
     for idx, gene in enumerate(adata.var_names):
-        # We only look for upregulated genes (log_fc > 0) with p < 0.05
-        if p_vals[idx] < 0.05 and log_fc[idx] > 0.05:
+        # We only look for upregulated genes (log_fc > 0) with FDR-adjusted q < 0.05
+        if q_vals[idx] < 0.05 and log_fc[idx] > 0.05:
             degs.append(gene)
 
     return degs
@@ -326,28 +343,39 @@ def find_lr_degs_zonal(
     receptor: str,
     data_json_path,
     zone_name: str,
-    zone_threshold: float = 0.4
+    zone_threshold: float = 0.4,
+    relax_info: dict | None = None,
 ) -> list[str]:
     """
     GNN'nin spatial zone tahminlerini kullanarak zona özgü DEG analizi yapar.
-    
+
     Parameterler:
         adata: Spatial AnnData nesnesi
         ligand, receptor: L-R çifti gen isimleri
         data_json_path: GNN çıktısı data.json dosyasının yolu
         zone_name: IVY GAP zone adı (örn. 'Leading_Edge', 'PN_Necrosis')
         zone_threshold: Minimum zone skoru (default 0.4)
-    
+        relax_info: Verilirse, zon eşiği gevşetildiyse bu dict içine
+            {"relaxed": bool, "requested_threshold": float,
+            "effective_threshold": float, "n_spots": int} yazılır — geriye
+            dönük uyumluluk için opsiyoneldir (bkz. denetim raporu A-10:
+            eşik gevşetmesi önceden yalnızca log'a yazılıyor, çağırana/JSON
+            çıktısına hiç yansımıyordu).
+
     Döner: Upregulated DEG gen listesi (zone-filtered)
     """
+    if relax_info is not None:
+        relax_info.update({"relaxed": False, "requested_threshold": zone_threshold,
+                            "effective_threshold": zone_threshold, "n_spots": None})
+
     # 1. Zone maskesi yükle
     masks = load_gnn_zone_masks(Path(data_json_path))
     if masks is None or zone_name not in masks:
         logger.warning("Zone '%s' bulunamadı. Global analiz yapılıyor.", zone_name)
         return find_lr_degs(adata, ligand, receptor, data_json_path=data_json_path)
-    
+
     zone_scores = masks[zone_name]
-    
+
     # 2. AnnData spot sayısıyla eşleşiyor mu kontrol et
     if len(zone_scores) != adata.n_obs:
         logger.warning(
@@ -355,7 +383,7 @@ def find_lr_degs_zonal(
             "Global analiz yapılıyor.", len(zone_scores), adata.n_obs
         )
         return find_lr_degs(adata, ligand, receptor, data_json_path=data_json_path)
-    
+
     # 3. Zone maskesini uygula
     zone_mask = zone_scores >= zone_threshold
     if zone_mask.sum() < 10:
@@ -365,9 +393,18 @@ def find_lr_degs_zonal(
         )
         zone_threshold_relaxed = zone_threshold * 0.5
         zone_mask = zone_scores >= zone_threshold_relaxed
+        if relax_info is not None:
+            # Gevşetme denendiğini, sonucu ne olursa olsun kaydet — hâlâ
+            # yetersiz spot varsa aşağıdaki `return []` bunu geçersiz
+            # kılmamalı (bkz. A-10 düzeltmesinin kendi doğrulama testi).
+            relax_info.update({"relaxed": True, "effective_threshold": zone_threshold_relaxed,
+                                "n_spots": int(zone_mask.sum())})
         if zone_mask.sum() < 5:
             return []
-    
+
+    if relax_info is not None:
+        relax_info["n_spots"] = int(zone_mask.sum())
+
     logger.info("Zone '%s': %d / %d spot kullanılıyor.", zone_name, zone_mask.sum(), adata.n_obs)
     
     # 4. GNN attention-weighted L-R aktivitesini küresel olarak hesapla ve ardından filtrele
@@ -392,11 +429,12 @@ def calculate_zonal_pathway_enrichment(
     Zone-aware pathway enrichment. zone_name verilirse o zona özgü analiz,
     None verilirse global analiz yapar. GNN+Pathway birlikte kullanım noktası.
     """
+    relax_info: dict = {}
     if zone_name and zone_name.lower() not in ("", "all", "tüm_tümör", "global"):
-        degs = find_lr_degs_zonal(adata, ligand, receptor, data_json_path, zone_name, zone_threshold)
+        degs = find_lr_degs_zonal(adata, ligand, receptor, data_json_path, zone_name, zone_threshold, relax_info=relax_info)
     else:
         degs = find_lr_degs(adata, ligand, receptor, data_json_path=data_json_path)
-    
+
     if not degs:
         return []
 
@@ -432,7 +470,12 @@ def calculate_zonal_pathway_enrichment(
             "pathway_count": len(path_genes),
             "overlap_genes": sorted(list(overlap_genes)),
             "pvalue": float(pval),
-            "odds_ratio": float(oddsratio) if np.isfinite(oddsratio) else 999.0
+            "odds_ratio": float(oddsratio) if np.isfinite(oddsratio) else 999.0,
+            # Bu zon için DEG taraması, yetersiz spot nedeniyle gevşetilmiş
+            # bir eşikle mi hesaplandı? (bkz. A-10) — artık yalnızca log'da
+            # değil, API/JSON çıktısında da görünür.
+            "zone_threshold_relaxed": relax_info.get("relaxed", False),
+            "zone_threshold_used": relax_info.get("effective_threshold", zone_threshold),
         })
 
     # BH FDR düzeltmesi
@@ -465,7 +508,7 @@ def fetch_dynamic_kegg_coords(pathway_id: str) -> dict:
     coords_map = {}
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5.0) as response:
+        with urllib.request.urlopen(req, timeout=5.0, context=_UNVERIFIED_SSL_CONTEXT) as response:
             html = response.read().decode('utf-8')
         
         # Match coords="x1,y1,x2,y2" href="..." title="GENE1, GENE2..."
@@ -495,7 +538,7 @@ def generate_highlighted_kegg_image(pathway_id: str, ligand: str, receptor: str,
         try:
             logger.info("🌐 KEGG haritası indiriliyor: %s", url)
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10.0) as response:
+            with urllib.request.urlopen(req, timeout=10.0, context=_UNVERIFIED_SSL_CONTEXT) as response:
                 img_path.write_bytes(response.read())
         except Exception as e:
             logger.error("KEGG haritası indirilemedi: %s", e)

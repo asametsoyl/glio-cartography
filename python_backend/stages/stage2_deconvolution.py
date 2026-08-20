@@ -159,7 +159,14 @@ def _run_tangram(adata_sc, adata_sp, marker_genes, CELL_MARKERS):
         adata_sc_tg, adata_sp,
         mode="clusters",
         cluster_label="cell_type",
-        density_prior="uniform",
+        # "uniform" her spot'ta aynı hücre yoğunluğunu varsayar — Visium gibi
+        # spot-tabanlı (tek-hücre çözünürlüğünde olmayan) platformlarda
+        # Tangram'ın kendi önerisi "rna_count_based"tir; bu, spot başına
+        # toplam RNA sayısını yoğunluk vekili olarak kullanır. "uniform"
+        # kullanmak, GBM'de klinik olarak en önemli düşük-hücrelilik
+        # bölgelerinde (nekrotik/hipoksik çekirdek) hücre-tipi oranlarını
+        # sistematik olarak çarpıtır (bkz. denetim raporu bulgusu B-09).
+        density_prior="rna_count_based",
         num_epochs=500,
         device="cpu",
         verbose=False,          # prevent epoch logs from polluting progress JSON stream
@@ -196,25 +203,50 @@ def _safe_train_model(model, max_epochs, batch_size=None, train_size=None):
     Adapts device arguments based on scvi-tools/Lightning version support.
     """
     import torch
-    device = "gpu" if torch.cuda.is_available() or (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()) else "cpu"
-    
+    # NOT: PyTorch Lightning'de accelerator="gpu" YALNIZCA CUDA anlamına
+    # gelir — Apple Silicon'daki MPS backend'i için ayrı ve doğru değer
+    # "mps"'dir. Önceki sürüm MPS'i de "gpu" olarak işaretliyordu; bu,
+    # Lightning'in MisconfigurationException fırlatmasına (TypeError
+    # DEĞİL, bu yüzden aşağıdaki except TypeError bloğu yakalamıyordu)
+    # ve Mac'te Cell2Location/Stereoscope eğitiminin sessizce
+    # score-based fallback'e düşmesine yol açıyordu (bkz. A-06/D-03).
+    has_cuda = torch.cuda.is_available()
+    has_mps  = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
+    if has_cuda:
+        accelerator = "gpu"
+    elif has_mps:
+        accelerator = "mps"
+    else:
+        accelerator = "cpu"
+
     kwargs = {}
     if batch_size is not None:
         kwargs['batch_size'] = batch_size
     if train_size is not None:
         kwargs['train_size'] = train_size
-        
+
     try:
-        if device == "gpu":
-            model.train(max_epochs=max_epochs, accelerator="gpu", devices=1, **kwargs)
+        if accelerator in ("gpu", "mps"):
+            model.train(max_epochs=max_epochs, accelerator=accelerator, devices=1, **kwargs)
         else:
             model.train(max_epochs=max_epochs, accelerator="cpu", **kwargs)
         return
     except TypeError:
         pass
+    except Exception as e_accel:
+        # Lightning bazı sürümlerde "mps" için MisconfigurationException
+        # fırlatabilir (TypeError değil) — CPU'ya güvenli şekilde düş.
+        logger.warning(
+            f"   '{accelerator}' hızlandırıcısıyla eğitim başarısız oldu ({e_accel}); CPU'ya düşülüyor."
+        )
+        try:
+            model.train(max_epochs=max_epochs, accelerator="cpu", **kwargs)
+            return
+        except TypeError:
+            pass
 
     try:
-        model.train(max_epochs=max_epochs, use_gpu=(device == "gpu"), **kwargs)
+        model.train(max_epochs=max_epochs, use_gpu=has_cuda, **kwargs)
         return
     except TypeError:
         pass
@@ -351,6 +383,30 @@ def _run_cell2location(adata_sc, adata_sp, CELL_MARKERS):
 
     ct_prop_df = pd.DataFrame(abund_arr, index=adata_sp.obs_names, columns=ct_cols)
 
+    # ── Posterior belirsizlik (BEDAVA — ek hesaplama gerektirmez) ────────
+    # Cell2Location zaten Bayesyen bir posterior örnekliyor ve nokta tahmini
+    # olarak q05 (5. persentil, temkinli) kullanıyor — burada zaten üretilmiş
+    # olan q95 (95. persentil) karşılığını da okuyup aradaki farkı (kredibilite
+    # aralığı genişliği) belirsizlik vekili olarak dışa aktarıyoruz. Tangram/
+    # Stereoscope/NNLS'nin aksine bu yöntemler doğası gereği bir posterior
+    # üretmez — bu yüzden onlar için belirsizlik yalnızca opsiyonel bootstrap
+    # ile (main()'de, GLIO_DECONV_UNCERTAINTY=1) hesaplanabilir.
+    uncertainty_df = None
+    q95_key = abund_key.replace('q05', 'q95')
+    if q95_key in adata_sp_c2l.obsm:
+        upper = adata_sp_c2l.obsm[q95_key]
+        upper_arr = upper.values if hasattr(upper, 'values') else np.asarray(upper)
+        if upper_arr.shape == abund_arr.shape:
+            width_arr = np.clip(upper_arr - abund_arr, 0, None)
+            uncertainty_df = pd.DataFrame(width_arr, index=adata_sp.obs_names, columns=ct_cols)
+        else:
+            logger.warning(
+                f"   Cell2Location q95 şekli q05 ile uyuşmuyor ({upper_arr.shape} vs {abund_arr.shape}), "
+                f"belirsizlik hesaplanamadı."
+            )
+    else:
+        logger.info(f"   Cell2Location q95 anahtarı bulunamadı ('{q95_key}') — belirsizlik hesaplanamadı.")
+
     # Explicitly clear GPU memory when cell2location completes
     try:
         import torch
@@ -363,7 +419,7 @@ def _run_cell2location(adata_sc, adata_sp, CELL_MARKERS):
     except Exception as gpu_err:
         logger.warning(f"Could not clear PyTorch GPU cache: {gpu_err}")
 
-    return ct_prop_df
+    return ct_prop_df, uncertainty_df
 
 
 def _run_stereoscope(adata_sc, adata_sp, CELL_MARKERS):
@@ -425,23 +481,40 @@ def _run_stereoscope(adata_sc, adata_sp, CELL_MARKERS):
 
 
 def _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS):
-    """Fallback: Non-Negative Least Squares (NNLS) deconvolution using reference cell profiles."""
+    """Fallback: Non-Negative Least Squares (NNLS) deconvolution using reference cell profiles.
+
+    NOT: Gen eşleştirmesi büyük/küçük harfe DUYARSIZ yapılır. Gerçek Visium
+    verisiyle canlı testte keşfedildi: kaynağa/pipeline'a bağlı olarak
+    spatial ve scRNA veri kümeleri farklı gen sembolü büyük/küçük harf
+    kurallarıyla gelebiliyor (ör. scRNA'da 'EGFR', spatial'de 'egfr').
+    Eski kod tam-eşleşme (`in adata.var_names`) kullanıyordu — bu durumda
+    SIFIR ortak gen bulunup, bu SON ÇARE fallback bile başarısız olup
+    tüm pipeline'ı `exit_with_error` ile çökertebiliyordu.
+    """
     logger.warning("   Fallback: NNLS dekonvolüsyon başlatılıyor...")
     from scipy.optimize import nnls
     import scipy.sparse as sp
-    
+
+    sc_upper_map = {g.upper(): g for g in adata_sc.var_names}
+    sp_upper_map = {g.upper(): g for g in adata_sp.var_names}
+
     # 1. Identify valid marker genes present in both scRNA and Spatial datasets
     all_markers = set()
     for ct, markers in CELL_MARKERS.items():
         all_markers.update(markers)
-    
-    valid_genes = [g for g in all_markers if g in adata_sc.var_names and g in adata_sp.var_names]
-    
+
+    # valid_genes: kanonik (config.yaml'daki) büyük harfli isim; ayrıca her
+    # veri kümesindeki GERÇEK (orijinal büyük/küçük harfli) karşılığını da
+    # tutuyoruz çünkü sc ve sp'nin kendi casing'i farklı olabilir.
+    valid_genes = [g for g in all_markers if g.upper() in sc_upper_map and g.upper() in sp_upper_map]
+    valid_genes_sc = [sc_upper_map[g.upper()] for g in valid_genes]
+    valid_genes_sp = [sp_upper_map[g.upper()] for g in valid_genes]
+
     if len(valid_genes) < 5:
         logger.warning("   NNLS için yeterli ortak marker gen bulunamadı, basit score-based fallback uygulanıyor...")
         ct_proportions = {}
         for cell_type, markers in CELL_MARKERS.items():
-            valid = [m for m in markers if m in adata_sp.var_names]
+            valid = [sp_upper_map[m.upper()] for m in markers if m.upper() in sp_upper_map]
             if len(valid) >= 1:
                 sc.tl.score_genes(adata_sp, valid, score_name=f"score_{cell_type}")
                 ct_proportions[cell_type] = adata_sp.obs[f"score_{cell_type}"].values
@@ -454,11 +527,11 @@ def _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS):
 
     # 2. Build the signature matrix B (Genes x CellTypes)
     ct_names = list(CELL_MARKERS.keys())
-    
+
     if "cell_type" not in adata_sc.obs.columns:
         cell_type_scores = {}
         for cell_type, markers in CELL_MARKERS.items():
-            valid_markers = [m for m in markers if m in adata_sc.var_names]
+            valid_markers = [sc_upper_map[m.upper()] for m in markers if m.upper() in sc_upper_map]
             if len(valid_markers) >= 3:
                 sc.tl.score_genes(adata_sc, valid_markers, score_name=f"score_{cell_type}")
                 cell_type_scores[cell_type] = f"score_{cell_type}"
@@ -472,13 +545,14 @@ def _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS):
 
     B_list = []
     active_cts = []
-    
-    X_ref = adata_sc[:, valid_genes].X
+
+    X_ref = adata_sc[:, valid_genes_sc].X
     if sp.issparse(X_ref):
         X_ref = X_ref.toarray()
     else:
         X_ref = np.asarray(X_ref)
-        
+
+    valid_genes_upper = [g.upper() for g in valid_genes]
     for ct in ct_names:
         mask = (adata_sc.obs["cell_type"] == ct)
         if mask.sum() > 0:
@@ -487,17 +561,17 @@ def _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS):
             active_cts.append(ct)
         else:
             avg_profile = np.zeros(len(valid_genes))
-            ct_markers = CELL_MARKERS.get(ct, [])
-            for i, g in enumerate(valid_genes):
-                if g in ct_markers:
+            ct_markers_upper = {m.upper() for m in CELL_MARKERS.get(ct, [])}
+            for i, g_upper in enumerate(valid_genes_upper):
+                if g_upper in ct_markers_upper:
                     avg_profile[i] = 1.0
             B_list.append(avg_profile)
             active_cts.append(ct)
-            
+
     B = np.column_stack(B_list)
-    
+
     # 3. Solve NNLS for each spot in spatial data
-    X_sp = adata_sp[:, valid_genes].X
+    X_sp = adata_sp[:, valid_genes_sp].X
     if sp.issparse(X_sp):
         X_sp = X_sp.toarray()
     else:
@@ -536,6 +610,8 @@ class DeconvolverRegistry:
 deconv_registry = DeconvolverRegistry()
 deconv_registry.register('tangram', lambda adata_sc, adata_sp, marker_genes, CELL_MARKERS: _run_tangram(adata_sc, adata_sp, marker_genes, CELL_MARKERS))
 deconv_registry.register('cell2location', lambda adata_sc, adata_sp, marker_genes, CELL_MARKERS: _run_cell2location(adata_sc, adata_sp, CELL_MARKERS))
+# _run_cell2location (ct_prop_df, uncertainty_df) tuple'ı döner — diğer üç
+# yöntem yalnızca ct_prop_df döner; main() bunu isinstance kontrolüyle ayırt eder.
 deconv_registry.register('stereoscope', lambda adata_sc, adata_sp, marker_genes, CELL_MARKERS: _run_stereoscope(adata_sc, adata_sp, CELL_MARKERS))
 
 
@@ -543,6 +619,10 @@ deconv_registry.register('stereoscope', lambda adata_sc, adata_sp, marker_genes,
 # MAIN
 # ══════════════════════════════════════════════════════════════
 def main():
+    # `DECONV_METHOD` bir fallback tetiklenirse aşağıda güncellenir
+    # (bkz. A-06 düzeltmesi) — bu yüzden modül-seviyesi global'e
+    # açıkça bağlanıyoruz.
+    global DECONV_METHOD
     # ── Validate method ──────────────────────────────────────
     if DECONV_METHOD not in _VALID_METHODS:
         exit_with_error(
@@ -579,17 +659,36 @@ def main():
 
     CELL_MARKERS = {}
     config = GlobalDeconvConfig()
+    _cell_marker_source = "hardcoded_fallback"
     if config_path and config_path.exists():
+        raw_cfg = None
         try:
             with open(config_path) as f:
                 raw_cfg = yaml.safe_load(f) or {}
-            config = GlobalDeconvConfig(**raw_cfg)
-            CELL_MARKERS = config.cell_markers
-            logger.info(f"   Config loaded and validated via Pydantic: {config_path}")
-        except Exception as e:
-            logger.warning(f"   Config validation failed ({e}), using default fallback markers.")
+        except Exception as e_yaml:
+            logger.error(f"   config.yaml PARSE EDİLEMEDİ ({e_yaml}) — cell_markers dahil TÜM config bölümleri "
+                         f"kullanılamıyor, sabit kodlanmış 8 hücre-tipi fallback panele düşülüyor.")
+
+        if raw_cfg is not None:
+            # cell_markers'ı, dosyanın geri kalanındaki (preprocessing, QC vb.)
+            # alakasız bir yazım hatasının tüm marker panelini sessizce
+            # düşürmesini önlemek için AYRI olarak doğrula (bkz. A-08).
+            raw_markers = raw_cfg.get("cell_markers")
+            if raw_markers:
+                try:
+                    config = GlobalDeconvConfig(cell_markers=raw_markers)
+                    CELL_MARKERS = config.cell_markers
+                    _cell_marker_source = str(config_path)
+                    logger.info(f"   cell_markers config.yaml'dan yüklendi ve doğrulandı: {config_path} "
+                                f"({len(CELL_MARKERS)} hücre tipi)")
+                except Exception as e_cm:
+                    logger.error(f"   config.yaml içindeki cell_markers bölümü doğrulanamadı ({e_cm}) — "
+                                 f"sabit kodlanmış 8 hücre-tipi fallback panele düşülüyor.")
+            else:
+                logger.warning("   config.yaml'da 'cell_markers' bölümü bulunamadı — "
+                                "sabit kodlanmış 8 hücre-tipi fallback panele düşülüyor.")
     else:
-        logger.warning(f"   Config file not found, using default fallback markers.")
+        logger.warning(f"   Config dosyası bulunamadı ({config_path}), sabit kodlanmış 8 hücre-tipi fallback panele düşülüyor.")
 
     if not CELL_MARKERS:
         CELL_MARKERS = {
@@ -602,6 +701,7 @@ def main():
             "Endothelial":    ["PECAM1", "VWF", "CD34"],
             "Oligodendrocyte":["MBP", "PLP1", "MAG"]
         }
+        _cell_marker_source = "hardcoded_fallback"
 
     # ── Output dir ───────────────────────────────────────────
     deconv_out = OUTPUT_DIR / "deconvolution"
@@ -622,10 +722,18 @@ def main():
     report_progress(15)
 
     # ── Cell type annotation (scRNA) ─────────────────────────
+    # DÜZELTME (2026-08-20): `m in adata_sc.var_names` büyük/küçük harfe
+    # duyarlıydı — `_score_based_fallback`'te canlı hasta verisiyle bulunan
+    # ve düzeltilen AYNI hata sınıfı burada da vardı. config.yaml'daki
+    # markerlar (ör. "CLEC9A") ile scRNA referansının kendi casing'i
+    # farklıysa marker sessizce "eksik" sayılıp o hücre tipi tamamen
+    # atlanıyordu — özellikle az sayıda markeri olan ince alt-tipler
+    # (cDC1/cDC2/pDC/moDC, Treg, NK) bu yüzden neredeyse hiç tanınmıyordu.
     logger.info("🏷️ Hücre tipi anotasyonu...")
+    _sc_upper_map_ct = {g.upper(): g for g in adata_sc.var_names}
     cell_type_scores = {}
     for cell_type, markers in CELL_MARKERS.items():
-        valid_markers = [m for m in markers if m in adata_sc.var_names]
+        valid_markers = [_sc_upper_map_ct[m.upper()] for m in markers if m.upper() in _sc_upper_map_ct]
         if len(valid_markers) < 3:          # Hard threshold
             logger.warning(f"   {cell_type}: insufficient markers ({len(valid_markers)}), skipping.")
             continue
@@ -719,11 +827,24 @@ def main():
     # ── RUN SELECTED DECONVOLUTION METHOD ────────────────────
     logger.info(f"🔬 Dekonvolüsyon yöntemi: {DECONV_METHOD.upper()}")
     
+    _requested_method = DECONV_METHOD
+    _fallback_used = False
+    uncertainty_df = None   # yalnızca cell2location (bedava) veya bootstrap (opt-in) ile dolar
     try:
-        ct_prop_df = deconv_registry.run(DECONV_METHOD, adata_sc, adata_sp, marker_genes, CELL_MARKERS)
+        result = deconv_registry.run(DECONV_METHOD, adata_sc, adata_sp, marker_genes, CELL_MARKERS)
+        if isinstance(result, tuple):
+            ct_prop_df, uncertainty_df = result
+        else:
+            ct_prop_df = result
     except Exception as e:
         logger.warning(f"   {DECONV_METHOD.upper()} yöntemi başarısız oldu ({e}). NNLS/Score-based fallback devrede...")
         ct_prop_df = _score_based_fallback(adata_sc, adata_sp, CELL_MARKERS)
+        _fallback_used = True
+        # DECONV_METHOD burada BİLEREK güncelleniyor — aşağıdaki summary
+        # JSON'u ve dolayısıyla klinik rapor, gerçekte hangi yöntemin
+        # kullanıldığını (Tangram DEĞİL, basit skor-tabanlı bir fallback)
+        # doğru şekilde yansıtmalı (bkz. denetim raporu bulgusu A-06).
+        DECONV_METHOD = "score_based_fallback"
 
     # Guarantee ct_prop_df is always a proper DataFrame
     if not isinstance(ct_prop_df, pd.DataFrame):
@@ -732,13 +853,92 @@ def main():
             index=adata_sp.obs_names
         )
 
+    # ── [GELİŞTİRME] Bootstrap-tabanlı belirsizlik (opt-in) ──────────────
+    # Cell2location dışındaki yöntemler (Tangram/Stereoscope/NNLS) doğası
+    # gereği tek bir nokta tahmini üretir, bir posterior sağlamaz. Marker gen
+    # panelinin rastgele bir alt-kümesiyle N kez yeniden çalıştırıp sonuçlar
+    # arasındaki varyansı bir belirsizlik vekili olarak kullanabiliriz — ama
+    # bu N kat ekstra hesaplama maliyeti demektir (özellikle Tangram için).
+    # Bu yüzden VARSAYILAN OLARAK KAPALI; kullanıcı açıkça isterse devreye
+    # girer (GLIO_DECONV_UNCERTAINTY=1). Fallback zaten kullanıldıysa veya
+    # cell2location zaten bedava bir posterior verdiyse atlanır.
+    _uncertainty_enabled = os.environ.get("GLIO_DECONV_UNCERTAINTY", "0") == "1"
+    if _uncertainty_enabled and not _fallback_used and uncertainty_df is None:
+        _boot_n = int(os.environ.get("GLIO_DECONV_BOOTSTRAP_N", "5"))
+        logger.info(f"   Bootstrap belirsizlik tahmini başlatılıyor ({_boot_n} tekrar, marker geninin ~%85'i)...")
+        rng = np.random.default_rng(42)
+        boot_runs = []
+        for _b in range(_boot_n):
+            n_sub = max(10, int(len(marker_genes) * 0.85))
+            sub_genes = list(rng.choice(marker_genes, size=n_sub, replace=False))
+            try:
+                boot_result = deconv_registry.run(DECONV_METHOD, adata_sc, adata_sp, sub_genes, CELL_MARKERS)
+                boot_df = boot_result[0] if isinstance(boot_result, tuple) else boot_result
+                boot_df = boot_df.clip(lower=0)
+                boot_sums = boot_df.sum(axis=1).replace(0, np.nan)
+                boot_df = boot_df.div(boot_sums, axis=0).fillna(0)
+                boot_runs.append(boot_df.reindex(index=adata_sp.obs_names, columns=ct_prop_df.columns, fill_value=0))
+            except Exception as e_boot:
+                logger.warning(f"   Bootstrap tekrarı {_b+1}/{_boot_n} başarısız oldu, atlanıyor: {e_boot}")
+        if len(boot_runs) >= 2:
+            stacked = np.stack([df.values for df in boot_runs], axis=0)   # (N, spots, celltypes)
+            uncertainty_df = pd.DataFrame(stacked.std(axis=0), index=adata_sp.obs_names, columns=ct_prop_df.columns)
+            logger.info(f"   Bootstrap belirsizlik tahmini tamamlandı ({len(boot_runs)}/{_boot_n} tekrar başarılı).")
+        else:
+            logger.warning("   Bootstrap belirsizlik tahmini için yeterli başarılı tekrar yok, atlanıyor.")
+
     # ── Normalize & Clip Proportions ─────────────────────────
     ct_prop_df = ct_prop_df.clip(lower=0)
     row_sums   = ct_prop_df.sum(axis=1).replace(0, np.nan)
+    # Dekonvolüsyonun tamamen başarısız olduğu (tüm oranlar sıfır) spot'ları
+    # işaretle — bunlar aşağıda `idxmax` ile keyfi bir "baskın hücre tipi"
+    # almak yerine "Undetermined" olarak işaretlenecek (bkz. C-06).
+    _degenerate_spot_mask = row_sums.isna().values
     ct_prop_df = ct_prop_df.div(row_sums, axis=0).fillna(0)
 
     adata_sp.obsm["celltype_proportions"] = ct_prop_df
     report_progress(85)
+
+    # [GELİŞTİRME] Çapraz-yöntem güven kontrolü. Sofistike yöntem (Tangram/
+    # Cell2location/Stereoscope) başarılı olduğunda, sonucunu hızlı ve
+    # BAĞIMSIZ bir ikinci tahminle (NNLS skor-tabanlı) karşılaştırıyoruz.
+    # Bu bir "doğrulama" değil, iki farklı yaklaşımın ne kadar örtüştüğünü
+    # gösteren ucuz bir güvenilirlik sinyalidir — düşük örtüşme, sonuçların
+    # daha temkinli yorumlanması gerektiğine işaret eder. Fallback zaten
+    # NNLS kullandıysa (kendisiyle karşılaştırma anlamsız olur) atlanır.
+    cross_method_agreement = None
+    _sc_upper_set = {g.upper() for g in adata_sc.var_names}
+    _sp_upper_set = {g.upper() for g in adata_sp.var_names}
+    _cross_check_genes = {g for markers in CELL_MARKERS.values() for g in markers}
+    # Büyük/küçük harfe duyarsız eşleşme — bkz. _score_based_fallback'teki not.
+    _cross_check_genes = [g for g in _cross_check_genes if g.upper() in _sc_upper_set and g.upper() in _sp_upper_set]
+    if not _fallback_used and len(_cross_check_genes) >= 5:
+        try:
+            secondary_df = _score_based_fallback(adata_sc.copy(), adata_sp.copy(), CELL_MARKERS)
+            secondary_df = secondary_df.clip(lower=0)
+            _sec_sums = secondary_df.sum(axis=1).replace(0, np.nan)
+            secondary_df = secondary_df.div(_sec_sums, axis=0).fillna(0)
+            common_cols = [c for c in ct_prop_df.columns if c in secondary_df.columns]
+            if len(common_cols) >= 2:
+                corrs = []
+                for c in common_cols:
+                    a = ct_prop_df[c].values
+                    b = secondary_df.reindex(ct_prop_df.index)[c].values
+                    if np.std(a) > 1e-8 and np.std(b) > 1e-8:
+                        corrs.append(float(np.corrcoef(a, b)[0, 1]))
+                if corrs:
+                    cross_method_agreement = round(float(np.mean(corrs)), 4)
+                    logger.info(f"   Çapraz-yöntem güven kontrolü ({DECONV_METHOD.upper()} vs NNLS): "
+                                f"ortalama korelasyon={cross_method_agreement:.3f} ({len(corrs)} ortak hücre tipi)")
+        except SystemExit:
+            # `_score_based_fallback` normalde SON ÇARE bir yöntem olduğu için
+            # yetersiz ortak marker geni bulduğunda `exit_with_error()` ile
+            # tüm işlemi sonlandırır (sys.exit). Burada onu yalnızca İKİNCİL,
+            # opsiyonel bir çapraz-kontrol olarak çağırıyoruz — bu asla ana
+            # pipeline'ı öldürmemeli, sadece kontrolü atlamalı.
+            logger.warning("   Çapraz-yöntem güven kontrolü atlandı (fallback yöntemi için yeterli ortak gen yok).")
+        except Exception as e_cross:
+            logger.warning(f"   Çapraz-yöntem güven kontrolü hesaplanamadı: {e_cross}")
 
     # ── Hoyer Sparsity ────────────────────────────────────────
     N_types = ct_prop_df.shape[1]
@@ -763,6 +963,21 @@ def main():
 
     adata_sp.obs['deconv_entropy']    = entropy.values
     adata_sp.obs['deconv_confidence'] = ct_prop_df.max(axis=1).values
+
+    # ── Dekonvolüsyon belirsizliği (varsa) ────────────────────
+    # Cell2location için bedava (q95-q05 kredibilite aralığı genişliği);
+    # diğer yöntemler için yalnızca GLIO_DECONV_UNCERTAINTY=1 ile bootstrap
+    # üzerinden hesaplanır. İkisi de yoksa bu alan tamamen atlanır — sahte
+    # bir belirsizlik değeri (ör. sabit 0) üretmek yerine.
+    avg_deconv_uncertainty = None
+    per_celltype_uncertainty = None
+    if uncertainty_df is not None:
+        uncertainty_df = uncertainty_df.reindex(columns=ct_prop_df.columns, fill_value=0.0)
+        adata_sp.obs['deconv_uncertainty'] = uncertainty_df.mean(axis=1).values
+        avg_deconv_uncertainty = float(uncertainty_df.values.mean())
+        per_celltype_uncertainty = {ct: float(uncertainty_df[ct].mean()) for ct in uncertainty_df.columns}
+        logger.info(f"   Dekonvolüsyon belirsizliği — Ortalama: {avg_deconv_uncertainty:.4f}")
+
     logger.info(f"   Dekonvolüsyon tamamlandı — Mean Entropy: {entropy.mean():.3f}")
     report_progress(90)
 
@@ -773,7 +988,12 @@ def main():
 
     # ── Figures ──────────────────────────────────────────────
     logger.info("🎨 Figürler oluşturuluyor...")
-    dom_ct = ct_prop_df.idxmax(axis=1)
+    dom_ct = ct_prop_df.idxmax(axis=1).astype(object)
+    if _degenerate_spot_mask.any():
+        n_deg = int(_degenerate_spot_mask.sum())
+        logger.warning(f"   {n_deg} spot'ta dekonvolüsyon tüm hücre tiplerinde sıfır oran üretti "
+                        f"— bu spot'lar keyfi bir baskın hücre tipi yerine 'Undetermined' olarak işaretlendi.")
+        dom_ct.values[_degenerate_spot_mask] = "Undetermined"
     adata_sp.obs["dominant_celltype"] = dom_ct.values
 
     if "spatial" in adata_sp.obsm:
@@ -844,6 +1064,11 @@ def main():
     ct_mean_props = {ct: float(ct_prop_df[ct].mean()) for ct in ct_prop_df.columns}
     summary = {
         "deconv_method":    DECONV_METHOD,
+        "requested_method": _requested_method,
+        "fallback_used":    _fallback_used,
+        "cell_marker_source": _cell_marker_source,
+        "cross_method_agreement": cross_method_agreement,
+        "n_cell_marker_types": len(CELL_MARKERS),
         "n_spots":          int(adata_sp.n_obs),
         "n_cell_types":     len(ct_prop_df.columns),
         "cell_type_names":  list(ct_prop_df.columns),
@@ -851,6 +1076,13 @@ def main():
         "avg_confidence":   float(adata_sp.obs['deconv_confidence'].mean()),
         "avg_entropy":      float(adata_sp.obs['deconv_entropy'].mean()),
         "avg_sparsity":     float(adata_sp.obs['deconv_sparsity'].mean()),
+        "avg_deconv_uncertainty": avg_deconv_uncertainty,
+        "deconv_uncertainty_source": (
+            "cell2location_posterior" if (DECONV_METHOD == "cell2location" and avg_deconv_uncertainty is not None)
+            else "bootstrap" if avg_deconv_uncertainty is not None
+            else None
+        ),
+        "per_celltype_uncertainty": per_celltype_uncertainty,
         "dominant_frequencies": {str(k): int(v) for k, v in dom_ct.value_counts().items()},
         "patient_id": PATIENT_ID,
         "status": "success"

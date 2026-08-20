@@ -104,7 +104,13 @@ class PipelineRunner:
         self.clinical_kps   = clinical_kps  if clinical_kps  is not None else defaults["kps"]
         self.imputation_mode = imputation_mode or "worst"
 
-        self.status        = PipelineStatus.IDLE
+        # Durum, __init__ içinde senkron olarak RUNNING'e ayarlanır (IDLE değil).
+        # server.py bu constructor'ı `pipeline_lock` altında çağırıyor; eğer status
+        # burada hâlâ IDLE kalıp yalnızca run() coroutine'i ilk adımını attığında
+        # RUNNING'e dönerse, kilidi bekleyen ikinci bir /pipeline/start isteği
+        # arada "zaten çalışıyor" kontrolünü atlatıp ikinci bir pipeline başlatabilir
+        # (bkz. denetim raporu bulgusu C-01).
+        self.status        = PipelineStatus.RUNNING
         self.current_stage = ""
         self.progress      = 0
         self.logs          = []

@@ -3,10 +3,13 @@
 import os, sys, json, traceback, tempfile, urllib.request
 import ssl
 
-try:
-    ssl._create_default_https_context = ssl._create_unverified_context
-except AttributeError:
-    pass
+# OmniPath L-R indirmesi için bu MODÜLE özel, sertifika doğrulaması atlanan
+# bir SSL context. Önceki sürüm `ssl._create_default_https_context`'i
+# global değiştiriyordu — bu aynı süreçteki BAŞKA her HTTPS isteğini de
+# doğrulamasız bırakıyordu (bkz. denetim raporu bulgusu D-20, pathway_mapper.py
+# ile aynı anti-pattern). Artık yalnızca kendi urlopen() çağrısına
+# context=_UNVERIFIED_SSL_CONTEXT ile açıkça geçiriliyor.
+_UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
 from pathlib import Path
 
 # ── Set up error handling first so import/initialization errors are cleanly caught as JSON ──
@@ -298,25 +301,62 @@ def compute_cell_communication(adata_obj, sender_type, receiver_type, ligand, re
             
     return autocrine + paracrine
 
+def _row_normalized_connectivities(adata_obj):
+    """`compute_cell_communication`'daki paracrine normalizasyonuyla aynı — tek seferlik hesap için ayrıştırıldı."""
+    if 'connectivities' not in adata_obj.obsp:
+        return None
+    try:
+        import scipy.sparse as sp
+        W = adata_obj.obsp['connectivities']
+        row_sums = np.array(W.sum(axis=1)).flatten()
+        row_sums = np.where(row_sums == 0, 1.0, row_sums)
+        if sp.issparse(W):
+            return sp.diags(1.0 / row_sums) @ W
+        return W / row_sums[:, None]
+    except Exception as e_para:
+        logger.debug(f"Paracrine normalizasyonu atlandı: {e_para}")
+        return None
+
+
 def permute_communication_score(adata_obj, sender_type, receiver_type, ligand, receptor, observed_score, n_permutations=50):
     """
     Hücre tipi etiketlerini permüte ederek L-R skoru için permütasyon p-değeri (null model) hesaplar.
+
+    [GELİŞTİRME] Önceki sürüm her permütasyonda `compute_cell_communication()`'ı
+    baştan çağırıyordu — bu, `get_celltype_prop`/`get_gene_safe` içindeki
+    string/case-insensitive kolon aramalarını n_permutations kez tekrarlıyordu
+    (asıl maliyet buradaydı, matris çarpımı değil). Artık gen ekspresyonu ve
+    hücre-tipi oranları TEK SEFERLİK çıkarılıyor, yalnızca spot sırası
+    (permütasyon indeksi) döngü içinde değişiyor — aynı istatistiksel test,
+    önemli ölçüde daha hızlı. Bu da zon-başına L-R ısı haritasında daha
+    yüksek permütasyon sayısını (dolayısıyla daha hassas p-değerlerini)
+    makul sürede mümkün kılıyor.
     """
     if 'celltype_proportions' not in adata_obj.obsm:
         return 1.0
-    df = adata_obj.obsm['celltype_proportions'].copy()
-    shuffled_adata = adata_obj.copy()
+
+    prop_sender_orig = get_celltype_prop(adata_obj, sender_type)
+    prop_receiver_orig = get_celltype_prop(adata_obj, receiver_type)
+    expr_ligand = get_gene_safe(adata_obj, ligand)
+    expr_receptor = get_gene_safe(adata_obj, receptor)
+    W_norm = _row_normalized_connectivities(adata_obj)
+
+    n = adata_obj.n_obs
+    rng = np.random.default_rng()
     better_or_equal_count = 0
-    
+
     for _ in range(n_permutations):
-        shuffled_df = df.sample(frac=1.0, replace=False).reset_index(drop=True)
-        shuffled_df.index = df.index
-        shuffled_adata.obsm['celltype_proportions'] = shuffled_df
-        
-        perm_score = compute_cell_communication(shuffled_adata, sender_type, receiver_type, ligand, receptor)
+        perm = rng.permutation(n)
+        sender_expr = prop_sender_orig[perm] * expr_ligand
+        receiver_expr = prop_receiver_orig[perm] * expr_receptor
+
+        autocrine = float(np.mean(sender_expr * receiver_expr))
+        paracrine = float(np.mean(sender_expr * (W_norm @ receiver_expr))) if W_norm is not None else 0.0
+        perm_score = autocrine + paracrine
+
         if perm_score >= observed_score:
             better_or_equal_count += 1
-            
+
     return (better_or_equal_count + 1) / (n_permutations + 1)
 
 def find_dominant_expressing_celltype(adata_obj, gene_name: str) -> str:
@@ -358,7 +398,7 @@ def fetch_dynamic_lr_pairs(adata_obj, max_pairs=10):
     try:
         logger.info("🌐 Dinamik L-R çiftleri OmniPath veritabanından indiriliyor...")
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=3.0) as response:
+        with urllib.request.urlopen(req, timeout=3.0, context=_UNVERIFIED_SSL_CONTEXT) as response:
             data = json.loads(response.read().decode('utf-8'))
             
         online_pairs = []
@@ -666,14 +706,39 @@ def main():
             lr_matrix = np.zeros((n_zones, len(GBM_LR_PAIRS)), dtype=np.float32)
             lr_pvals = np.ones((n_zones, len(GBM_LR_PAIRS)), dtype=np.float32)
 
+            # Zon başına permütasyon sayısı. `permute_communication_score`
+            # artık vektörize edildiği için (bkz. GELİŞTİRME notu) bu tam
+            # pipeline'da n_zones × n_pairs kadar çarpılsa bile makul sürede
+            # tamamlanıyor — global varsayılana (50) çıkarıldı.
+            _lr_n_perm = int(os.environ.get("GLIO_LR_ZONE_PERMUTATIONS", "50"))
+
             for z_idx in range(n_zones):
                 zone_mask = dom_zone_idx == z_idx
                 if zone_mask.sum() < 5:
                     continue
-                
-                # Zone alt kümesi üzerinde hücre-hücre iletişim skoru ve pval hesapla (örn. permütasyon)
-                # ... [implementation truncated for brevity] ...
-            
+
+                # Zon alt kümesi üzerinde her L-R çifti için hücre-hücre
+                # iletişim skoru ve permütasyon p-değeri hesapla.
+                adata_zone = adata_sp[zone_mask]
+                for p_idx, pair in enumerate(GBM_LR_PAIRS):
+                    ligand, receptor = pair[0], pair[1]
+                    sender_ct  = pair[3] if len(pair) > 3 else None
+                    receiver_ct = pair[4] if len(pair) > 4 else None
+                    if sender_ct is None or receiver_ct is None:
+                        continue
+                    try:
+                        score = compute_cell_communication(
+                            adata_zone, sender_ct, receiver_ct, ligand, receptor
+                        )
+                        pval = permute_communication_score(
+                            adata_zone, sender_ct, receiver_ct, ligand, receptor,
+                            score, n_permutations=_lr_n_perm
+                        )
+                        lr_matrix[z_idx, p_idx] = score
+                        lr_pvals[z_idx, p_idx] = pval
+                    except Exception as e_zone_lr:
+                        logger.debug(f"   Zon {ZONE_NAMES[z_idx]} / {ligand}-{receptor} iletişim skoru hesaplanamadı: {e_zone_lr}")
+
             lr_labels    = [p[2] for p in GBM_LR_PAIRS]
             zone_labels  = [labels.get(z, z).replace(' ', '\n') for z in ZONE_NAMES]
             

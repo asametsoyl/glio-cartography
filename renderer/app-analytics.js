@@ -65,7 +65,7 @@ async function setKmCohort(cohort) {
     if (kmDelta) {
       if (cData.estimated_median_os_low_months !== undefined && cData.estimated_median_os_high_months !== undefined) {
         const delta = cData.estimated_median_os_low_months - cData.estimated_median_os_high_months;
-        kmDelta.textContent = `+${delta.toFixed(1)} ay`;
+        kmDelta.textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} ay`;
       } else {
         kmDelta.textContent = 'N/A';
       }
@@ -784,8 +784,8 @@ async function comparePatients() {
       `;
     };
 
-    const formatPct = val => val ? (val * 100).toFixed(1) + '%' : 'N/A';
-    const formatDec = val => val ? val.toFixed(3) : 'N/A';
+    const formatPct = val => val != null && Number.isFinite(val) ? (val * 100).toFixed(1) + '%' : 'N/A';
+    const formatDec = val => val != null && Number.isFinite(val) ? val.toFixed(3) : 'N/A';
 
     let cellTypesHtml = '';
     const allCellTypes = Array.from(new Set([

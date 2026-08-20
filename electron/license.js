@@ -34,7 +34,6 @@ FGlLbe3tDoMNvhxZJGdGKfECAwEAAQ==
 -----END PUBLIC KEY-----
 `;
 
-const CACHE_SECRET = 'GLIO-CARTOGRAPHY-SECURE-CACHE-SALT-2026';
 const PORTABLE_FILENAME = 'portable.gcart';
 
 let _store = null;

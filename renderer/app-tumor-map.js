@@ -451,69 +451,6 @@
     el('path', { d: invPolyD, fill: 'url(#tm-gInvasion)', opacity: '0.84', filter: 'url(#tm-tex)' }, svg);
     el('rect', { x: 0, y: 0, width: W, height: H, fill: 'transparent', filter: 'url(#tm-tex)', opacity: '0.42' }, svg);
 
-    // Kapiller / Mikro-Damar Network
-    // Translucent kirmizi kapiller cizgiler - gercek beyin doku kesitlerindeki vaskuler agi yansitir
-    {
-      const vascularSpots = spots.filter(s => s.type === 'Vascular / Mural');
-      const sourceSpots = vascularSpots.length >= 3 ? vascularSpots : spots.filter(s => s.type !== 'Unknown');
-      
-      let _cs = 23;
-      const crng = () => { _cs = Math.sin(_cs + 1.732) * 99991; return Math.abs(_cs - Math.floor(_cs)); };
-
-      if (sourceSpots.length > 2) {
-        // Find close neighbors to draw interconnected capillary networks
-        const findCloseNeighbor = (fromSpot, candidates, minDist, maxDist) => {
-          let best = null;
-          let bestDist = Infinity;
-          const sampleSize = Math.min(40, candidates.length);
-          const startIdx = Math.floor(crng() * candidates.length);
-          for (let i = 0; i < sampleSize; i++) {
-            const candidate = candidates[(startIdx + i) % candidates.length];
-            if (candidate === fromSpot) continue;
-            const dx = candidate.px - fromSpot.px;
-            const dy = candidate.py - fromSpot.py;
-            const d = Math.sqrt(dx*dx + dy*dy);
-            if (d >= minDist && d <= maxDist && d < bestDist) {
-              best = candidate;
-              bestDist = d;
-            }
-          }
-          return best;
-        };
-
-        // Draw 10 capillary trees that branch and flow along the tissue spots
-        for (let tree = 0; tree < 10; tree++) {
-          let current = sourceSpots[Math.floor(crng() * sourceSpots.length)];
-          if (!current) continue;
-
-          let pathD = `M ${current.px.toFixed(1)},${current.py.toFixed(1)}`;
-          let temp = current;
-          let segments = 2 + Math.floor(crng() * 3); // 2 to 4 segments
-
-          for (let seg = 0; seg < segments; seg++) {
-            const next = findCloseNeighbor(temp, sourceSpots, 25, 95);
-            if (!next) break;
-
-            const midX = (temp.px + next.px) / 2;
-            const midY = (temp.py + next.py) / 2;
-            const jitterX = (crng() - 0.5) * 30;
-            const jitterY = (crng() - 0.5) * 30;
-
-            pathD += ` Q ${(midX + jitterX).toFixed(1)},${(midY + jitterY).toFixed(1)} ${next.px.toFixed(1)},${next.py.toFixed(1)}`;
-            temp = next;
-          }
-
-          const opacity = (0.09 + crng() * 0.11).toFixed(2);
-          const sw      = (0.8 + crng() * 1.4).toFixed(1);
-          el('path', {
-            d: pathD,
-            fill: 'none', stroke: 'hsl(356, 68%, 38%)',
-            'stroke-width': sw, opacity, 'stroke-linecap': 'round', 'stroke-linejoin': 'round'
-          }, svg);
-        }
-      }
-    }
-
     // Nekrotik Alan (Psodopalizat Nekroz - Tumor Cekirdegi Merkezi)
     // Gercek GBM histolojisinde tumor cekirdeginin merkezinde nekrotik alan gorulur
     const coreSpots = spots.filter(s => s.region === 'core');
@@ -821,20 +758,6 @@
       }
       pairList.sort((a, b) => b.sum - a.sum);
       topPairs = pairList.slice(0, 2);
-    }
-
-    // Fallback pairs for demo mode or empty cases
-    if (topPairs.length === 0) {
-      topPairs = [
-        {
-          pair: 'PTN-PTPRZ1',
-          cellComm: { 'astrocyte->gbm_stem_cell': 100 }
-        },
-        {
-          pair: 'SPP1-CD44',
-          cellComm: { 'tumor_associated_macrophage->malignant_tumor': 80 }
-        }
-      ];
     }
 
     const midIdx = Math.floor(pointsCore.length / 2);

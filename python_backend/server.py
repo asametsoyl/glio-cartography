@@ -1354,7 +1354,16 @@ if __name__ == "__main__":
             # Forward remaining argv to generate_pdf_report (drop --stage report_pdf tokens)
             remaining = [a for a in sys.argv[1:] if a not in ("--stage", "report_pdf")]
             sys.argv = [sys.argv[0]] + remaining
-            import generate_pdf_report  # noqa: F401  (module executes on import)
+            import generate_pdf_report
+            # NOT: modül import edildiğinde `if __name__ == "__main__"` bloğu
+            # ÇALIŞMAZ (frozen/paketli build'de bu modül import ile çağrılıyor).
+            # main()'i burada açıkça çağırıp gerçek başarı/başarısızlık durumunu
+            # exit code'a yansıtmazsak, PDF hiç üretilmese bile bu aşama
+            # "başarılı" görünür (bkz. denetim raporu bulgusu A-07).
+            pdf_ok = generate_pdf_report.main()
+            if not pdf_ok:
+                logger.error("PDF rapor üretimi başarısız oldu.")
+                sys.exit(1)
         elif args.stage in stage_map:
             module_name, func_name = stage_map[args.stage]
             import importlib

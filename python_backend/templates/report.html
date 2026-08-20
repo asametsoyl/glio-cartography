@@ -61,6 +61,24 @@
   </div>
 </div>
 
+<h2>{{ T_DATA_QUALITY_TITLE }}</h2>
+<p style="font-size:0.78rem; color:#666; margin-bottom:12px; font-style:italic;">{{ T_DATA_QUALITY_DESC }}</p>
+<div class="card" style="border-left: 4px solid {{ dq_overall_color }}; margin-bottom: 16px;">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+    <strong style="color:var(--text);">{{ T_OVERALL_LEVEL }}</strong>
+    <span style="font-weight:bold; color:{{ dq_overall_color }};">{{ dq_overall_label }}</span>
+  </div>
+  <table style="background: transparent;">
+    {% for item in dq_items %}
+    <tr>
+      <td style="color:#999; white-space:nowrap;">{{ item.label }}</td>
+      <td style="font-weight:bold;">{{ item.value }}</td>
+      <td style="color:#777; font-size:0.76rem;">{{ item.note }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
 <h2>{{ T_CLINICAL_DECISION }}</h2>
 <p style="font-size:0.78rem; color:#666; margin-bottom:12px; font-style:italic;">
   {{ T_RUO_WARNING }}

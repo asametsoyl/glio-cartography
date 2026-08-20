@@ -172,7 +172,43 @@ def main():
             logger.info("   Tüm parçalar birleştiriliyor...")
             df = pd.concat(chunk_list, axis=0)
             del chunk_list
-            
+
+            # ── Yön (orientation) doğrulama ────────────────────────
+            # Bu kod satırları/dizin (index) = gen, sütunlar = hücre olduğunu
+            # VARSAYAR (`df.T` ile AnnData'ya çevrilir). Bu varsayım
+            # tutmuyorsa (kullanıcı standart hücre×gen yönünde bir CSV
+            # verirse), matris sessizce yanlış transpoze edilip tüm analiz
+            # boyunca gen/hücre eksenleri yer değiştirebilir — şekil hâlâ
+            # geçerli olduğu için hata fırlamaz (bkz. denetim raporu C-05).
+            # Kesin bir otomatik düzeltme yapmak yerine (yanlış pozitif
+            # riski var), gen-sembolü benzeri bir sezgisel ile yönü kontrol
+            # edip şüpheli durumda YÜKSEK SESLE uyarıyoruz.
+            def _gene_symbol_likeness(labels, sample_n=200):
+                import re
+                labels = list(labels)[:sample_n]
+                if not labels:
+                    return 0.0
+                gene_like = re.compile(r'^[A-Za-z][A-Za-z0-9\-\.]{0,14}$')
+                barcode_like = re.compile(r'^[ACGTacgt]{10,}(-\d+)?$')
+                n_gene_like = sum(
+                    1 for l in labels
+                    if gene_like.match(str(l)) and not barcode_like.match(str(l))
+                )
+                return n_gene_like / len(labels)
+
+            index_gene_score = _gene_symbol_likeness(df.index)
+            col_gene_score = _gene_symbol_likeness(df.columns)
+            if col_gene_score - index_gene_score > 0.4:
+                logger.warning(
+                    "⚠️ CSV YÖNÜ ŞÜPHELİ: Sütun etiketleri (şu an 'hücre' olarak "
+                    f"varsayılıyor, gen-benzerlik skoru={col_gene_score:.2f}) satır "
+                    f"etiketlerinden (şu an 'gen' olarak varsayılıyor, skor="
+                    f"{index_gene_score:.2f}) belirgin şekilde daha çok gen sembolüne "
+                    "benziyor. Dosyanız hücre×gen (satır=hücre, sütun=gen) yönünde "
+                    "olabilir — bu durumda gen ve hücre eksenleri ters dönmüş "
+                    "olacaktır. Beklenen format: gen×hücre (satır=gen, sütun=hücre)."
+                )
+
             logger.info("   AnnData objesi oluşturuluyor ve seyreltik (sparse CSR) matrise dönüştürülüyor...")
             adata_sc = sc.AnnData(df.T)
             del df
@@ -240,12 +276,31 @@ def main():
     is_normalized = np.allclose(counts_per_cell, counts_per_cell[0], rtol=1e-2) if len(counts_per_cell) > 0 else True
 
     # 3. Check if values represent integers (raw counts)
+    # NOT: Önceki sürüm yalnızca matrisin İLK 100 seyrek değerini (CSR
+    # sırasına göre pratikte ilk birkaç hücre) ya da İLK 10×10 köşesini
+    # örnekliyordu — bu, temsili olmayan bir örnek olabilir (ör. veri
+    # setinin başındaki hücreler tesadüfen sıfır/tam sayı olmayan bir alt
+    # kümeyse yanlış karar verilebilir). Artık tüm matristen RASTGELE bir
+    # örnek alınıyor (bkz. denetim raporu C-04).
     is_integer = np.issubdtype(adata_sc.X.dtype, np.integer)
     if not is_integer:
+        _rng = np.random.default_rng(42)
         if sp.issparse(adata_sc.X):
-            is_integer = np.all(np.equal(np.mod(adata_sc.X.data[:100], 1), 0))
+            _data = adata_sc.X.data
+            if len(_data) > 0:
+                _sample_n = min(5000, len(_data))
+                _sample = _rng.choice(_data, size=_sample_n, replace=False)
+                is_integer = np.all(np.equal(np.mod(_sample, 1), 0))
+            else:
+                is_integer = True
         else:
-            is_integer = np.all(np.equal(np.mod(adata_sc.X[:10, :10], 1), 0))
+            _flat = np.asarray(adata_sc.X).flatten()
+            if len(_flat) > 0:
+                _sample_n = min(5000, len(_flat))
+                _sample = _rng.choice(_flat, size=_sample_n, replace=False)
+                is_integer = np.all(np.equal(np.mod(_sample, 1), 0))
+            else:
+                is_integer = True
 
     if not is_log and not is_normalized and is_integer:
         logger.info("   Verinin raw count olduğu tespit edildi, normalize_total uygulanıyor.")
@@ -263,18 +318,19 @@ def main():
     sc.pp.log1p(adata_sc)
 
     batch_key = 'batch' if 'batch' in adata_sc.obs.columns else None
+    _n_top_genes_sc = config.preprocessing.scrna.n_top_genes
     try:
-        sc.pp.highly_variable_genes(adata_sc, flavor="seurat", n_top_genes=config.preprocessing.scrna.n_top_genes, batch_key=batch_key)
+        sc.pp.highly_variable_genes(adata_sc, flavor="seurat", n_top_genes=_n_top_genes_sc, batch_key=batch_key)
     except Exception as e_hvg_seurat:
         try:
-            sc.pp.highly_variable_genes(adata_sc, flavor="cell_ranger", n_top_genes=3000, batch_key=batch_key)
+            sc.pp.highly_variable_genes(adata_sc, flavor="cell_ranger", n_top_genes=_n_top_genes_sc, batch_key=batch_key)
         except Exception as e_hvg_cr:
             logger.warning(f"Highly variable genes calculation with batch failed. Trying without batch_key...")
             try:
-                sc.pp.highly_variable_genes(adata_sc, flavor="seurat", n_top_genes=3000)
+                sc.pp.highly_variable_genes(adata_sc, flavor="seurat", n_top_genes=_n_top_genes_sc)
             except Exception as e_final_seurat:
                 try:
-                    sc.pp.highly_variable_genes(adata_sc, flavor="cell_ranger", n_top_genes=3000)
+                    sc.pp.highly_variable_genes(adata_sc, flavor="cell_ranger", n_top_genes=_n_top_genes_sc)
                 except Exception as e_final_cr:
                     exit_with_error(
                         f"Highly variable genes methods failed completely. Details:\n"
@@ -310,7 +366,7 @@ def main():
     # ── PCA + Clustering ────────────────────────────────────────
     sc.pp.scale(adata_sc_hvg, max_value=10)
 
-    n_comps_actual = min(50, adata_sc_hvg.n_obs - 1, adata_sc_hvg.n_vars - 1)
+    n_comps_actual = min(config.preprocessing.scrna.n_pcs, adata_sc_hvg.n_obs - 1, adata_sc_hvg.n_vars - 1)
     sc.tl.pca(adata_sc_hvg, svd_solver='arpack', n_comps=n_comps_actual)
 
     # Index alignment validation before setting PCA back to main object
@@ -318,11 +374,11 @@ def main():
     adata_sc.obsm['X_pca'] = adata_sc_hvg.obsm['X_pca'].copy()
 
     n_pcs_actual = adata_sc.obsm['X_pca'].shape[1]
-    sc.pp.neighbors(adata_sc, n_pcs=n_pcs_actual, n_neighbors=15)
+    sc.pp.neighbors(adata_sc, n_pcs=n_pcs_actual, n_neighbors=config.preprocessing.scrna.n_neighbors)
     report_progress(40)
-    
+
     sc.tl.umap(adata_sc)
-    sc.tl.leiden(adata_sc, resolution=0.8)
+    sc.tl.leiden(adata_sc, resolution=config.preprocessing.scrna.leiden_resolution)
     logger.info(f"   Leiden clusters: {adata_sc.obs['leiden'].nunique()}")
     report_progress(45)
 
@@ -408,12 +464,12 @@ def main():
 
     sc.pp.log1p(adata_sp)
 
-    sc.pp.highly_variable_genes(adata_sp, flavor="seurat", n_top_genes=3000)
+    sc.pp.highly_variable_genes(adata_sp, flavor="seurat", n_top_genes=config.preprocessing.spatial.n_top_genes)
 
     adata_sp_hvg = adata_sp[:, adata_sp.var.highly_variable].copy()
     sc.pp.scale(adata_sp_hvg, max_value=10)
 
-    n_comps = min(50, adata_sp_hvg.n_obs - 1, adata_sp_hvg.n_vars - 1)
+    n_comps = min(config.preprocessing.scrna.n_pcs, adata_sp_hvg.n_obs - 1, adata_sp_hvg.n_vars - 1)
     sc.tl.pca(adata_sp_hvg, svd_solver="arpack", n_comps=n_comps)
 
     # Index alignment validation for spatial PCA
@@ -468,10 +524,16 @@ def main():
         else:
             adata.X[:, idxs] = E_smoothed
 
+    # M1 (anti-tümör) markerleri — config.yaml m1_macrophage ile aynı.
+    # tam_polarization_score'un GERÇEK bir M1↔M2 karşıtlığı ölçebilmesi
+    # için gerekli (bkz. denetim raporu bulgusu B-08).
+    M1_MACROPHAGE_GENES = ['CD80', 'CD86', 'CXCL10', 'NOS2', 'IL12A', 'TNF', 'HLA-DRA']
+
     # Smooth niche-related expression patterns before scoring
     niche_genes = set(
         ['HIF1A', 'CA9', 'SLC2A1', 'LDHA', 'BNIP3'] +
         ['IL10', 'TGFB1', 'CD274', 'VSIG4', 'MRC1'] +
+        M1_MACROPHAGE_GENES +
         ['HAVCR2', 'LAG3', 'PDCD1', 'CTLA4', 'TOX'] +
         ['VEGFA', 'ANGPT2', 'FLT1', 'KDR', 'PECAM1', 'ESM1'] +
         ['PROM1', 'NES', 'SOX2', 'OLIG2', 'NANOG', 'POU5F1', 'MYC', 'ALDH1A3'] +
@@ -487,12 +549,30 @@ def main():
         if valid_genes:
             sc.tl.score_genes(adata, gene_list=valid_genes, score_name=score_name)
         else:
-            logger.warning(f"No valid genes found for {score_name}, setting score to 0.0")
-            adata.obs[score_name] = 0.0
+            # NaN kullanılıyor (0.0 DEĞİL) — 0.0 "gerçekten düşük/yok"
+            # anlamına gelen bir klinik iddiadır, oysa burada skor aslında
+            # HİÇ hesaplanamadı (marker geni bulunamadı). Bu ayrımı
+            # kaybetmek yanlış bir "hipoksi/immünsüpresyon yok" izlenimi
+            # verebilir (bkz. denetim raporu bulgusu A-09).
+            logger.warning(f"No valid genes found for {score_name}, marking as NaN (not computable).")
+            adata.obs[score_name] = np.nan
 
     score_niche(adata_sp, ['HIF1A', 'CA9', 'SLC2A1', 'LDHA', 'BNIP3'], 'hypoxia_score')
-    score_niche(adata_sp, ['IL10', 'TGFB1', 'CD274', 'VSIG4', 'MRC1'], 'tam_polarization_score')
+    # `tam_polarization_score` eskiden `myeloid_suppression_score` ile
+    # birebir aynı gen listesinden (sadece M2/immünsüpresif markerler)
+    # hesaplanıyordu — tanım gereği "polarizasyon" M1 vs. M2 karşıtlığı
+    # ölçmelidir. Burada M2 skorundan M1 skoru çıkarılarak gerçek bir
+    # polarizasyon ekseni (pozitif = M2/pro-tümör ağırlıklı) üretilir
+    # (bkz. denetim raporu bulgusu B-08).
     score_niche(adata_sp, ['IL10', 'TGFB1', 'CD274', 'VSIG4', 'MRC1'], 'myeloid_suppression_score')
+    score_niche(adata_sp, M1_MACROPHAGE_GENES, '_m1_macrophage_score_tmp')
+    if '_m1_macrophage_score_tmp' in adata_sp.obs and 'myeloid_suppression_score' in adata_sp.obs:
+        adata_sp.obs['tam_polarization_score'] = (
+            adata_sp.obs['myeloid_suppression_score'] - adata_sp.obs['_m1_macrophage_score_tmp']
+        )
+        del adata_sp.obs['_m1_macrophage_score_tmp']
+    else:
+        adata_sp.obs['tam_polarization_score'] = adata_sp.obs.get('myeloid_suppression_score', 0.0)
     score_niche(adata_sp, ['HAVCR2', 'LAG3', 'PDCD1', 'CTLA4', 'TOX'], 'tcell_exhaustion_score')
     score_niche(adata_sp, ['VEGFA', 'ANGPT2', 'FLT1', 'KDR', 'PECAM1', 'ESM1'], 'angiogenesis_score')
 

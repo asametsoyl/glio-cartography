@@ -246,17 +246,49 @@ jobs:
 
       - name: Build Electron App (Windows)
         if: runner.os == 'Windows'
+        # WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD electron-builder tarafından
+        # otomatik okunur (bkz. https://www.electron.build/code-signing).
+        # Repo secrets'a henüz gerçek bir Authenticode sertifikası
+        # eklenmediği için bu boş kalır ve electron-builder imzasız
+        # (unsigned) build üretmeye devam eder — mevcut davranışta
+        # değişiklik yoktur. İleride bir sertifika edinilirse, GitHub repo
+        # Settings → Secrets → Actions altına WIN_CSC_LINK (base64 .pfx)
+        # ve WIN_CSC_KEY_PASSWORD eklemek yeterlidir, başka kod değişikliği
+        # gerekmez.
         env:
           GH_TOKEN: ""
           GITHUB_TOKEN: ""
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: npx electron-builder --win --x64 --publish never
 
       - name: Build Electron App (macOS)
         if: runner.os == 'macOS'
+        # CSC_LINK / CSC_KEY_PASSWORD electron-builder tarafından otomatik
+        # okunur. Repo secrets'a henüz gerçek bir Apple Developer ID
+        # sertifikası eklenmediği için bu boş kalır ve build imzasız
+        # (unsigned/ad-hoc) üretilmeye devam eder — mevcut davranışta
+        # değişiklik yoktur. İleride bir sertifika edinilirse, GitHub repo
+        # Settings → Secrets → Actions altına CSC_LINK (base64 .p12) ve
+        # CSC_KEY_PASSWORD eklemek yeterlidir. Notarization (APPLE_ID /
+        # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID) ayrıca package.json
+        # build.mac.notarize alanının eklenmesini gerektirir — bu, gerçek
+        # bir Developer ID hesabı temin edilene kadar bilerek eklenmedi.
         env:
           GH_TOKEN: ""
           GITHUB_TOKEN: ""
-        run: npx electron-builder --mac --x64 --publish never
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        # `macos-latest` GitHub runner'ları arm64'tür (Apple Silicon) ve
+        # yukarıdaki Miniforge adımı python_env'i bu runner'ın kendi
+        # mimarisinde (arm64) native olarak kuruyor. Önceki `--x64`
+        # bayrağı, arm64 Python ikili dosyalarını x64 etiketli bir Electron
+        # kabuğunun içine paketliyordu — Intel Mac'lerde arka uç hiç
+        # başlamıyordu (bkz. denetim raporu bulgusu D-02). `--arm64`,
+        # gerçekte paketlenen python_env mimarisiyle eşleşir. Intel Mac
+        # desteği isteniyorsa ayrı bir `macos-13` (x64) runner job'ı
+        # eklenmesi gerekir — bu iş akışı şu an yalnızca arm64 hedefliyor.
+        run: npx electron-builder --mac --arm64 --publish never
 
       - name: Build Electron App (Linux)
         if: runner.os == 'Linux'

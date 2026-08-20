@@ -497,7 +497,7 @@ function renderSignalingDiagram() {
         `;
       } else {
         tooltipContent = `
-          <strong>${escapeHtml(a)} ⇄ ${escapeHtml(b)} " + window.i18n.t('signaling.communication')</strong><br>
+          <strong>${escapeHtml(a)} ⇄ ${escapeHtml(b)} ${window.i18n.t('signaling.communication')}</strong><br>
           <span style="color:#00d4ff">${escapeHtml(a)} → ${escapeHtml(b)}:</span> ${ab_val.toFixed(4)}<br>
           <span style="color:#ff6b6b">${escapeHtml(b)} → ${escapeHtml(a)}:</span> ${ba_val.toFixed(4)}<br>
           <strong>${window.i18n.t('signaling.total_strength')}:</strong> ${w.toFixed(4)}
@@ -1087,29 +1087,6 @@ function renderPathwayNetwork(pathwayId) {
       nodes.push({ data: { id: gUpper, label: gUpper, type: 'deg' } });
       edges.push({ data: { source: rec, target: gUpper, label: 'Downstream' } });
     }
-  });
-
-  // Add structural pathway context nodes
-  const addedSet = new Set(nodes.map(n => n.data.id));
-  let structuralCount = 0;
-  pathway.overlap_genes.forEach(deg => {
-    // Mock connections between DEGs and downstream elements if it creates a richer graph
-    const downstreamPartners = {
-      'VEGFA': ['KDR', 'FLT1'],
-      'EGFR': ['AKT1', 'MAPK1'],
-      'KDR': ['PLCG1', 'PRKCA'],
-      'PIK3CA': ['AKT1', 'MTOR'],
-      'CD44': ['AKT1', 'RELA']
-    };
-    const partners = downstreamPartners[deg] || [];
-    partners.forEach(partner => {
-      if (!addedSet.has(partner) && structuralCount < 4) {
-        nodes.push({ data: { id: partner, label: partner, type: 'pathway' } });
-        edges.push({ data: { source: deg, target: partner, label: 'Signaling' } });
-        addedSet.add(partner);
-        structuralCount++;
-      }
-    });
   });
 
   try {

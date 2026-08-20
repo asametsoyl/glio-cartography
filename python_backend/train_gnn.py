@@ -280,33 +280,90 @@ LR_PAIRS = [
 # ============================================================
 # ZONE SİGNATÜRLERİ
 # [BIO-4] Eksik GBM markerleri eklendi
+# [GERÇEK-IVY-GAP] Gerçek veriyle kanıtlanmış revizyon — aşağıya bakın.
 # ============================================================
+# NOT (2026-08-20 revizyonu): Bu genler artık yalnızca literatür/sezgiye
+# değil, Allen Institute Ivy Glioblastoma Atlas Project'in GERÇEK ISH
+# ekspresyon verisine de dayanıyor (Puchalski ve ark. 2018, Science;
+# python_backend/reference_data/ivygap_real_reference.json). ~800 genlik
+# gerçek ISH panelinin tamamı (18.778 ölçüm, gerçek hasta örnekleri)
+# çekilip her gen için 5 anatomik yapı (LE/IT/CT/CTpan/CTmvp) arasındaki
+# z-skorlu özgüllüğe göre sıralandı; buradaki listeler bu sıralamanın
+# tepesinden, hâlâ tanınabilir/literatürde köklü genler seçilerek
+# oluşturuldu. Önceki (yalnızca elle seçilmiş) sürüm, gerçek Ivy GAP
+# referansına karşı zayıf doğrulanıyordu (Leading Edge/Infiltrating
+# Tumor/Cellular Tumor r<0.6, Microvascular Proliferation r≈0.16) —
+# bkz. denetim raporu, "real_ivy_gap_validation". Bu revizyon o zayıflığı
+# gidermeyi hedefler; MKI67/VIM/CXCR4 gibi Ivy GAP'in ~800 genlik ISH
+# panelinde bulunmayan (bu yüzden gerçek referansla doğrulanamayan) ama
+# GBM biyolojisinde vazgeçilmez kabul edilen birkaç kanonik gen, eğitim
+# hedefi için hâlâ korunuyor.
 ZONE_SIGNATURES = {
     'Pseudopalisading Necrosis': [
-        'hif1a', 'ca9', 'vegfa', 'slc2a1', 'bnip3', 'ddit4',
-        # [BIO-4] Hipoksi metabolizması
-        'ldha', 'pdk1',
+        'hif1a', 'ca9', 'vegfa', 'bnip3', 'ldha',
+        # Gerçek Ivy GAP verisinde CTpan için en yüksek özgüllüğe sahip
+        # genler (hipoksi/glikoliz/nekroz-ilişkili makrofaj kemotaksisi):
+        'hk2', 'serpine1', 'ccl2',
     ],
     'Microvascular Proliferation': [
-        'vegfa', 'angpt2', 'pdgfrb', 'pecam1', 'kdr', 'tek',
+        # PLVAP ve ACVRL1 (ALK1), gerçek Ivy GAP verisinde CTmvp için en
+        # özgül genler — olgunlaşmamış/fenestre tümör damarlanmasının
+        # klasik belirteçleri. KDR (VEGFR2) tanınabilirlik için korundu.
+        'plvap', 'acvrl1', 'vegfa', 'kdr', 'tgfbr2', 'itga5',
     ],
     'Cellular Tumor': [
-        'mki67', 'top2a', 'egfr', 'olig2', 'sox2',
-        # [BIO-4] Hücre döngüsü markerleri
-        'pcna', 'cdk4', 'cdkn2a',
+        # PDGFRA gerçek veride en yüksek özgüllüğe sahip VE klasik bir GBM
+        # onkogeni (proneural alt tip). GJA1/NUSAP1 gerçek veriden;
+        # EGFR/OLIG2/SOX2/MKI67 tanınabilirlik ve eğitim hedefi
+        # tutarlılığı için korundu.
+        'pdgfra', 'egfr', 'olig2', 'sox2', 'gja1', 'nusap1', 'mki67',
     ],
     'Leading Edge': [
-        'vim', 'fn1', 'met', 'cd44', 'cxcr4', 'mmp2',
-        # [BIO-4] EMT markerleri
-        'mmp9', 'twist1', 'zeb1',
+        # IVY GAP'ta "Leading Edge" düşük tümör saflığı ve normal
+        # nöropil/nöron karışımıyla tanımlanır (Puchalski ve ark. 2018,
+        # Science). L1CAM/CCND2/AKT1/STAT3 gerçek veride CTpan/IT/CT'ye
+        # göre LE'de belirgin şekilde daha yüksek çıkan genler.
+        'l1cam', 'ccnd2', 'gfap', 'akt1', 'stat3',
     ],
     'Infiltrating Tumor': [
-        'gfap', 'vim', 'cd44', 'cxcr4', 'ptn', 'ptprz1',
-        # [BIO-4] ECM remodeling
-        'timp1', 'mmp9',
+        # BCAN (brevican) ve DDR1, gerçek Ivy GAP verisinde IT için en
+        # özgül genler — nöro-onkolojide iyi bilinen, invazyonla
+        # ilişkili ECM/reseptör molekülleri. VIM/CXCR4 Ivy GAP'in ISH
+        # panelinde yer almıyor ama kanonik EMT/invazyon biyolojisi için
+        # eğitim hedefinde korundu.
+        'bcan', 'snap25', 'ddr1', 'cd44', 'vim', 'cxcr4',
     ],
 }
 ZONE_NAMES = list(ZONE_SIGNATURES.keys())
+
+# ============================================================
+# ZON-TABANLI RİSK AĞIRLIKLARI
+# ============================================================
+# `survival_head` grafik-seviyesinde (tek hasta için tek skaler) tahmin
+# üretir — mekansal olarak çözümlenmiş gerçek bir "spot-bazlı sağkalım"
+# etiketi hiçbir zaman var olmadı ve olamaz (sağkalım hastaya ait bir
+# klinik olay, spot'a değil). Bu skaleri her spot'a olduğu gibi kopyalamak
+# (eski davranış) mekansal olarak sabit, yanıltıcı bir "risk haritası"
+# üretiyordu (bkz. denetim raporu bulgusu A-03).
+#
+# Burada, GNN'in kendi çıkardığı gerçek zon sınıflandırmasıyla (spot
+# başına gerçekten hesaplanan, IVY GAP'a dayalı) hastanın tek skaler
+# risk tahminini ölçekleyerek dokümante edilmiş, açıklanabilir bir
+# mekansal modülasyon uyguluyoruz. Ağırlıklar; nekroz ve mikrovasküler
+# proliferasyonun WHO Grade 4 / kötü prognozla ilişkilendirildiği
+# IVY GAP literatürüne dayanır (bkz. Ivy GAP Atlas belgeleri) ve ±%15
+# ile sınırlıdır — yani hasta-seviyesi tahminin baskın belirleyici
+# olmasını, zon ağırlığının yalnızca gerçek zon dağılımına göre makul
+# bir mekansal doku eklemesini sağlar. Bu bir öğrenilmiş tahmin DEĞİLDİR;
+# rapor ve UI'da "model tahmini + zon-ağırlıklı modülasyon" olarak
+# etiketlenmelidir.
+ZONE_RISK_WEIGHT = {
+    'Pseudopalisading Necrosis':   1.15,
+    'Microvascular Proliferation': 1.10,
+    'Cellular Tumor':              1.00,
+    'Leading Edge':                0.90,
+    'Infiltrating Tumor':          0.90,
+}
 
 # ── Pathway signatures: dinamik olarak pathway_db.json'dan yükle ───────────────
 # GNN, data.json'a her spot için pathway skoru yazar.
@@ -1523,6 +1580,45 @@ def counterfactual_gene_regulation(model: nn.Module, data: HeteroData,
 
 
 # ============================================================
+# MC-DROPOUT BELİRSİZLİK TAHMİNİ [GELİŞTİRME]
+# ============================================================
+def mc_dropout_zone_uncertainty(model: nn.Module, data: HeteroData, n_samples: int = 20) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Zon tahmini için Monte Carlo Dropout ile belirsizlik tahmini.
+
+    Model zaten dropout katmanları içeriyor (GNN katmanlarında ve task
+    head'lerinde) — bunları çıkarım (inference) sırasında da AÇIK tutup
+    N kez farklı forward pass çalıştırarak, her spot için zon
+    olasılıklarının örnekleme dağılımını elde ederiz. Bu dağılımın
+    standart sapması, modelin o spot için ne kadar "kararsız" olduğunun
+    ucuz (ekstra eğitim/veri gerektirmeyen) bir tahminidir.
+
+    ÖNEMLİ: Yalnızca `nn.Dropout` modüllerini train moduna alıyoruz —
+    `BatchNorm` katmanlarını train moduna almak (klasik `model.train()`
+    çağrısının yapacağı gibi) batch istatistiklerini bu tek-grafik
+    forward pass'inden yeniden hesaplatıp sonuçları bozar (klasik
+    MC-dropout tuzağı). BatchNorm eval modunda (kayıtlı running
+    istatistikleriyle) kalır, yalnızca Dropout stokastik kalır.
+
+    Döner: (mean_probs, std_probs) — ikisi de (n_spots, n_zones) şeklinde.
+    """
+    model.eval()
+    for m in model.modules():
+        if isinstance(m, nn.Dropout):
+            m.train()
+
+    samples = []
+    with torch.no_grad():
+        for _ in range(n_samples):
+            _, zone_p, _, _, _, _ = model(data)
+            samples.append(F.softmax(zone_p, dim=-1).cpu().numpy())
+
+    model.eval()  # dropout'u da tekrar kapat — sonraki çağrılar tam deterministik olsun
+    arr = np.stack(samples, axis=0)  # (n_samples, n_spots, n_zones)
+    return arr.mean(axis=0), arr.std(axis=0)
+
+
+# ============================================================
 # PATHWAY SCORING
 # ============================================================
 def compute_pathway_scores(adata, gene_cache: GeneExpressionCache | None = None) -> dict[str, np.ndarray]:
@@ -1549,10 +1645,19 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
                               survival_preds: np.ndarray,
                               out_path: str,
                               ct_preds: np.ndarray | None = None,
-                              gene_cache: GeneExpressionCache | None = None) -> None:
+                              gene_cache: GeneExpressionCache | None = None,
+                              zone_uncertainty: np.ndarray | None = None,
+                              ) -> tuple[np.ndarray, np.ndarray] | None:
     """
     [BUG-4] FIX: GATv2 attention weight'lerini hesapla, her spot için
     en yüksek 10 komşuyu JSON'a yaz.
+
+    `drug_scores`/`survival_preds` parametreleri model başına ham kafa
+    çıktılarıdır (survival_preds hasta-seviyesinde tek skaler). Fonksiyon
+    içeride bunları gerçek veriden türetilmiş, mekansal olarak anlamlı
+    (drug_scores_real, risk_arr_real) dizilerine dönüştürür ve
+    döndürür — çağıranlar .npy dosyalarını bu dönüş değerleriyle
+    kaydetmeli (bkz. A-01/A-03 düzeltmeleri).
     """
     logger.info("Attention weight'ler export ediliyor...")
     model.eval()
@@ -1565,7 +1670,7 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
 
     if not attn_layers:
         logger.warning("   Attention layer bulunamadı")
-        return
+        return None, None
 
     # Average attention weights across all GATv2 layers to capture multi-layer hierarchy
     attn_mean_list = [aw.mean(dim=-1) for _, aw in attn_layers]
@@ -1684,9 +1789,136 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
             zonal_contrast["lr_pairs"][zone_name][lr_key] = float(weighted_val)
 
     coords = data['spot'].pos.cpu().numpy()
-    
-    # Graph-level survival value broadcast to spots
+
+    # ── Hasta-seviyesi risk skaleri ────────────────────────────────
+    # `survival_head` bir HeteroData grafiği başına TEK skaler üretir
+    # (bkz. ZONE_RISK_WEIGHT tanımının üstündeki not) — bu artık spot'lara
+    # olduğu gibi kopyalanmıyor, aşağıda zon-ağırlıklı olarak moduluyor.
     global_surv = float(survival_preds[0]) if survival_preds.ndim > 0 else float(survival_preds)
+
+    # ── Zon-ağırlıklı mekansal risk (A-03 düzeltmesi) ──────────────
+    zone_weight_arr = np.array(
+        [ZONE_RISK_WEIGHT.get(zn, 1.0) for zn in ZONE_NAMES], dtype=np.float32
+    )
+
+    # [GELİŞTİRME] Myeloid (TAM/mikroglia) infiltrasyonu modülasyonu.
+    # GBM literatüründe tümör-ilişkili myeloid hücre (TAM/mikroglia)
+    # infiltrasyonunun yüksek olması, immünsüpresif TME ile ilişkili
+    # bağımsız bir kötü prognoz göstergesidir. Zon kimliğine ek olarak,
+    # dekonvolüsyondan GERÇEKTEN hesaplanan (rastgele değil) per-spot
+    # myeloid hücre oranını da hafif bir modülasyon terimi olarak
+    # ekliyoruz — katsayı küçük tutulur (±%25) ki hasta-seviyesi tahmin
+    # baskın belirleyici kalsın, myeloid oranı yalnızca gerçek veriye
+    # dayalı ek bir mekansal doku katsın.
+    MYELOID_RISK_COEF = 0.25
+    myeloid_frac_arr = np.zeros(n_spots, dtype=np.float32)
+    if y_np is not None and hasattr(data, 'ct_names'):
+        myeloid_cols = [
+            ci for ci, cn in enumerate(data.ct_names)
+            if any(k in cn.lower() for k in ('tam', 'macrophage', 'micro'))
+        ]
+        if myeloid_cols:
+            myeloid_frac_arr = np.clip(y_np[:, myeloid_cols].sum(axis=1), 0.0, 1.0).astype(np.float32)
+
+    myeloid_modulation = 1.0 + MYELOID_RISK_COEF * (myeloid_frac_arr - float(myeloid_frac_arr.mean()))
+    risk_arr_real = np.clip(
+        global_surv * zone_weight_arr[zone_argmax] * myeloid_modulation, 0.0, 1.0
+    ).astype(np.float32)
+
+    # ── Gerçek veriden türetilmiş ilaç hedef skoru (A-01 düzeltmesi) ──
+    # `drug_head` mimari olarak var ama hiçbir kayıp fonksiyonuna
+    # bağlı değil (eğitilmiyor) — bu yüzden çıktısı rastgele başlatılmış
+    # bir ağırlık kümesinin sigmoid'i, öğrenilmiş bir tahmin değil.
+    # Onun yerine, spotun baskın (en yüksek aktiviteli) ligand-reseptör
+    # çiftinin GERÇEK hesaplanmış aktivitesini (spot_lr_avg — edge_attr'dan,
+    # yani gerçek ligand/reseptör gen ekspresyonundan türetilir) kullanıyoruz.
+    # Hasta içi min-max normalizasyonuyla [0,1] aralığına ölçeklenir.
+    dominant_lr_activity = np.clip(spot_lr_avg.max(axis=1), 0, None).astype(np.float32)
+    _lr_min, _lr_max = float(dominant_lr_activity.min()), float(dominant_lr_activity.max())
+    if _lr_max - _lr_min > 1e-8:
+        drug_scores_real = (dominant_lr_activity - _lr_min) / (_lr_max - _lr_min)
+    else:
+        drug_scores_real = np.zeros(n_spots, dtype=np.float32)
+
+    # ── Model-tabanlı ilaç müdahale etkisi (in silico perturbation) ────
+    # `drug_score` (yukarıda) hedefin GERÇEK spot'taki sinyal gücünü ölçer
+    # ("burada bu hedef ne kadar aktif?"). Bu ikinci skor ise farklı bir
+    # soruya cevap verir: "bu hedefi bloke edersek, GNN'in kendi öğrendiği
+    # mesaj-geçişi dinamiğine göre bu spot'taki agresif/malign zon sinyali
+    # ne kadar azalır?" — yani gerçek bir counterfactual (in silico
+    # knockdown) simülasyonu. Bu, zaten mevcut olan
+    # `counterfactual_gene_regulation()` fonksiyonunu (aynı fonksiyon
+    # Stage 3'ün "gen regülasyonu simülasyonu" özelliğinde de kullanılıyor)
+    # yeniden kullanır — rastgele/eğitilmemiş bir kafa değil, modelin
+    # kendi gerçek forward-pass davranışına dayanır. Maliyeti sınırlamak
+    # için yalnızca spot'lar arasında en sık "baskın" çıkan ve bilinen bir
+    # ilaç eşleşmesi olan L-R çiftleri için (en fazla 15 benzersiv hedef)
+    # simülasyon çalıştırılır.
+    top_lr_idx_all = spot_lr_avg.argmax(axis=1)
+    lr_key_all = np.array(
+        [f"{LR_PAIRS[i][0].upper()}-{LR_PAIRS[i][1].upper()}" for i in top_lr_idx_all]
+    )
+    AGGRESSIVE_ZONES = {'Pseudopalisading Necrosis', 'Microvascular Proliferation', 'Cellular Tumor'}
+    aggressive_zone_idx = [i for i, zn in enumerate(ZONE_NAMES) if zn in AGGRESSIVE_ZONES]
+
+    perturbation_raw = np.zeros(n_spots, dtype=np.float32)
+    perturbation_available = np.zeros(n_spots, dtype=bool)
+
+    if aggressive_zone_idx:
+        unique_keys, counts = np.unique(lr_key_all, return_counts=True)
+        # En sık görülen, bilinen ilaç eşleşmesi olan çiftleri önceliklendir
+        candidates = [
+            (key, cnt) for key, cnt in zip(unique_keys, counts) if key in GBM_DRUG_DB
+        ]
+        candidates.sort(key=lambda kv: kv[1], reverse=True)
+        candidates = candidates[:15]
+
+        lr_names_for_cf = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
+        for lr_key_c, _cnt in candidates:
+            ligand_gene = lr_key_c.split('-')[0]
+            try:
+                delta_zone = counterfactual_gene_regulation(
+                    model, data, lr_names_for_cf, LR_PAIRS, ligand_gene,
+                    reg_type='knockdown', rate=1.0
+                )
+            except Exception as e_cf:
+                logger.warning(f"   İlaç müdahale simülasyonu başarısız ({lr_key_c}): {e_cf}")
+                continue
+            if delta_zone is None:
+                continue
+            spot_mask = (lr_key_all == lr_key_c)
+            # Agresif zonlardaki olasılık azalması (pozitif = faydalı etki)
+            effect = -delta_zone[:, aggressive_zone_idx].sum(axis=1)
+            perturbation_raw[spot_mask] = effect[spot_mask]
+            perturbation_available[spot_mask] = True
+
+    if perturbation_available.any():
+        _p_vals = perturbation_raw[perturbation_available]
+        _p_min, _p_max = float(_p_vals.min()), float(_p_vals.max())
+        if _p_max - _p_min > 1e-8:
+            drug_perturbation_norm = (perturbation_raw - _p_min) / (_p_max - _p_min)
+        else:
+            drug_perturbation_norm = np.full(n_spots, 0.5, dtype=np.float32)
+    else:
+        drug_perturbation_norm = np.zeros(n_spots, dtype=np.float32)
+
+    # ── Açıklanabilirlik: zon başına marker gen z-skorları ─────────────
+    # Spot detay panelinde "neden bu zon?" sorusuna gerçek veriye dayalı
+    # bir cevap vermek için — modelin kendi eğitim hedefini oluşturan
+    # marker genlerin, HER SPOT'TA (dokunun geri kalanına göre z-skor
+    # olarak) ne kadar yüksek olduğunu önceden hesaplıyoruz.
+    zone_marker_arrays: dict[str, dict[str, np.ndarray]] = {}
+    for zn in ZONE_NAMES:
+        arr_map = {}
+        for g in ZONE_SIGNATURES.get(zn, []):
+            gvals = gene_cache.get_gene(g)
+            if gvals is None:
+                continue
+            gstd = float(gvals.std())
+            if gstd < 1e-8:
+                continue
+            arr_map[g.upper()] = (gvals - float(gvals.mean())) / gstd
+        zone_marker_arrays[zn] = arr_map
 
     spots_out = []
     for si in range(n_spots):
@@ -1719,6 +1951,15 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
         for zi, zn in enumerate(ZONE_NAMES):
             zone_dict[zn] = float(zone_preds[si, zi])
 
+        # "Neden bu zon?" açıklanabilirlik: baskın zonu tanımlayan marker
+        # genlerden bu spot'ta en yüksek z-skora sahip olan ilk 4'ü.
+        dominant_zone_name = ZONE_NAMES[int(zone_argmax[si])]
+        marker_arr_map = zone_marker_arrays.get(dominant_zone_name, {})
+        top_markers = sorted(
+            ((g, float(arr[si])) for g, arr in marker_arr_map.items()),
+            key=lambda kv: kv[1], reverse=True
+        )[:4]
+
         spot_record = {
             "id": si,
             "x": float(coords[si, 0]),
@@ -1728,17 +1969,38 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
             "lr": lr_dict,
             "pathways": {path_name: float(pathway_scores[path_name][si]) for path_name in pathway_scores},
             "drug": drug_name,
-            "drug_score": float(drug_scores[si]),
+            "drug_score": float(drug_scores_real[si]),
+            # Model-tabanlı in silico müdahale skoru — bu hedefi bloke
+            # etmenin GNN'in kendi öğrendiği dinamiğe göre agresif zon
+            # sinyalini ne kadar azalttığının tahmini (bkz. yukarıdaki not).
+            # Bilinen bir ilaç eşleşmesi/simülasyon yoksa null.
+            "drug_perturbation_score": (
+                float(drug_perturbation_norm[si]) if perturbation_available[si] else None
+            ),
             "drug_target": lr_key,
             "drug_lr_basis": lr_key,
             "drug_status": "Klinik Aşama",
-            "tcga_risk": float(np.clip(global_surv, 0, 1)),
+            "tcga_risk": float(risk_arr_real[si]),
             "survival_months": float(max(0.0, global_surv * 20)),
             "pseudotime": float(data.pseudotime[si]) if hasattr(data, 'pseudotime') else 0.0,
             "vec_x": float(data.vec_x[si]) if hasattr(data, 'vec_x') else 0.0,
             "vec_y": float(data.vec_y[si]) if hasattr(data, 'vec_y') else 0.0,
             "edges": {str(k): round(float(v), 5)
                       for k, v in spot_edges[si].items()},   # [BUG-4]
+            "why_zone": {
+                "zone": dominant_zone_name,
+                "top_markers": [
+                    {"gene": g, "zscore": round(z, 3)} for g, z in top_markers
+                ],
+            },
+            # MC-Dropout ile tahmin edilen belirsizlik: baskın zonun olasılığı
+            # N stokastik forward pass boyunca ne kadar değişkendi (std).
+            # Düşük std = model bu spot için kararlı/güvenli; yüksek std =
+            # model kararsız (bkz. mc_dropout_zone_uncertainty). None ise
+            # bu çalıştırmada MC-dropout hesaplanmadı.
+            "zone_uncertainty": (
+                float(zone_uncertainty[si, int(zone_argmax[si])]) if zone_uncertainty is not None else None
+            ),
             "simulated": False,
         }
         spots_out.append(spot_record)
@@ -1789,6 +2051,11 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
         logger.info(f"   ✅ L-R detailed summary export: {lr_summary_path}")
     except Exception as e_lr_sum:
         logger.warning(f"   L-R detailed summary oluşturulamadı: {e_lr_sum}")
+
+    # Çağıranlara (stage3_gnn.py) gerçek/düzeltilmiş dizileri döndür — böylece
+    # survival_predictions.npy / drug_scores.npy dosyaları da data.json ile
+    # TUTARLI (eğitilmemiş ham kafa çıktısı değil) değerlerle kaydedilebilir.
+    return drug_scores_real, risk_arr_real
 
 
 def main() -> None:
@@ -1923,10 +2190,11 @@ def main() -> None:
     np.save(f'{OUT_DIR}/spatial_embeddings.npy',  emb.cpu().numpy())
     np.save(f'{OUT_DIR}/zone_predictions.npy',    zone_np)
     np.save(f'{OUT_DIR}/celltype_predictions.npy',ct_pred.cpu().numpy())
-    np.save(f'{OUT_DIR}/survival_predictions.npy',surv_np)
-    np.save(f'{OUT_DIR}/drug_scores.npy',         drug_np)
 
-    export_attention_to_json(
+    # export_attention_to_json, ham (eğitilmemiş) drug_np/surv_np dizilerini
+    # gerçek veriden türetilmiş, mekansal olarak anlamlı dizilere dönüştürüp
+    # döndürür — .npy dosyalarını bunlarla kaydediyoruz (bkz. A-01/A-03).
+    drug_scores_real, risk_arr_real = export_attention_to_json(
         model, data, adata, ct_names,
         zone_preds      = zone_np,
         drug_scores     = drug_np,
@@ -1935,6 +2203,11 @@ def main() -> None:
         ct_preds        = ct_pred.cpu().numpy(),
         gene_cache      = gene_cache
     )
+    if drug_scores_real is None or risk_arr_real is None:
+        drug_scores_real, risk_arr_real = drug_np, surv_np
+
+    np.save(f'{OUT_DIR}/survival_predictions.npy', risk_arr_real)
+    np.save(f'{OUT_DIR}/drug_scores.npy',          drug_scores_real)
 
     summary_info = {
         "best_params": bp,

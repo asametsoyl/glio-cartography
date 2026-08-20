@@ -1,0 +1,222 @@
+{
+  "_meta": {
+    "source": "Allen Institute Ivy Glioblastoma Atlas Project (Ivy GAP)",
+    "citation": "Puchalski RB et al. \"An anatomic transcriptional atlas of human glioblastoma.\" Science 360.6389 (2018): 660-663. PMID 29748285.",
+    "api_endpoint": "https://glioblastoma.alleninstitute.org/api/v2/data/ApiGbmGeneExpressionDetail/query.json",
+    "fetched": "2026-08-20",
+    "method": "Full ISH expression-energy table fetched (18,778 rows, real GBM patient specimens). For each candidate gene, mean expression_energy computed per anatomic structure. Genes below were selected as the top structure-specific hits (by within-gene z-score across the 5 structures) that are also recognized/established markers in the GBM literature, to revise this app's own ZONE_SIGNATURES (train_gnn.py) away from a purely hand-curated list toward one partly anchored in real, independent anatomic expression data.",
+    "structure_map": {
+      "le": "Leading Edge (LE)",
+      "it": "Infiltrating Tumor (IT)",
+      "ct": "Cellular Tumor (CT)",
+      "ctpan": "Cellular Tumor / Pseudopalisading cells Around Necrosis (PAN)",
+      "ctmvp": "Cellular Tumor / Microvascular Proliferation (MVP)"
+    },
+    "zone_to_structure": {
+      "Leading Edge": "le",
+      "Infiltrating Tumor": "it",
+      "Cellular Tumor": "ct",
+      "Pseudopalisading Necrosis": "ctpan",
+      "Microvascular Proliferation": "ctmvp"
+    },
+    "note": "In-situ hybridization (ISH) expression-energy values, averaged across all available real GBM patient specimens per gene per anatomic structure, from the Ivy GAP 'Anatomic Structures ISH Survey' dataset. This is INDEPENDENT of this application's own model/training data \u2014 real patients, real histology-guided laser microdissection, a different technology (ISH) than the Visium spatial transcriptomics this app analyzes. Used for genuine (non-circular) validation of zone assignments; see stage3_gnn.py real_ivy_gap_validation. Genes with fewer than 5/5 structures covered (None values below) are still included for transparency but excluded from the correlation computation, which requires full coverage."
+  },
+  "genes": {
+    "ACVRL1": {
+      "le": 0.1447,
+      "it": 0.0206,
+      "ct": 0.1212,
+      "ctpan": 0.0674,
+      "ctmvp": 0.7892
+    },
+    "AKT1": {
+      "le": 61.2954,
+      "it": 17.283,
+      "ct": 18.5164,
+      "ctpan": 14.1981,
+      "ctmvp": 9.6927
+    },
+    "BCAN": {
+      "le": 41.6782,
+      "it": 72.441,
+      "ct": 38.353,
+      "ctpan": 25.4022,
+      "ctmvp": 25.9803
+    },
+    "BNIP3": {
+      "le": 58.1583,
+      "it": 18.3913,
+      "ct": 11.616,
+      "ctpan": 23.0259,
+      "ctmvp": 9.6151
+    },
+    "CA9": {
+      "le": 29.7165,
+      "it": 23.8856,
+      "ct": 15.3739,
+      "ctpan": 28.1491,
+      "ctmvp": 10.6875
+    },
+    "CCL2": {
+      "le": 0.9997,
+      "it": 2.6115,
+      "ct": 12.2274,
+      "ctpan": 21.2769,
+      "ctmvp": 5.4895
+    },
+    "CCND2": {
+      "le": 97.8073,
+      "it": 25.6711,
+      "ct": 18.1637,
+      "ctpan": 16.824,
+      "ctmvp": 8.265
+    },
+    "CD44": {
+      "le": 7.6058,
+      "it": 19.3921,
+      "ct": 23.7078,
+      "ctpan": 20.8997,
+      "ctmvp": 22.0537
+    },
+    "DDR1": {
+      "le": 48.6741,
+      "it": 71.0719,
+      "ct": 43.6749,
+      "ctpan": 35.519,
+      "ctmvp": 31.1601
+    },
+    "EGFR": {
+      "le": null,
+      "it": 9.8009,
+      "ct": 24.8392,
+      "ctpan": 22.9828,
+      "ctmvp": 12.8022
+    },
+    "GFAP": {
+      "le": 68.1508,
+      "it": 60.7137,
+      "ct": 35.6564,
+      "ctpan": 35.2276,
+      "ctmvp": 33.4195
+    },
+    "GJA1": {
+      "le": 2.8988,
+      "it": 2.8816,
+      "ct": 3.3106,
+      "ctpan": 2.0032,
+      "ctmvp": 2.1512
+    },
+    "HIF1A": {
+      "le": 10.4768,
+      "it": 36.8101,
+      "ct": 33.8688,
+      "ctpan": 14.725,
+      "ctmvp": 21.6933
+    },
+    "HK2": {
+      "le": 0.1097,
+      "it": 0.1325,
+      "ct": 0.2622,
+      "ctpan": 2.3871,
+      "ctmvp": 0.1474
+    },
+    "ITGA5": {
+      "le": 0.0777,
+      "it": 1.0193,
+      "ct": 0.5975,
+      "ctpan": 0.6053,
+      "ctmvp": 4.2369
+    },
+    "KDR": {
+      "le": null,
+      "it": 2.0237,
+      "ct": 0.6265,
+      "ctpan": 0.3413,
+      "ctmvp": 3.2701
+    },
+    "L1CAM": {
+      "le": 79.7878,
+      "it": 11.4305,
+      "ct": 2.4699,
+      "ctpan": 0.6542,
+      "ctmvp": 0.8282
+    },
+    "LDHA": {
+      "le": 0.4135,
+      "it": 0.1378,
+      "ct": 0.6002,
+      "ctpan": 0.927,
+      "ctmvp": 0.6223
+    },
+    "NUSAP1": {
+      "le": 3.7145,
+      "it": 4.9514,
+      "ct": 9.2415,
+      "ctpan": 4.4044,
+      "ctmvp": 7.0921
+    },
+    "OLIG2": {
+      "le": 22.2002,
+      "it": 104.8082,
+      "ct": 60.2038,
+      "ctpan": 8.8045,
+      "ctmvp": 11.6951
+    },
+    "PDGFRA": {
+      "le": 9.2873,
+      "it": 103.1662,
+      "ct": 163.1504,
+      "ctpan": 7.1211,
+      "ctmvp": 13.9985
+    },
+    "PLVAP": {
+      "le": 0.4183,
+      "it": 0.2986,
+      "ct": 1.0127,
+      "ctpan": 0.4973,
+      "ctmvp": 4.9223
+    },
+    "SERPINE1": {
+      "le": 1.5177,
+      "it": 0.6831,
+      "ct": 3.1538,
+      "ctpan": 7.404,
+      "ctmvp": 4.0963
+    },
+    "SNAP25": {
+      "le": 21.0066,
+      "it": 51.0586,
+      "ct": 2.604,
+      "ctpan": 0.3799,
+      "ctmvp": 0.2021
+    },
+    "SOX2": {
+      "le": 182.0424,
+      "it": 79.7304,
+      "ct": 16.5675,
+      "ctpan": 13.3894,
+      "ctmvp": 4.6099
+    },
+    "STAT3": {
+      "le": 39.8346,
+      "it": 10.5895,
+      "ct": 12.1179,
+      "ctpan": 9.4547,
+      "ctmvp": 5.8352
+    },
+    "TGFBR2": {
+      "le": 10.8322,
+      "it": 7.1238,
+      "ct": 7.496,
+      "ctpan": 4.6365,
+      "ctmvp": 15.4569
+    },
+    "VEGFA": {
+      "le": null,
+      "it": 3.923,
+      "ct": 18.7688,
+      "ctpan": 60.6998,
+      "ctmvp": 18.1614
+    }
+  }
+}

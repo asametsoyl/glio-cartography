@@ -148,6 +148,9 @@ class Spatial3DExplorer {
 
     if (this.instancedMesh) {
       this.scene.remove(this.instancedMesh);
+      if (this.instancedMesh.geometry) this.instancedMesh.geometry.dispose();
+      if (this.instancedMesh.material) this.instancedMesh.material.dispose();
+      this.instancedMesh = null;
     }
 
     // Geometry: standard physical material representation for Visium spots

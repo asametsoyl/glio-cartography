@@ -254,10 +254,19 @@ function killProcessOnPort(port) {
       }
     } else {
       try {
-        const pid = execSync(`lsof -t -i:${port}`, { timeout: 3000 }).toString().trim();
-        if (pid) {
-          console.log(`[Port Cleanup] Killing process ${pid} on port ${port}`);
-          execSync(`kill -9 ${pid}`, { timeout: 3000 });
+        // `lsof -t -i:PORT` can return multiple newline-separated PIDs
+        // (e.g. several worker processes bound to the same port). Kill each
+        // one individually — interpolating the raw multi-line output into a
+        // single `kill` command only ever reliably kills the first PID.
+        const output = execSync(`lsof -t -i:${port}`, { timeout: 3000 }).toString();
+        const pids = output.split(/\s+/).map(p => p.trim()).filter(Boolean);
+        for (const pid of pids) {
+          try {
+            console.log(`[Port Cleanup] Killing process ${pid} on port ${port}`);
+            execSync(`kill -9 ${pid}`, { timeout: 3000 });
+          } catch (killErr) {
+            console.warn(`[Port Cleanup] Failed to kill PID ${pid}:`, killErr.message);
+          }
         }
       } catch { }
     }
@@ -295,7 +304,16 @@ async function runEnvDiagnostics(mainWindow, pythonInfo, app) {
 
     const extraPath = getExtendedPath(pythonInfo.bin);
     const diagProc = spawn(pythonInfo.bin, [checkEnvScript, '--output', outputJson], {
-      env: { ...process.env, PATH: extraPath, PYTHONUNBUFFERED: '1' },
+      env: {
+        ...process.env,
+        PATH: extraPath,
+        PYTHONUNBUFFERED: '1',
+        // Match the main backend spawn's encoding — avoids UnicodeEncodeError /
+        // mojibake on Windows consoles with a non-UTF-8 codepage when
+        // check_env.py prints Turkish characters (ı, ş, ğ, ç, ö, ü).
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+      },
       stdio: 'pipe',
       timeout: 30000,
     });
@@ -379,7 +397,17 @@ function startBackend(mainWindow, store, app) {
         PYTHONUTF8: '1',
         PATH: extraPath,
         KMP_DUPLICATE_LIB_OK: 'TRUE'
-      }
+      },
+      // POSIX: run the backend as the leader of its own process group so
+      // killBackend() can signal the whole group (grandchildren spawned by
+      // PyTorch DataLoader / joblib / multiprocessing included), not just
+      // this single PID. On Windows, `detached` instead creates a new
+      // process group — killBackend()'s `taskkill /F /T /PID` already
+      // relies on that to reach the full tree, so this is safe there too.
+      detached: process.platform !== 'win32',
+      // Prevent a console window from briefly flashing on every
+      // backend start/restart on Windows.
+      windowsHide: true
     });
 
     const fallbackTimeout = setTimeout(() => {
@@ -467,31 +495,70 @@ function waitForBackend(maxTries = 30) {
 }
 
 // ── Backend Shutdown ──────────────────────────────────────────
+/**
+ * Terminates the backend process (and, on POSIX, its whole process group).
+ * Returns a Promise that resolves once the process has actually exited, or
+ * once the SIGTERM→SIGKILL escalation has run its course — callers such as
+ * app.on('before-quit') can await this to keep Electron's quit sequence
+ * open long enough for the 5s SIGKILL fallback to fire.
+ * @returns {Promise<void>}
+ */
 function killBackend() {
-  if (!backendProcess) return;
+  if (!backendProcess) return Promise.resolve();
 
   const proc = backendProcess;
   backendProcess = null; // Clear reference immediately — prevents double-kill from multiple event handlers
 
-  try {
-    if (process.platform === 'win32') {
-      // Windows: kill entire process tree to include uvicorn workers
-      console.log(`[Backend Cleanup] Killing process tree PID ${proc.pid}`);
-      execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
-    } else {
-      // Unix: graceful SIGTERM first, then SIGKILL after 5 seconds
-      console.log(`[Backend Cleanup] Sending SIGTERM to PID ${proc.pid}`);
-      proc.kill('SIGTERM');
-      setTimeout(() => {
-        if (!proc.killed) {
-          console.log(`[Backend Cleanup] SIGTERM timed out — sending SIGKILL to PID ${proc.pid}`);
-          try { proc.kill('SIGKILL'); } catch { /* already exited */ }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(); } };
+
+    try {
+      if (process.platform === 'win32') {
+        // Windows: kill entire process tree to include uvicorn workers.
+        // `detached: true` at spawn time put this process in its own group;
+        // taskkill /T walks the process tree regardless, so this reaches
+        // grandchildren (DataLoader / multiprocessing workers) either way.
+        console.log(`[Backend Cleanup] Killing process tree PID ${proc.pid}`);
+        try {
+          execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
+        } catch (e) {
+          console.warn('[Backend Cleanup] taskkill failed:', e.message);
         }
-      }, 5000);
+        finish();
+      } else {
+        // Unix: the backend is spawned with detached:true, so it is the
+        // leader of its own process group (pgid === pid). Signal the whole
+        // group via the negated PID so grandchildren (PyTorch DataLoader
+        // workers, joblib/multiprocessing children) are reliably cleaned up
+        // too — signaling just `proc` would only reach the direct child.
+        console.log(`[Backend Cleanup] Sending SIGTERM to process group -${proc.pid}`);
+        proc.once('exit', finish);
+        try {
+          process.kill(-proc.pid, 'SIGTERM');
+        } catch (e) {
+          // Group signaling can fail if the process already exited, or if
+          // it wasn't actually detached — fall back to the direct child.
+          console.warn('[Backend Cleanup] Group SIGTERM failed, falling back to PID:', e.message);
+          try { proc.kill('SIGTERM'); } catch { /* already exited */ }
+        }
+        setTimeout(() => {
+          if (!proc.killed) {
+            console.log(`[Backend Cleanup] SIGTERM timed out — sending SIGKILL to process group -${proc.pid}`);
+            try {
+              process.kill(-proc.pid, 'SIGKILL');
+            } catch (e) {
+              try { proc.kill('SIGKILL'); } catch { /* already exited */ }
+            }
+          }
+          finish();
+        }, 5000);
+      }
+    } catch (e) {
+      console.warn(`[Backend Cleanup] Failed to kill backend:`, e.message);
+      finish();
     }
-  } catch (e) {
-    console.warn(`[Backend Cleanup] Failed to kill backend:`, e.message);
-  }
+  });
 }
 
 module.exports = {

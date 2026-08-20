@@ -138,27 +138,36 @@ def generate_mini_svg_risk_map(spots):
     return '\n'.join(svg)
 
 def generate_pubmed_references(dominant_lr, mgmt_status, pathways):
+    """
+    ÖNEMLİ (bilimsel dürüstlük notu): Bu fonksiyon GERÇEK makale başlıkları
+    döndürmez — `url` alanı her zaman bir PubMed ARAMA sorgusudur, belirli
+    bir makaleye link değildir. Önceki sürüm, şablon metninden üretilen
+    cümleleri tırnak içinde "title" olarak sunuyordu; bu, gerçek bir
+    literatür alıntısıyla karıştırılabilirdi (bkz. denetim raporu bulgusu
+    A-14). Bu yüzden dönen alan artık `search_query` — arama önerisi olarak
+    açıkça etiketlenir, gerçek bir makale başlığı gibi tırnaklanmaz.
+    """
     refs = []
     if dominant_lr and dominant_lr != "N/A":
         refs.append({
             "topic": f"L-R Axis: {dominant_lr}" if is_english else f"L-R Ekseni: {dominant_lr}",
-            "title": f"The clinical impact of {dominant_lr} signaling in glioblastoma",
+            "search_query": f"{dominant_lr} glioblastoma signaling",
             "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={dominant_lr.replace('-', '+')}+glioblastoma"
         })
     refs.append({
         "topic": "MGMT Promoter Methylation" if is_english else "MGMT Promotör Metilasyonu",
-        "title": "Prognostic value of MGMT promoter methylation in glioblastoma Stupp trial",
+        "search_query": "MGMT promoter methylation glioblastoma TMZ",
         "url": "https://pubmed.ncbi.nlm.nih.gov/?term=MGMT+promoter+methylation+glioblastoma+TMZ"
     })
     refs.append({
         "topic": "TCGA Risk Model" if is_english else "TCGA Risk Modeli",
-        "title": "Glioblastoma molecular subtypes and risk models validation",
+        "search_query": "glioblastoma TCGA risk score prognosis",
         "url": "https://pubmed.ncbi.nlm.nih.gov/?term=glioblastoma+TCGA+risk+score+prognosis"
     })
     for p in pathways:
         refs.append({
             "topic": f"Pathway: {p}" if is_english else f"Yolak: {p}",
-            "title": f"Targeting downstream {p} signaling pathway in glioblastoma patients",
+            "search_query": f"{p} signaling pathway glioblastoma therapy",
             "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={p.replace('_', '+')}+glioblastoma+therapy"
         })
     return refs
@@ -170,6 +179,162 @@ def img_to_b64(path):
     except Exception as e:
         logger.warning(f"Resim base64'e dönüştürülemedi ({path}): {e}")
         return ""
+
+# ── Analiz Güvenilirlik / Veri Kalitesi Özeti [GELİŞTİRME] ──
+# Bu oturumda eklenen birçok dürüstlük sinyali (fallback_used,
+# cross_method_agreement, cell_marker_source, mgmt_confidence,
+# ivy_gap_validation.is_independent_validation vb.) önceden yalnızca
+# JSON dosyalarında/loglarda dağınık duruyordu. Bu fonksiyon bunları TEK
+# bir görünür panelde toplar, böylece rapor okuyan kişi hangi
+# bulguların ne kadar güvenilir olduğunu ayrı ayrı JSON dosyalarını
+# kazmadan görebilir.
+def compute_data_quality_summary(gnn_sum, deconv_sum, clinical_profile):
+    items = []
+    level_rank = {"high": 2, "medium": 1, "low": 0}
+    overall = "high"
+
+    def downgrade(to):
+        nonlocal overall
+        if level_rank[to] < level_rank[overall]:
+            overall = to
+
+    level_label = {
+        "high": ("Yüksek", "Good") if not is_english else ("High", "Good"),
+        "medium": ("Orta", "Warning") if not is_english else ("Medium", "Warning"),
+        "low": ("Düşük", "Warning") if not is_english else ("Low", "Warning"),
+    }
+    level_color = {"high": "var(--success)", "medium": "#F4A261", "low": "var(--danger)"}
+
+    # 1) Dekonvolüsyon yöntemi / fallback durumu
+    fallback_used = bool(deconv_sum.get("fallback_used", False))
+    requested = deconv_sum.get("requested_method", "?")
+    actual = deconv_sum.get("deconv_method", "?")
+    dm_level = "low" if fallback_used else "high"
+    downgrade(dm_level)
+    items.append({
+        "label": "Dekonvolüsyon Yöntemi" if not is_english else "Deconvolution Method",
+        "value": actual.upper() if actual else "N/A",
+        "note": (
+            f"İstenen '{requested.upper()}' başarısız oldu, basit skor-tabanlı fallback kullanıldı."
+            if fallback_used else
+            f"İstenen yöntem ('{requested.upper()}') başarıyla çalıştı."
+        ) if not is_english else (
+            f"Requested '{requested.upper()}' failed; a simple score-based fallback was used."
+            if fallback_used else
+            f"Requested method ('{requested.upper()}') ran successfully."
+        ),
+        "level": dm_level,
+    })
+
+    # 2) Çapraz-yöntem örtüşmesi (varsa)
+    cma = deconv_sum.get("cross_method_agreement", None)
+    if cma is not None:
+        cma_level = "high" if cma >= 0.5 else ("medium" if cma >= 0.2 else "low")
+        downgrade(cma_level)
+        items.append({
+            "label": "Çapraz-Yöntem Örtüşmesi" if not is_english else "Cross-Method Agreement",
+            "value": f"r={cma:.2f}",
+            "note": (
+                "Ana yöntem, bağımsız NNLS tahminiyle karşılaştırıldı (korelasyon)."
+                if not is_english else
+                "Primary method compared against an independent NNLS estimate (correlation)."
+            ),
+            "level": cma_level,
+        })
+
+    # 3) Hücre-tipi marker paneli kaynağı
+    marker_source = deconv_sum.get("cell_marker_source", "")
+    n_marker_types = deconv_sum.get("n_cell_marker_types", None)
+    is_fallback_panel = "hardcoded_fallback" in str(marker_source)
+    ms_level = "low" if is_fallback_panel else "high"
+    downgrade(ms_level)
+    items.append({
+        "label": "Hücre-Tipi Marker Paneli" if not is_english else "Cell-Type Marker Panel",
+        "value": (f"{n_marker_types} types" if is_english else f"{n_marker_types} tip") if n_marker_types is not None else "N/A",
+        "note": (
+            "config.yaml doğrulanamadı, sabit kodlanmış 8 tiplik acil durum paneline düşüldü."
+            if is_fallback_panel else
+            "config.yaml'daki tam küratörlü marker paneli kullanıldı."
+        ) if not is_english else (
+            "config.yaml could not be validated; fell back to the hardcoded 8-type emergency panel."
+            if is_fallback_panel else
+            "The full curated marker panel from config.yaml was used."
+        ),
+        "level": ms_level,
+    })
+
+    # 4) Ortalama dekonvolüsyon güveni
+    avg_conf = deconv_sum.get("avg_confidence", None)
+    if avg_conf is not None:
+        ac_level = "high" if avg_conf >= 0.6 else ("medium" if avg_conf >= 0.4 else "low")
+        downgrade(ac_level)
+        items.append({
+            "label": "Ortalama Dekonvolüsyon Güveni" if not is_english else "Mean Deconvolution Confidence",
+            "value": f"%{avg_conf*100:.1f}",
+            "note": "" ,
+            "level": ac_level,
+        })
+
+    # 5) GNN iç-tutarlılık kontrolü (bağımsız doğrulama DEĞİL)
+    ivy = gnn_sum.get("ivy_gap_validation", {})
+    if ivy:
+        items.append({
+            "label": "IVY GAP Tutarlılık Kontrolü" if not is_english else "IVY GAP Consistency Check",
+            "value": f"%{ivy.get('accuracy', 0)*100:.1f}",
+            "note": (
+                "Bu, modelin KENDİ eğitim hedefiyle tutarlılığıdır — bağımsız histoloji doğrulaması DEĞİLDİR."
+                if not is_english else
+                "This is consistency with the model's OWN training target — NOT an independent histology validation."
+            ),
+            "level": "medium",
+        })
+
+    # 5b) GERÇEK Ivy GAP ISH referansına karşı BAĞIMSIZ doğrulama [GELİŞTİRME]
+    real_ivy = gnn_sum.get("real_ivy_gap_validation", {})
+    if real_ivy and real_ivy.get("diagonal_mean_correlation") is not None:
+        diag_r = real_ivy["diagonal_mean_correlation"]
+        top1 = real_ivy.get("top1_match_accuracy")
+        riv_level = "high" if diag_r >= 0.4 else ("medium" if diag_r >= 0.15 else "low")
+        downgrade(riv_level)
+        items.append({
+            "label": "Gerçek Ivy GAP Doğrulaması (Bağımsız)" if not is_english else "Real Ivy GAP Validation (Independent)",
+            "value": f"r={diag_r:.2f}" + (f", top1=%{top1*100:.0f}" if top1 is not None else ""),
+            "note": (
+                f"Allen Institute Ivy GAP hasta kohortundan GERÇEK, bağımsız ISH verisine karşı "
+                f"({real_ivy.get('n_reference_genes', 0)} referans gen) — modelin kendi hedefine "
+                f"karşı değil, farklı hastalar/farklı teknoloji."
+                if not is_english else
+                f"Against REAL, independent ISH data from the Allen Institute Ivy GAP patient "
+                f"cohort ({real_ivy.get('n_reference_genes', 0)} reference genes) — not the "
+                f"model's own target; different patients, different technology."
+            ),
+            "level": riv_level,
+        })
+
+    # 6) MGMT tahmin güveni (compute_clinical_profile'dan)
+    mgmt_conf = clinical_profile.get("mgmt_confidence")
+    if mgmt_conf:
+        mc_level = {"low": "medium", "very_low": "low"}.get(mgmt_conf, "medium")
+        downgrade(mc_level)
+        items.append({
+            "label": "MGMT Tahmini Güveni" if not is_english else "MGMT Prediction Confidence",
+            "value": ("Düşük" if mgmt_conf == "low" else "Çok Düşük") if not is_english else ("Low" if mgmt_conf == "low" else "Very Low"),
+            "note": (
+                "MGMT durumu gerçek metilasyon testi (pirosekanslama) DEĞİL, hesaplamalı bir vekildir."
+                if not is_english else
+                "MGMT status is a computational proxy, NOT a real methylation assay (pyrosequencing)."
+            ),
+            "level": mc_level,
+        })
+
+    overall_label, _ = level_label[overall]
+    return {
+        "overall_level": overall,
+        "overall_label": overall_label,
+        "overall_color": level_color[overall],
+        "items": items,
+    }
+
 
 # ── Dynamic Clinical Profile Engine ─────────────────────────
 def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
@@ -186,21 +351,53 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
     avg_entropy = deconv_sum.get("avg_entropy", 1.0)
     ct_names    = deconv_sum.get("cell_type_names", [])
 
-    # Tümör hücre oranı (tüm tümör alt tiplerinin toplamı)
-    tumor_keys = [k for k in mean_props if "Tumor" in k or "tumor" in k or "GBM" in k]
+    # DÜZELTME (2026-08-20, ikinci sentetik hasta profiliyle canlı test sırasında
+    # bulundu): Aşağıdaki anahtar-kelime eşleşmeleri eskiden büyük/küçük harfe
+    # duyarlıydı ve configs/config.yaml::cell_markers'daki GERÇEK (küçük harfli,
+    # alt-çizgili: "t_cell", "microglia", "gbm_stem_cell" vb.) hücre-tipi
+    # isimleriyle eşleşmiyordu — yalnızca sabit kodlanmış 8-tipli acil-durum
+    # fallback panelindeki ("T_Cell" gibi) isimlerle eşleşiyordu. Sonuç: gerçek
+    # config.yaml paneli kullanıldığında (yani her zaman, config dosyası mevcut
+    # olduğu sürece) tcell_frac HER ZAMAN 0 çıkıyordu — bu da IDH-mutant (olası)
+    # dalını asla ulaşılamaz kılıyor ve rapordaki "T-hücre oranı" değerini
+    # her hastada yanlışlıkla %0 gösteriyordu. Ayrıca "tumor_associated_macrophage"
+    # (miyeloid bir popülasyon, malign değil) "tumor" alt-dizesini içerdiği için
+    # yanlışlıkla tumor_frac'e dahil ediliyordu ve "gbm_stem_cell" (gerçek bir
+    # tümör alt-popülasyonu) büyük/küçük harf uyuşmazlığı nedeniyle HİÇ
+    # sayılmıyordu. Aşağıdaki eşleştirme artık büyük/küçük harfe duyarsız ve
+    # miyeloid/tümör ayrımını doğru yapıyor.
+    def _frac_keys(keys_available, include, exclude=()):
+        out = []
+        for k in keys_available:
+            kl = k.lower()
+            if any(x in kl for x in exclude):
+                continue
+            if any(inc in kl for inc in include):
+                out.append(k)
+        return out
+
+    # Tümör hücre oranı (malign/neoplastik alt tiplerin toplamı — TAM/mikroglia
+    # gibi tümör-ilişkili ama malign OLMAYAN miyeloid popülasyonlar hariç)
+    tumor_keys = _frac_keys(mean_props, include=("tumor", "malignant", "gbm"),
+                             exclude=("associated_macrophage", "tam"))
     tumor_frac = sum(mean_props.get(k, 0) for k in tumor_keys)
 
-    # Myeloid/TAM oranı
-    myeloid_keys = [k for k in mean_props if "Myeloid" in k or "TAM" in k or "Micro" in k]
+    # Miyeloid/TAM oranı (mikroglia, makrofaj alt tipleri, TAM)
+    myeloid_keys = _frac_keys(mean_props, include=("myeloid", "microglia", "macrophage", "monocyte"))
     myeloid_frac = sum(mean_props.get(k, 0) for k in myeloid_keys)
 
-    # T-hücre oranı
-    tcell_keys = [k for k in mean_props if "T_Cell" in k or "T-cell" in k or "Lymph" in k]
+    # T-hücre oranı (t_cell, exhausted_t_cell, cd8_t_cell, treg vb. — hepsi
+    # "t_cell" alt-dizesiyle biter; treg ve lenfosit ayrıca kapsanır)
+    tcell_keys = _frac_keys(mean_props, include=("t_cell", "t-cell", "treg", "lymph"))
     tcell_frac = sum(mean_props.get(k, 0) for k in tcell_keys)
 
     # ── WHO Grade ───────────────────────────────────────────
-    mse = gnn_sum.get("test_mse", 0)
-    if tumor_frac > 0.35 or mse < 0.02 or avg_entropy > 0.75:
+    # NOT: `test_mse` (GNN'in kendi hücre-oranı regresyon testindeki hatası)
+    # KASITLI OLARAK bu koşuldan çıkarıldı — bu bir MODEL PERFORMANS metriği,
+    # hastanın biyolojisiyle hiçbir ilgisi yok. İyi eğitilmiş (düşük MSE'li)
+    # bir model, bu terim varken her hastayı yanlışlıkla Grade 4'e itiyordu
+    # (bkz. denetim raporu bulgusu B-01).
+    if tumor_frac > 0.35 or avg_entropy > 0.75:
         profile["who_grade"]    = "Grade 4"
         profile["who_grade_color"] = "var(--danger)"
         profile["diagnosis"]    = "Glioblastoma (GBM)"
@@ -210,12 +407,20 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
         profile["diagnosis"]    = "High-Grade Glioma" if is_english else "Yüksek Dereceli Glioma"
 
     # ── IDH Mutasyon Durumu ─────────────────────────────────
+    # ÖNEMLİ (bilimsel dürüstlük notu): IDH1/2 mutasyon durumu yalnızca
+    # dizileme veya IHC (R132H antikoru) ile güvenilir şekilde saptanabilir.
+    # Buradaki tahmin, dekonvolüsyondan gelen tümör/T-hücre oranlarına
+    # dayanan HESAPLAMALI BİR VEKİLDİR — gerçek bir moleküler ölçüm değildir.
+    # Önceki sürümde "IDH-wildtype" hedge'siz/kesin dille yazılıyordu, oysa
+    # karşı dal "olası" diye yumuşatılıyordu — bu asimetri wildtype
+    # çağrısına sahte bir otorite kazandırıyordu (bkz. denetim raporu B-02).
+    # Her iki dal da artık aynı şekilde "olası/muhtemel" ile hedge'lenir.
     if tumor_frac > 0.30 and tcell_frac < 0.08:
-        profile["idh_status"] = "IDH-wildtype"
-        profile["idh_note"]   = "⚠️ Aggressive phenotype" if is_english else "⚠️ Agresif fenotip"
+        profile["idh_status"] = "IDH-wildtype (likely)" if is_english else "IDH-wildtype (olası)"
+        profile["idh_note"]   = "⚠️ Aggressive phenotype — molecular confirmation required" if is_english else "⚠️ Agresif fenotip — moleküler doğrulama gerekli"
     elif tumor_frac < 0.25 and tcell_frac >= 0.05:
         profile["idh_status"] = "IDH-mutant (likely)" if is_english else "IDH-mutant (olası)"
-        profile["idh_note"]   = "✅ Relatively favorable prognosis" if is_english else "✅ Görece iyi prognoz"
+        profile["idh_note"]   = "✅ Relatively favorable prognosis — molecular confirmation required" if is_english else "✅ Görece iyi prognoz — moleküler doğrulama gerekli"
     else:
         profile["idh_status"] = "Indeterminate — Molecular Test Recommended" if is_english else "Belirsiz — Moleküler Test Önerilir"
         profile["idh_note"]   = "⚠️ Verification required" if is_english else "⚠️ Doğrulama gerekli"
@@ -240,28 +445,39 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
         except Exception as e_load:
             logger.warning(f"AnnData loading failed for MGMT proxy: {e_load}")
 
+    # ÖNEMLİ (bilimsel dürüstlük notu): MGMT promotör METİLASYONU pirosekanslama
+    # veya metilasyona-özgü PCR ile ölçülür — burada kullanılan mRNA
+    # ekspresyon seviyesi (ya da onun da yoksa dekonvolüsyon belirsizliği)
+    # metilasyonun DOLAYLI ve kalibre edilmemiş bir vekilidir, gerçek bir
+    # metilasyon ölçümü değildir (bkz. denetim raporu bulgusu B-03/B-04).
+    # Fallback (entropy-tabanlı) yol özellikle düşük güvenilirliklidir —
+    # dekonvolüsyon belirsizliğinin metilasyonla doğrudan bir biyolojik
+    # ilişkisi yoktur, yalnızca kaba bir ikincil sezgiseldir.
     if mgmt_expr is not None and len(mgmt_expr) > 0:
         avg_mgmt = float(np.mean(mgmt_expr))
         logger.info(f"Direct MGMT gene expression average: {avg_mgmt:.4f}")
         if avg_mgmt < 0.2:
-            profile["mgmt_status"]       = "Methylated — Low MGMT Expression (TMZ Response Expected)" if is_english else "Metile (Methylated) — Düşük MGMT Ekspresyonu (TMZ'ye Yanıt Beklenir)"
+            profile["mgmt_status"]       = "Methylated (proxy, low confidence) — Low MGMT mRNA Expression" if is_english else "Metile (Methylated) (vekil, düşük güven) — Düşük MGMT mRNA Ekspresyonu"
             profile["mgmt_status_short"] = "Methylated"
             profile["mgmt_color"]        = "var(--success)"
             mgmt_methylated = True
         else:
-            profile["mgmt_status"]       = "Unmethylated — High MGMT Expression (TMZ Resistance)" if is_english else "Metile Değil (Unmethylated) — Yüksek MGMT Ekspresyonu (TMZ Direnci)"
+            profile["mgmt_status"]       = "Unmethylated (proxy, low confidence) — High MGMT mRNA Expression" if is_english else "Metile Değil (Unmethylated) (vekil, düşük güven) — Yüksek MGMT mRNA Ekspresyonu"
             profile["mgmt_status_short"] = "Unmethylated"
             profile["mgmt_color"]        = "var(--danger)"
             mgmt_methylated = False
+        profile["mgmt_confidence"] = "low"
     else:
-        # Fallback: entropy-based proxy
+        # Fallback: entropy-based proxy — mRNA ölçümü de mevcut değilse
+        # kullanılan İKİNCİL, çok daha zayıf bir sezgisel. Metilasyonla
+        # dolaylı bile olsa doğrudan bir ilişkisi yoktur.
         if avg_entropy < 0.45:
-            profile["mgmt_status"]       = "Methylated — TMZ Response Expected (Heterogeneity Proxy)" if is_english else "Metile (Methylated) — TMZ'ye Yanıt Beklenir (Heterojenite Proxy)"
+            profile["mgmt_status"]       = "Methylated (very low confidence heuristic — heterogeneity proxy, no direct biological link)" if is_english else "Metile (Methylated) (çok düşük güven, sezgisel — heterojenite vekili, doğrudan biyolojik ilişki yok)"
             profile["mgmt_status_short"] = "Methylated"
             profile["mgmt_color"]        = "var(--success)"
             mgmt_methylated = True
         elif avg_entropy > 0.70:
-            profile["mgmt_status"]       = "Unmethylated — TMZ Resistance Expected (Heterogeneity Proxy)" if is_english else "Metile Değil (Unmethylated) — TMZ Direnci Beklenir (Heterojenite Proxy)"
+            profile["mgmt_status"]       = "Unmethylated (very low confidence heuristic — heterogeneity proxy, no direct biological link)" if is_english else "Metile Değil (Unmethylated) (çok düşük güven, sezgisel — heterojenite vekili, doğrudan biyolojik ilişki yok)"
             profile["mgmt_status_short"] = "Unmethylated"
             profile["mgmt_color"]        = "var(--danger)"
             mgmt_methylated = False
@@ -270,6 +486,7 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
             profile["mgmt_status_short"] = "Indeterminate" if is_english else "Belirsiz"
             profile["mgmt_color"]        = "#F4A261"
             mgmt_methylated = None
+        profile["mgmt_confidence"] = "very_low"
 
     # ── Tedavi Protokolü ────────────────────────────────────
     protocols = []
@@ -291,12 +508,21 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
             rationale.append("Stupp protokolü (2005) & NCCN Kılavuzları (2024) — Standart Tedavi")
 
         if mgmt_methylated is False:
+            # ÖNEMLİ (klinik doğruluk notu): BELOB çalışması NÜKS glioblastom
+            # popülasyonunda yapılmıştır — yeni tanı, MGMT-unmethylated
+            # hastalar için birinci basamak KILAVUZ ÖNERİSİ Lomustine+
+            # Bevacizumab DEĞİL, hâlâ standart RT+eşzamanlı/idame TMZ'dir
+            # (NCCN/EORTC). MGMT durumu TMZ'nin beklenen fayda büyüklüğünü
+            # etkiler, birinci basamak rejimi nüks-hastalık rejimiyle
+            # değiştirmez (bkz. denetim raporu bulgusu B-05).
             if is_english:
-                protocols.append("🩸 <strong>Lomustine (CCNU) + Bevacizumab Combination</strong> or Clinical Trials (due to high risk of TMZ resistance)")
-                rationale.append("MGMT-unmethylated resistance management: Lomustine + Bevacizumab (BELOB trial)")
+                protocols.append("⚠️ MGMT-unmethylated: standard RT + TMZ (Stupp) still recommended as first-line per NCCN/EORTC — lower expected TMZ benefit, so clinical trial enrollment should be prioritized at diagnosis")
+                protocols.append("🩸 <strong>Lomustine (CCNU) + Bevacizumab</strong> is evidence-based for RECURRENT disease (BELOB trial) — not a newly-diagnosed first-line substitute")
+                rationale.append("MGMT-unmethylated: first-line remains Stupp protocol (NCCN/EORTC); Lomustine+Bevacizumab (BELOB) applies at recurrence, not at diagnosis")
             else:
-                protocols.append("🩸 <strong>Lomustine (CCNU) + Bevacizumab Kombinasyonu</strong> veya Klinik Çalışmalar (TMZ direnci riski nedeniyle)")
-                rationale.append("MGMT-unmethylated direnç yönetimi: Lomustine + Bevacizumab (BELOB trial)")
+                protocols.append("⚠️ MGMT-unmethylated: NCCN/EORTC kılavuzlarına göre birinci basamakta hâlâ standart RT + TMZ (Stupp) önerilir — beklenen TMZ faydası daha düşük olduğundan tanı anında klinik çalışmaya yönlendirme önceliklendirilmelidir")
+                protocols.append("🩸 <strong>Lomustine (CCNU) + Bevacizumab</strong> kanıtı NÜKS hastalık içindir (BELOB trial) — yeni tanıda birinci basamak rejim yerine geçmez")
+                rationale.append("MGMT-unmethylated: birinci basamak hâlâ Stupp protokolü (NCCN/EORTC); Lomustine+Bevacizumab (BELOB) nükste geçerlidir, tanı anında değil")
         elif mgmt_methylated is True:
             if is_english:
                 protocols.append("✅ MGMT methylation → strong response expectation to TMZ chemotherapy")
@@ -428,22 +654,46 @@ def main() -> None:
                 else:
                     pathway_avgs[p] = 0.0
                     
-            # Calculate risk and cell proportions for clinical synthesis
+            # DÜZELTME (2026-08-20, ikinci sentetik hasta profiliyle canlı test
+            # sırasında bulundu): `ct.get('TAM', 0)` ve `ct.get('Tumor_MES', 0)`
+            # yalnızca kaldırılmış, sabit-kodlanmış 8-tipli eski fallback panelin
+            # ("TAM_Macrophage"/"TAM_Microglia" birleşimi 'TAM', "Tumor_MES" gibi)
+            # anahtar isimleriyle eşleşiyordu. Gerçek üretimde kullanılan
+            # configs/config.yaml tabanlı 12-tipli panel bu anahtarları hiç
+            # üretmiyor (tumor_associated_macrophage/microglia/m1_macrophage/
+            # m2_macrophage gibi ayrık isimler kullanıyor) — bu yüzden tam_total
+            # SESSİZCE her zaman 0 çıkıyor ve "Klinik Sentez"/"Özet" bölümleri
+            # her hastada yanlışlıkla "%0.0 TAM, STABİL risk" diye yazıyordu.
+            # Mezenkimal (MES) alt-tip fraksiyonu ise pipeline'ın HİÇBİR yerinde
+            # (config.yaml'daki 'gbm_states' gen seti dahi kullanılmıyor) gerçekten
+            # hesaplanmıyor — bu yüzden mes_total'ı "düzeltmek" yerine, veri
+            # gerçekten mevcut değilse bunu dürüstçe "ölçülmedi" olarak işaretliyoruz
+            # (aşağıda mes_data_available), sahte bir %0.0 değeri sunmak yerine.
             tam_total = 0.0
             mes_total = 0.0
+            mes_data_available = False
             lr_totals = {}
+            _MYELOID_KEYWORDS = ("microglia", "macrophage", "myeloid", "monocyte")
             for s in spots_data:
                 ct = s.get('ct', {})
-                tam_total += float(ct.get('TAM', 0))
-                mes_total += float(ct.get('Tumor_MES', 0))
+                if 'TAM' in ct:
+                    tam_total += float(ct.get('TAM', 0))
+                else:
+                    tam_total += sum(
+                        float(v) for k, v in ct.items()
+                        if any(kw in k.lower() for kw in _MYELOID_KEYWORDS)
+                    )
+                if 'Tumor_MES' in ct:
+                    mes_total += float(ct.get('Tumor_MES', 0))
+                    mes_data_available = True
                 for lr_key, val in s.get('lr', {}).items():
                     lr_totals[lr_key] = lr_totals.get(lr_key, 0.0) + float(val)
-                    
+
             tam_avg = (tam_total / len(spots_data)) * 100 if spots_data else 0
-            mes_avg = (mes_total / len(spots_data)) * 100 if spots_data else 0
-            
+            mes_avg = (mes_total / len(spots_data)) * 100 if (spots_data and mes_data_available) else None
+
             # Risk classification
-            mes_risk = T_HIGH if mes_avg > 15.0 else T_MEDIUM
+            mes_risk = T_HIGH if (mes_avg is not None and mes_avg > 15.0) else T_MEDIUM
             tam_risk = T_HIGH if tam_avg > 20.0 else T_MEDIUM
             gen_risk = T_AGGRESSIVE if (mes_risk == T_HIGH or tam_risk == T_HIGH) else T_STABLE
             
@@ -464,7 +714,7 @@ def main() -> None:
             # Now generate synthesis
             top_pathway = max(pathway_avgs, key=pathway_avgs.get) if pathway_avgs else "PI3K_AKT_mTOR"
             dominant_lr_val = top_lr[0][0] if top_lr else "SPP1-CD44"
-            mes_high = mes_avg > 15.0
+            mes_high = mes_avg is not None and mes_avg > 15.0
             tam_high = tam_avg > 20.0
             
             # Escape strings safely for embedding into synthesis
@@ -613,12 +863,21 @@ def main() -> None:
                     </tr>"""
                 
                 # Match druggable targets (downstream)
+                # NOT: "FDA Approved/Onaylı" etiketi, bu ilaçların GLİOBLASTOM
+                # için değil, BAŞKA endikasyonlar için onaylı olduğu
+                # durumlarda açıkça belirtilir. Erlotinib NSCLC/pankreas
+                # kanserinde onaylı — GBM'de EGFR-TKI çalışmaları tutarlı
+                # şekilde başarısız oldu. Pembrolizumab/Atezolizumab genel
+                # checkpoint blokajında onaylı ama seçilmemiş GBM'de değil
+                # (CheckMate-548 dahil, GBM'de checkpoint blokajı beklenen
+                # faydayı göstermedi). Endikasyon farkını belirtmeden
+                # "FDA Onaylı" göstermek yanıltıcıdır (bkz. B-06).
                 if is_english:
                     DRUGGABLE_CATALOG = {
                         "AKT1": ("Ipatasertib", "AKT Kinase Inhibitor", "Phase II"),
                         "AKT2": ("Ipatasertib", "AKT Kinase Inhibitor", "Phase II"),
                         "MTOR": ("Everolimus", "mTORC1 Complex Blockade", "Phase II/III"),
-                        "EGFR": ("Erlotinib", "Receptor Tyrosine Kinase Inhibitor", "FDA Approved"),
+                        "EGFR": ("Erlotinib", "Receptor Tyrosine Kinase Inhibitor", "FDA Approved (NSCLC/pancreatic — NOT GBM; EGFR-TKIs failed in GBM trials)"),
                         "MET": ("Crizotinib", "HGFR / MET Tyrosine Kinase Blockade", "Phase II"),
                         "KDR": ("Cabozantinib", "VEGFR2 Receptor Inhibition", "Phase III"),
                         "FLT1": ("Regorafenib", "Multikinase / VEGFR1 Inhibitor", "Phase II"),
@@ -626,15 +885,15 @@ def main() -> None:
                         "JAK2": ("Ruxolitinib", "JAK1/JAK2 Signaling Inhibitor", "Phase I/II"),
                         "STAT3": ("Napabucasin", "STAT3 Transcription Inhibitor", "Phase III"),
                         "CD44": ("RG7356", "Anti-CD44 Monoclonal Antibody", "Phase I"),
-                        "PDCD1": ("Pembrolizumab", "Anti-PD-1 Checkpoint Blockade", "FDA Approved"),
-                        "CD274": ("Atezolizumab", "Anti-PD-L1 Checkpoint Blockade", "FDA Approved")
+                        "PDCD1": ("Pembrolizumab", "Anti-PD-1 Checkpoint Blockade", "FDA Approved (other cancers — NOT GBM; underperformed in GBM trials incl. CheckMate-548)"),
+                        "CD274": ("Atezolizumab", "Anti-PD-L1 Checkpoint Blockade", "FDA Approved (other cancers — NOT GBM)")
                     }
                 else:
                     DRUGGABLE_CATALOG = {
                         "AKT1": ("Ipatasertib", "AKT Kinaz İnhibitörü", "Faz II"),
                         "AKT2": ("Ipatasertib", "AKT Kinaz İnhibitörü", "Faz II"),
                         "MTOR": ("Everolimus", "mTORC1 Kompleks Blokajı", "Faz II/III"),
-                        "EGFR": ("Erlotinib", "Reseptör Tirozin Kinaz İnhibitörü", "FDA Onaylı"),
+                        "EGFR": ("Erlotinib", "Reseptör Tirozin Kinaz İnhibitörü", "FDA Onaylı (NSCLC/pankreas — GBM DEĞİL; EGFR-TKI'ler GBM çalışmalarında başarısız oldu)"),
                         "MET": ("Crizotinib", "HGFR / MET Tirozin Kinaz Blokajı", "Faz II"),
                         "KDR": ("Cabozantinib", "VEGFR2 Reseptör İnhibisyonu", "Faz III"),
                         "FLT1": ("Regorafenib", "Multikinaz / VEGFR1 İnhibitörü", "Faz II"),
@@ -642,8 +901,8 @@ def main() -> None:
                         "JAK2": ("Ruxolitinib", "JAK1/JAK2 Sinyal İletim İnhibitörü", "Faz I/II"),
                         "STAT3": ("Napabucasin", "STAT3 Transkripsiyon İnhibitörü", "Faz II"),
                         "CD44": ("RG7356", "Anti-CD44 Monoklonal Antikor", "Faz I"),
-                        "PDCD1": ("Pembrolizumab", "Anti-PD-1 Checkpoint Blokajı", "FDA Onaylı"),
-                        "CD274": ("Atezolizumab", "Anti-PD-L1 Checkpoint Blokajı", "FDA Onaylı")
+                        "PDCD1": ("Pembrolizumab", "Anti-PD-1 Checkpoint Blokajı", "FDA Onaylı (diğer kanserler — GBM DEĞİL; CheckMate-548 dahil GBM çalışmalarında beklenen faydayı göstermedi)"),
+                        "CD274": ("Atezolizumab", "Anti-PD-L1 Checkpoint Blokajı", "FDA Onaylı (diğer kanserler — GBM DEĞİL)")
                     }
                 
                 matched_dr = {}
@@ -673,6 +932,9 @@ def main() -> None:
 
     # Calculate Clinical Profile
     clinical = compute_clinical_profile(gnn_summary, deconv_summary, prep_summary)
+
+    # Analiz güvenilirlik / veri kalitesi özeti [GELİŞTİRME]
+    data_quality = compute_data_quality_summary(gnn_summary, deconv_summary, clinical)
 
     fig_dirs = [
         OUTPUT_DIR / "publication_figures",
@@ -710,16 +972,22 @@ def main() -> None:
     dominant_lr_val_safe = escape_html(dominant_lr_val)
     mgmt_status_short_safe = escape_html(clinical.get('mgmt_status_short', 'MGMT'))
 
+    # DÜZELTME (2026-08-20): mes_avg artık gerçek veri yoksa None olabilir
+    # (bkz. yukarıdaki mes_data_available notu) — pipeline'da mezenkimal
+    # alt-tip fraksiyonu şu an hiçbir yerde gerçekten hesaplanmadığı için,
+    # sahte bir yüzde sunmak yerine bu cümle koşullu kuruluyor.
     if is_english:
+        mes_clause = f"a <strong>{mes_avg:.1f}% Mesenchymal (MES)</strong> fraction and a " if mes_avg is not None else ""
         exec_summary = (
-            f"Glio-Cartography analysis of the patient revealed a microenvironment characterized by a <strong>{mes_avg:.1f}% Mesenchymal (MES)</strong> fraction and a "
+            f"Glio-Cartography analysis of the patient revealed a microenvironment characterized by {mes_clause}"
             f"<strong>{tam_avg:.1f}% Tumor-Associated Macrophage (TAM)</strong> infiltration across the tumor, presenting a <strong>{risk_level_safe}</strong> risk profile. "
             f"The <strong>{dominant_lr_val_safe}</strong> interaction, identified as the most active signaling axis in the spatial communication analysis, supports intense "
             f"immunosuppression and high invasive potential. Considering the patient's <strong>{mgmt_status_short_safe}</strong> status, an aggressive combined treatment protocol is recommended."
         )
     else:
+        mes_clause = f"<strong>%{mes_avg:.1f} Mezenkimal (MES)</strong> fraksiyonu ve " if mes_avg is not None else ""
         exec_summary = (
-            f"Hastada yapılan Glio-Cartography analizi sonucunda, tümör genelinde <strong>%{mes_avg:.1f} Mezenkimal (MES)</strong> fraksiyonu ve "
+            f"Hastada yapılan Glio-Cartography analizi sonucunda, tümör genelinde {mes_clause}"
             f"<strong>%{tam_avg:.1f} Tümör İlişkili Makrofaj (TAM)</strong> infiltrasyonu ile karakterize, <strong>{risk_level_safe}</strong> risk profiline sahip "
             f"bir mikroçevre saptanmıştır. Uzamsal iletişim analizinde en aktif sinyal ekseni olan <strong>{dominant_lr_val_safe}</strong> etkileşimi, yoğun "
             f"immünsüpresyonu ve yüksek invazyon potansiyelini desteklemekte olup, hastanın <strong>{mgmt_status_short_safe}</strong> "
@@ -730,12 +998,13 @@ def main() -> None:
     pubmed_refs = generate_pubmed_references(dominant_lr_val, clinical.get('mgmt_status_short'), pathways)
     half = len(pubmed_refs) // 2
     
-    show_in_pubmed_text = "🔗 Show in PubMed &rarr;" if is_english else "🔗 PubMed'de Göster &rarr;"
+    show_in_pubmed_text = "🔍 Search PubMed &rarr;" if is_english else "🔍 PubMed'de Ara &rarr;"
+    search_lbl = "Search" if is_english else "Arama"
 
     ref_html_left = "".join(f"""
         <div style="margin: 12px 0; font-size: 0.85rem; line-height: 1.5; border-bottom: 1px dashed var(--border); padding-bottom: 8px;">
             <span style="font-weight: bold; color: var(--accent);">{escape_html(r['topic'])}:</span><br>
-            <span style="color: #ccc; font-size: 0.8rem;">"{escape_html(r['title'])}"</span><br>
+            <span style="color: #ccc; font-size: 0.8rem;">{search_lbl}: {escape_html(r['search_query'])}</span><br>
             <a href="{escape_html(r['url'])}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 0.78rem; font-weight: 600;">{show_in_pubmed_text}</a>
         </div>
     """ for r in pubmed_refs[:half])
@@ -743,7 +1012,7 @@ def main() -> None:
     ref_html_right = "".join(f"""
         <div style="margin: 12px 0; font-size: 0.85rem; line-height: 1.5; border-bottom: 1px dashed var(--border); padding-bottom: 8px;">
             <span style="font-weight: bold; color: var(--accent);">{escape_html(r['topic'])}:</span><br>
-            <span style="color: #ccc; font-size: 0.8rem;">"{escape_html(r['title'])}"</span><br>
+            <span style="color: #ccc; font-size: 0.8rem;">{search_lbl}: {escape_html(r['search_query'])}</span><br>
             <a href="{escape_html(r['url'])}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 0.78rem; font-weight: 600;">{show_in_pubmed_text}</a>
         </div>
     """ for r in pubmed_refs[half:])
@@ -783,7 +1052,19 @@ def main() -> None:
     T_CELL_TYPES = "Cell Types" if is_english else "Hücre Tipi"
     T_DECONV_CONFIDENCE = "Deconvolution Confidence" if is_english else "Dekonvolüsyon Güveni"
     T_GNN_TEST_MSE = "GNN Test MSE" if is_english else "GNN Test MSE"
-    
+
+    T_DATA_QUALITY_TITLE = "🔎 Analysis Reliability Summary" if is_english else "🔎 Analiz Güvenilirlik Özeti"
+    T_DATA_QUALITY_DESC = (
+        "This panel aggregates the pipeline's own internal confidence signals for THIS run "
+        "(method fallbacks, cross-method agreement, marker panel coverage, proxy-metric confidence). "
+        "It reflects computational reliability, not clinical certainty."
+    ) if is_english else (
+        "Bu panel, bu çalıştırma için pipeline'ın kendi iç güven sinyallerini "
+        "(yöntem fallback'leri, çapraz-yöntem örtüşmesi, marker paneli kapsamı, vekil-metrik güveni) "
+        "tek yerde toplar. Hesapsal güvenilirliği yansıtır, klinik kesinliği DEĞİL."
+    )
+    T_OVERALL_LEVEL = "Genel Değerlendirme" if not is_english else "Overall Assessment"
+
     T_CLINICAL_DECISION = "🧬 Clinical Profile &amp; Decision Support" if is_english else "🧬 Klinik Özellikler &amp; Karar Destek"
     T_RUO_WARNING = "⚠️ These evaluations are computational predictions. Histopathology and molecular testing are required for clinical validation." if is_english else "⚠️ Bu değerlendirmeler hesapsal tahmindir. Klinik onay için histopatoloji ve moleküler testler gereklidir."
     T_MOLECULAR_PROFILE = "Molecular Profile (Computational)" if is_english else "Moleküler Profil (Hesapsal)"
@@ -900,6 +1181,12 @@ def main() -> None:
         "T_CELL_TYPES": T_CELL_TYPES,
         "T_DECONV_CONFIDENCE": T_DECONV_CONFIDENCE,
         "T_GNN_TEST_MSE": T_GNN_TEST_MSE,
+        "T_DATA_QUALITY_TITLE": T_DATA_QUALITY_TITLE,
+        "T_DATA_QUALITY_DESC": T_DATA_QUALITY_DESC,
+        "T_OVERALL_LEVEL": T_OVERALL_LEVEL,
+        "dq_overall_label": data_quality["overall_label"],
+        "dq_overall_color": data_quality["overall_color"],
+        "dq_items": data_quality["items"],
         "T_CLINICAL_DECISION": T_CLINICAL_DECISION,
         "T_RUO_WARNING": T_RUO_WARNING,
         "T_MOLECULAR_PROFILE": T_MOLECULAR_PROFILE,
@@ -1017,17 +1304,25 @@ def main() -> None:
             ]
             
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
+
+        # Not: sadece returncode==0'a güvenmek yeterli değil — dosyanın
+        # gerçekten diskte olduğunu da doğrula (bkz. denetim bulgusu A-07).
+        pdf_generated = (result.returncode == 0) and pdf_out_path.exists()
+        if pdf_generated:
             logger.info(f"   ✅ PDF rapor: {pdf_out_path}")
         else:
-            logger.error(f"PDF script hatası:\n{result.stderr}")
+            logger.error(f"PDF rapor üretimi başarısız oldu (returncode={result.returncode}):\n{result.stderr}")
     except Exception as e:
+        pdf_generated = False
         logger.warning(f"   PDF oluşturma hatası: {e}")
 
-    logger.info("✅ Stage 5 tamamlandı")
-    print(json.dumps({"stage": "report", "status": "done",
-                      "html_report": str(html_path)}))
+    logger.info("✅ Stage 5 tamamlandı" + ("" if pdf_generated else " (PDF rapor üretilemedi — yalnızca HTML rapor mevcut)"))
+    print(json.dumps({
+        "stage": "report", "status": "done",
+        "html_report": str(html_path),
+        "pdf_report": str(pdf_out_path) if pdf_generated else None,
+        "pdf_generated": pdf_generated,
+    }))
 
 if __name__ == "__main__":
     main()

@@ -114,14 +114,19 @@ function registerIpcHandlers() {
     const envDir = path.join(app.getPath('userData'), 'python_env');
     const zipPath = path.join(app.getPath('userData'), 'python_env.zip');
 
+    // Track the app's own current version instead of a hardcoded release tag —
+    // matches the convention used in updater.js (`v${app.getVersion()}`).
+    const releaseTag = `v${app.getVersion()}`;
     let url = '';
     if (process.platform === 'win32') {
-      url = 'https://github.com/asametsoyl/glio-cartography/releases/download/v1.1.0/python_env_windows.zip';
+      url = `https://github.com/asametsoyl/glio-cartography/releases/download/${releaseTag}/python_env_windows.zip`;
     } else if (process.platform === 'darwin') {
-      url = 'https://github.com/asametsoyl/glio-cartography/releases/download/v1.1.0/python_env_macos.zip';
+      url = `https://github.com/asametsoyl/glio-cartography/releases/download/${releaseTag}/python_env_macos.zip`;
+    } else if (process.platform === 'linux') {
+      url = `https://github.com/asametsoyl/glio-cartography/releases/download/${releaseTag}/python_env_linux.zip`;
     } else {
       const err = new Error(
-        `Otomatik yükleme sadece Windows ve macOS için desteklenmektedir. Platformunuz: ${process.platform}`
+        `Otomatik yükleme sadece Windows, macOS ve Linux için desteklenmektedir. Platformunuz: ${process.platform}`
       );
       setBackendState('failed', err.message);
       throw err;
@@ -198,25 +203,25 @@ function registerIpcHandlers() {
     const serverUrl = process.env.LICENSE_SERVER_URL || 'https://gliocartography.com';
 
     try {
-      // JWT token al (gerekirse)
+      // JWT token al (opsiyonel)
       const storedToken = _store ? _store.get('api_token', null) : null;
-      if (!storedToken) {
-        return { success: false, error: 'Lütfen önce web sitesinde giriş yapın ve lisans anahtarınızı kopyalayın.' };
-      }
 
       const response = await new Promise((resolve, reject) => {
         const url = new URL('/api/licenses/activate', serverUrl);
         const body = JSON.stringify({ license_key: licenseKey, machine_id: machineId });
+        const headers = {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        };
+        if (storedToken) {
+          headers['Authorization'] = `Bearer ${storedToken}`;
+        }
         const options = {
           hostname: url.hostname,
           port: url.port || (url.protocol === 'https:' ? 443 : 80),
           path: url.pathname,
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(body),
-            'Authorization': `Bearer ${storedToken}`,
-          },
+          headers
         };
         const lib = url.protocol === 'https:' ? require('https') : require('http');
         const req = lib.request(options, (res) => {
@@ -539,7 +544,7 @@ function registerIpcHandlers() {
 
   // Eksik bağımlılıkları otomatik onar (pip install)
   ipcMain.handle('repair-dependencies', async (_ev, packages) => {
-    const { findPython } = require('./backend-manager');
+    const { findPython, getExtendedPath } = require('./backend-manager');
     const pythonInfo = findPython(_store, app);
     if (!pythonInfo.bin) {
       return { ok: false, error: 'Python bulunamadı' };
@@ -552,9 +557,19 @@ function registerIpcHandlers() {
 
     return new Promise((resolve) => {
       const { spawn: spawnNode } = require('child_process');
+      const extraPath = getExtendedPath(pythonInfo.bin);
       const proc = spawnNode(pythonInfo.bin, ['-m', 'pip', 'install', '--upgrade', ...pkgList], {
         stdio: 'pipe',
-        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: '1',
+          // Match the main backend spawn's encoding — avoids UnicodeEncodeError /
+          // mojibake on Windows consoles with a non-UTF-8 codepage when pip prints
+          // Turkish characters (ı, ş, ğ, ç, ö, ü).
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1',
+          PATH: extraPath,
+        },
       });
 
       let output = '';

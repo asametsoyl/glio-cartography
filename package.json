@@ -30,6 +30,10 @@
     "mac": {
       "category": "public.app-category.medical",
       "icon": "assets/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
         "dmg",
         "zip"
@@ -38,7 +42,7 @@
     "win": {
       "icon": "assets/icon.png",
       "publisherName": "Glio-Cartography Team",
-      "requestedExecutionLevel": "requireAdministrator",
+      "requestedExecutionLevel": "asInvoker",
       "verifyUpdateCodeSignature": false,
       "target": [
         "nsis"
@@ -57,6 +61,7 @@
     },
     "linux": {
       "icon": "assets/icon.png",
+      "category": "Science;Medical;",
       "target": [
         "AppImage"
       ]
@@ -69,7 +74,7 @@
     ],
     "extraResources": [
       {
-        "from": "../configs",
+        "from": "configs",
         "to": "configs"
       },
       {

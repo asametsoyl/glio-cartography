@@ -170,69 +170,81 @@ async function reloadBackground() {
   });
 }
 
+// Eşzamanlılık kilidi (Örtüşen loadResults() çağrılarında eski yanıtın yeni yanıtı ezmesini önler)
+let _isLoadResultsLoading = false;
+
 async function loadResults() {
-  if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
-
-  // Load the drug catalog cache
-  await drugCatalog.load();
-
-  const dataPath = `${state.outputDir}/gnn/data.json`;
-  const exists = await api.fileExists(dataPath);
-  if (!exists) { showWarningToast('GNN çıktı verisi henüz mevcut değil. Pipeline\'ın tamamlanmasını bekleyin.'); return; }
-
-  document.getElementById('results-placeholder').classList.add('hidden');
-  document.getElementById('results-viewer').classList.remove('hidden');
-
-  const btnNodes = document.querySelectorAll('button[onclick="loadResults()"]');
-  btnNodes.forEach(btn => { btn.dataset.orig = btn.textContent; btn.textContent = '⏳ Yükleniyor...'; btn.disabled = true; });
-
-  // Browser'ın "Yükleniyor" metnini çizmesine izin ver
-  await new Promise(r => setTimeout(r, 50));
+  if (_isLoadResultsLoading) return;
+  _isLoadResultsLoading = true;
 
   try {
-    const res = await fetch(api.toLocalUrl(dataPath));
-    if (!res.ok) throw new Error('Fetch failed');
-    state.gnnData = await res.json();
-  } catch (e) {
-    console.warn("Native fetch başarısız, IPC okumasına dönülüyor:", e);
-    state.gnnData = await api.readJsonFile(dataPath);
+    if (!state.outputDir) { showWarningToast('Önce bir analiz çalıştırın.'); return; }
+
+    // Load the drug catalog cache
+    await drugCatalog.load();
+
+    const dataPath = `${state.outputDir}/gnn/data.json`;
+    const exists = await api.fileExists(dataPath);
+    if (!exists) { showWarningToast('GNN çıktı verisi henüz mevcut değil. Pipeline\'ın tamamlanmasını bekleyin.'); return; }
+
+    document.getElementById('results-placeholder').classList.add('hidden');
+    document.getElementById('results-viewer').classList.remove('hidden');
+
+    const btnNodes = document.querySelectorAll('button[onclick="loadResults()"]');
+    btnNodes.forEach(btn => { btn.dataset.orig = btn.textContent; btn.textContent = '⏳ Yükleniyor...'; btn.disabled = true; });
+
+    // Browser'ın "Yükleniyor" metnini çizmesine izin ver
+    await new Promise(r => setTimeout(r, 50));
+
+    let loadedData;
+    try {
+      const res = await fetch(api.toLocalUrl(dataPath));
+      if (!res.ok) throw new Error('Fetch failed');
+      loadedData = await res.json();
+    } catch (e) {
+      console.warn("Native fetch başarısız, IPC okumasına dönülüyor:", e);
+      loadedData = await api.readJsonFile(dataPath);
+    }
+    state.gnnData = loadedData;
+
+    // Reset derived caches so stale values from a previous dataset don't leak through
+    state._medianRisk = null;
+    state._lrMax = 1;
+    state._pathwayMin = 0;
+    state._pathwayMax = 1;
+    state._geneMax = 0.0001;
+    state.cellTypes = null;
+
+    // Post-processing of gnnData: convert lr dictionary to lr_pairs array if needed!
+    if (state.gnnData && state.gnnData.spots) {
+      // Build a persistent spot-lookup map for O(1) access in BFS and simulations
+      state._spotById = new Map(state.gnnData.spots.map(s => [s.id, s]));
+
+      state.gnnData.spots.forEach(spot => {
+        if (spot.lr && !spot.lr_pairs) {
+          spot.lr_pairs = Object.entries(spot.lr).map(([key, val]) => {
+            const parts = key.split('-');
+            return {
+              ligand: parts[0] || '',
+              receptor: parts[1] || '',
+              score: val
+            };
+          });
+        }
+      });
+    }
+
+    btnNodes.forEach(btn => { btn.textContent = btn.dataset.orig; btn.disabled = false; });
+
+    if (isWebGLSupported()) {
+      clearThreeJSScene();
+    }
+
+    await reloadBackground();
+    setupNewFeatures();
+  } finally {
+    _isLoadResultsLoading = false;
   }
-
-  // Reset derived caches so stale values from a previous dataset don't leak through
-  state._medianRisk = null;
-  state._lrMax = 1;
-  state._pathwayMin = 0;
-  state._pathwayMax = 1;
-  state._geneMax = 0.0001;
-  state.cellTypes = null;
-
-  // Post-processing of gnnData: convert lr dictionary to lr_pairs array if needed!
-  if (state.gnnData && state.gnnData.spots) {
-    // Build a persistent spot-lookup map for O(1) access in BFS and simulations
-    state._spotById = new Map(state.gnnData.spots.map(s => [s.id, s]));
-
-    state.gnnData.spots.forEach(spot => {
-      if (spot.lr && !spot.lr_pairs) {
-        spot.lr_pairs = Object.entries(spot.lr).map(([key, val]) => {
-          const parts = key.split('-');
-          return {
-            ligand: parts[0] || '',
-            receptor: parts[1] || '',
-            score: val
-          };
-        });
-      }
-    });
-  }
-
-  btnNodes.forEach(btn => { btn.textContent = btn.dataset.orig; btn.disabled = false; });
-
-  if (isWebGLSupported()) {
-    clearThreeJSScene();
-  }
-
-  await reloadBackground();
-  setupNewFeatures();
 }
 
 /**
@@ -392,7 +404,7 @@ async function runSimulationKnockout() {
 
       if (regType === 'knockdown') {
         if (target === 'HIF1A') {
-          state.koText = `HIF1A nakavtı, hipoksi yolak skorlarını baskılayarak Pseudopalisading Necrosis zonunun genel risk indeksini %${zoneShiftPercent} (teorik %42) düşürmüştür.`;
+          state.koText = `HIF1A nakavtı, hipoksi yolak skorlarını baskılayarak Pseudopalisading Necrosis zonunun genel risk indeksini %${zoneShiftPercent} düşürmüştür.`;
         } else {
           state.koText = `${target} nakavtı (siRNA), downstream ligand-reseptör ağlarını ve metabolik yolakları baskılayarak ${targetZone} zonunun genel risk indeksini %${zoneShiftPercent} düşürmüştür.`;
         }
@@ -401,7 +413,7 @@ async function runSimulationKnockout() {
         const overexpressZone = target === 'EGFR' ? 'Cellular Tumor' : 'Infiltrating Tumor';
         const upShift = res.mean_shifts[overexpressZone] || 0;
         const upShiftPercent = (upShift * 100).toFixed(2);
-        state.koText = `Aşırı İfade: ${target} | MAPK/ERK yolak aktivasyonuyla ${overexpressZone} proliferasyonunu GNN modeline göre %${upShiftPercent} (teorik %28.5) artırmıştır.`;
+        state.koText = `Aşırı İfade: ${target} | MAPK/ERK yolak aktivasyonuyla ${overexpressZone} proliferasyonunu GNN modeline göre %${upShiftPercent} artırmıştır.`;
         showExportSuccessToast(`⚠️ ${target} Overexpression (Aşırı İfade) simüle edildi!`);
       }
     }
@@ -1055,8 +1067,8 @@ function renderSpatialCanvasWebGL() {
       });
     } catch (e) {
       console.error("Failed to create WebGL context in glRenderer:", e);
-      showWebGLFallbackMessage(canvas.parentElement || canvas);
-      return;
+      glRenderer = null;
+      throw e;
     }
 
     canvas.addEventListener('webglcontextlost', (event) => {
@@ -2059,26 +2071,98 @@ function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
     if (resultsDiv) resultsDiv.classList.add('hidden');
   }
 
+  renderSpotDetailsCard(clickedSpot);
+}
+
+// Spot detay kartını verilen spot nesnesine göre doldurur. handleSpotClick
+// tarafından ve "neden bu zon?" panelindeki komşu spot linklerinden
+// (jumpToSpot) çağrılır.
+function renderSpotDetailsCard(clickedSpot) {
   const card = document.getElementById('spot-details-card');
-  document.getElementById('sd-title').textContent = window.i18n.t('results.spot_details_title', { id: clickedSpot.id || '?' });
+  document.getElementById('sd-title').textContent = window.i18n.t('results.spot_details_title', { id: clickedSpot.id ?? '?' });
 
   const ctObj = clickedSpot.ct || {};
   const sortedCT = Object.entries(ctObj).sort((a,b)=>b[1]-a[1]).slice(0, 4);
-  document.getElementById('sd-celltypes').innerHTML = sortedCT.map(([c, v]) => 
+  document.getElementById('sd-celltypes').innerHTML = sortedCT.map(([c, v]) =>
     `<li><span>${c}</span> <span style="font-family:var(--mono)">%${(v*100).toFixed(1)}</span></li>`
   ).join('');
 
+  // ── "Neden bu zon?" açıklanabilirlik paneli ────────────────────
+  // Gerçek veriye dayanır: (a) baskın zonu tanımlayan marker genlerin bu
+  // spot'taki z-skoru (GNN'in eğitim/pseudo-etiket hesaplamasında da
+  // kullandığı AYNI imzalardan — bkz. train_gnn.py export_attention_to_json),
+  // (b) GNN'in dikkat (attention) ağırlığıyla en güçlü bağlantılı komşu
+  // spot'lar. Bu, modelin kendi öğrendiği sinyalleri gösterir — bağımsız bir
+  // klinik doğrulama DEĞİLDİR.
+  const whyZone = clickedSpot.why_zone || null;
+  const edges = clickedSpot.edges || {};
+  // GATConv self-loop içerdiğinden bir spot kendi attention listesinde de
+  // görünebilir — "komşu" listesinde kendisini hariç tutuyoruz.
+  const topNeighbors = Object.entries(edges)
+    .filter(([nid]) => String(nid) !== String(clickedSpot.id))
+    .sort((a, b) => (b[1] || 0) - (a[1] || 0))
+    .slice(0, 5);
+
+  const markersHtml = (whyZone && whyZone.top_markers && whyZone.top_markers.length)
+    ? whyZone.top_markers.map(m => {
+        const pct = Math.max(0, Math.min(100, (m.zscore + 1) * 40));
+        return `<div style="display:flex; align-items:center; margin:2px 0;">
+          <span style="font-family:var(--mono)">${escapeHtml(m.gene)}</span>
+          <span style="flex:1; margin:0 8px; height:5px; background:rgba(255,255,255,0.08); border-radius:3px; overflow:hidden;">
+            <span style="display:block; height:100%; width:${pct}%; background:var(--accent);"></span>
+          </span>
+          <span style="font-family:var(--mono); color:var(--accent)">z=${m.zscore.toFixed(2)}</span>
+        </div>`;
+      }).join('')
+    : `<div style="color:var(--text-muted)">${window.i18n.t('common.no_data')}</div>`;
+
+  const neighborsHtml = topNeighbors.length
+    ? topNeighbors.map(([nid, w]) =>
+        `<span class="btn-secondary" style="display:inline-block; margin:2px 4px 0 0; padding:2px 8px; font-size:0.75rem; cursor:pointer;" onclick="jumpToSpot(${nid})">#${nid} <span style="color:var(--accent)">(${(w*100).toFixed(0)}%)</span></span>`
+      ).join('')
+    : `<span style="color:var(--text-muted)">${window.i18n.t('common.no_data')}</span>`;
+
+  // MC-Dropout ile tahmin edilen belirsizlik (varsa) — bkz. train_gnn.py
+  // mc_dropout_zone_uncertainty. "±%X" olarak, güven yüzdesinin yanında.
+  let confidenceHtml = '';
+  if (whyZone && whyZone.zone) {
+    const prob = (clickedSpot.zones && clickedSpot.zones[whyZone.zone]) || null;
+    const unc = clickedSpot.zone_uncertainty;
+    if (prob !== null) {
+      const probPct = (prob * 100).toFixed(0);
+      const uncPct = (unc !== null && unc !== undefined) ? ` <span style="color:var(--text-muted); font-weight:normal;">(±%${(unc*100).toFixed(0)} ${window.i18n.t('results.mc_dropout_uncertainty')})</span>` : '';
+      confidenceHtml = `<span style="font-size:0.85rem;">%${probPct}${uncPct}</span>`;
+    }
+  }
+
+  document.getElementById('sd-why-zone').innerHTML = `
+    <div style="display:flex; align-items:baseline; gap:8px; margin-bottom:6px;">
+      <span style="font-weight:bold; color:#F4A261;">${escapeHtml((whyZone && whyZone.zone) || '')}</span>
+      ${confidenceHtml}
+    </div>
+    <div style="color:var(--text-muted); font-size:0.78rem; margin-bottom:4px;">${window.i18n.t('results.top_zone_markers')}</div>
+    ${markersHtml}
+    <div style="color:var(--text-muted); font-size:0.78rem; margin:8px 0 4px;">${window.i18n.t('results.top_attention_neighbors')}</div>
+    <div>${neighborsHtml}</div>
+  `;
+
   const lrArr = clickedSpot.lr_pairs || [];
   const sortedLR = [...lrArr].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0, 5);
-  document.getElementById('sd-lr').innerHTML = sortedLR.length ? sortedLR.map(lr => 
+  document.getElementById('sd-lr').innerHTML = sortedLR.length ? sortedLR.map(lr =>
     `<li><span>${lr.ligand} → ${lr.receptor}</span> <span style="font-family:var(--mono); color:var(--accent)">${(lr.score||0).toFixed(2)}</span></li>`
   ).join('') : `<li>${window.i18n.t('common.no_data')}</li>`;
 
   if (clickedSpot.drug && clickedSpot.drug !== 'N/A') {
+    const pert = clickedSpot.drug_perturbation_score;
+    const pertHtml = (pert !== null && pert !== undefined)
+      ? `<div style="color:var(--text-muted);">${window.i18n.t('results.perturbation_score')}: <span style="color:var(--accent)">${(pert).toFixed(2)}</span></div>
+         <div style="color:var(--text-muted); font-size:0.72rem; margin-top:2px;">${window.i18n.t('results.perturbation_score_note')}</div>`
+      : '';
     document.getElementById('sd-drug').innerHTML = `
-      <div style="font-weight:bold; color:#F4A261">${clickedSpot.drug}</div>
-      <div style="color:var(--text-muted); margin-top:4px;">${window.i18n.t('results.target')}: ${clickedSpot.drug_target}</div>
+      <div style="font-weight:bold; color:#F4A261">${escapeHtml(clickedSpot.drug)}</div>
+      <div style="color:var(--text-muted); margin-top:4px;">${window.i18n.t('results.target')}: ${escapeHtml(clickedSpot.drug_target || '')}</div>
       <div style="color:var(--text-muted);">${window.i18n.t('results.alignment_score')}: ${(clickedSpot.drug_score||0).toFixed(2)}</div>
+      ${pertHtml}
     `;
   } else {
     document.getElementById('sd-drug').innerHTML = `<div style="color:var(--text-muted)">${window.i18n.t('results.no_prominent_target')}</div>`;
@@ -2086,6 +2170,15 @@ function handleSpotClick(e, canvas, spots, toCanvasFunc, r) {
 
   card.classList.remove('hidden');
 }
+
+// "Neden bu zon?" panelindeki komşu spot rozetlerinden çağrılır — o
+// spot'un detay kartını, mevcut yüklü sonuç verisinden bularak gösterir.
+function jumpToSpot(spotId) {
+  const spots = (state.gnnData && state.gnnData.spots) || [];
+  const target = spots.find(s => s.id === spotId) || spots[spotId];
+  if (target) renderSpotDetailsCard(target);
+}
+window.jumpToSpot = jumpToSpot;
 
 function showSpotTooltip(e, canvas, spots, ZONES, toCanvasFunc, r) {
   const rect = canvas.getBoundingClientRect();
@@ -2191,8 +2284,8 @@ function initCompareWebGL(side) {
         });
       } catch (e) {
         console.error("Failed to create WebGL context (left):", e);
-        showWebGLFallbackMessage(canvas.parentElement || canvas);
-        return;
+        glRendererLeft = null;
+        throw e;
       }
 
       canvas.addEventListener('webglcontextlost', (event) => {
@@ -2234,8 +2327,8 @@ function initCompareWebGL(side) {
         });
       } catch (e) {
         console.error("Failed to create WebGL context (right):", e);
-        showWebGLFallbackMessage(canvas.parentElement || canvas);
-        return;
+        glRendererRight = null;
+        throw e;
       }
 
       canvas.addEventListener('webglcontextlost', (event) => {
@@ -2475,7 +2568,7 @@ function renderCompareWebGL(side) {
   const pointSize = r * 2.2;
 
   // Local scale bounds for coloring
-  let sideLRMax = 1;
+  let sideLRMax = 0;
   if (mode === 'lr') {
     spots.forEach(s => {
       const pairs = s.lr_pairs || [];
@@ -2484,6 +2577,7 @@ function renderCompareWebGL(side) {
         if (mx > sideLRMax) sideLRMax = mx;
       }
     });
+    if (sideLRMax === 0) sideLRMax = 1;
   }
 
   let sidePathwayMin = Infinity, sidePathwayMax = -Infinity;
@@ -2728,7 +2822,7 @@ function renderCompareCanvas2D(side) {
   }
 
   // Bounds precalculations for 2D Canvas colors
-  let sideLRMax = 1;
+  let sideLRMax = 0;
   if (mode === 'lr') {
     spots.forEach(s => {
       const pairs = s.lr_pairs || [];
@@ -2737,6 +2831,7 @@ function renderCompareCanvas2D(side) {
         if (mx > sideLRMax) sideLRMax = mx;
       }
     });
+    if (sideLRMax === 0) sideLRMax = 1;
   }
 
   let sidePathwayMin = Infinity, sidePathwayMax = -Infinity;

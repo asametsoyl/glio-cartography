@@ -53,10 +53,6 @@ contextBridge.exposeInMainWorld('glioAPI', {
     ipcRenderer.removeAllListeners('backend-log');
     ipcRenderer.on('backend-log', (_, msg) => cb(msg));
   },
-  onPipelineProgress: (cb) => {
-    ipcRenderer.removeAllListeners('pipeline-progress');
-    ipcRenderer.on('pipeline-progress', (_, data) => cb(data));
-  },
   onDownloadProgress: (cb) => {
     ipcRenderer.removeAllListeners('download-progress');
     ipcRenderer.on('download-progress', (_, data) => cb(data));

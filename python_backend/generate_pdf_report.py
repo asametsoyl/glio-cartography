@@ -976,6 +976,11 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
 # ============================================================
 
 def main():
+    """PDF raporu üretir. Başarıda True, herhangi bir hata durumunda False döner.
+
+    Çağıranlar (server.py, stage5_report.py) dönüş değerini kontrol etmeden
+    bu adımı "başarılı" saymamalı — bkz. denetim raporu bulgusu A-07.
+    """
     logger.info("=" * 60)
     logger.info(main_loc["title"])
     logger.info("=" * 60)
@@ -984,7 +989,7 @@ def main():
     if not os.path.exists(JSON_PATH):
         logger.error(main_loc["json_not_found"].format(JSON_PATH))
         logger.error(main_loc["run_export"])
-        return
+        return False
 
     # Veri yükle
     logger.info(main_loc["loading"].format(JSON_PATH))
@@ -992,7 +997,7 @@ def main():
         data = load_data(JSON_PATH)
     except Exception as e:
         logger.error(main_loc["load_failed"].format(e))
-        return
+        return False
 
     spots      = data.get('spots', [])
     zone_names = data.get('metadata', {}).get('zones', [])
@@ -1000,7 +1005,7 @@ def main():
 
     if not spots:
         logger.error(main_loc["spots_empty"])
-        return
+        return False
     if not zone_names:
         logger.warning(main_loc["zones_not_found"])
         zone_names = list(spots[0].get('zones', {}).keys()) if spots else []
@@ -1011,7 +1016,7 @@ def main():
         stats = aggregate_data(spots, zone_names, zonal_contrast_data)
     except ValueError as e:
         logger.error(main_loc["agg_error"].format(e))
-        return
+        return False
 
     logger.info(main_loc["risk_profile"].format(stats['gen_risk']))
     logger.info(main_loc["median_os"].format(stats['median_survival']))
@@ -1058,7 +1063,11 @@ def main():
 
     except Exception as e:
         logger.error(main_loc["pdf_error"].format(e))
-        return
+        return False
+
+    if not os.path.exists(PDF_PATH):
+        logger.error(f"PDF dosyası beklenen konumda bulunamadı: {PDF_PATH}")
+        return False
 
     logger.info("=" * 60)
     logger.info(main_loc["pdf_success"].format(PDF_PATH))
@@ -1068,7 +1077,9 @@ def main():
     logger.info(main_loc["median_os_lbl"].format(stats['median_survival']))
     logger.info(main_loc["top_drug_lbl"].format(stats['top_drugs'][0][0] if stats['top_drugs'] else 'N/A'))
     logger.info("=" * 60)
+    return True
 
 
 if __name__ == "__main__":
-    main()
+    _ok = main()
+    sys.exit(0 if _ok else 1)

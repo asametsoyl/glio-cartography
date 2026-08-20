@@ -238,9 +238,19 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// Single kill point for the backend process
-app.on('before-quit', () => {
-  killBackend();
+// Single kill point for the backend process.
+// killBackend() now returns a Promise that resolves only once the backend
+// has actually exited, or once its 5s SIGTERM→SIGKILL escalation timer has
+// run its course. Without deferring quit until that settles, Electron could
+// tear down the process before the SIGKILL fallback ever gets to fire.
+let _quitting = false;
+app.on('before-quit', (event) => {
+  if (_quitting) return; // second pass — let the real quit proceed
+  event.preventDefault();
+  _quitting = true;
+  killBackend()
+    .catch((e) => console.warn('[Main] killBackend cleanup error:', e && e.message))
+    .finally(() => app.quit());
 });
 
 // Note: will-quit does NOT call killBackend — before-quit is sufficient.

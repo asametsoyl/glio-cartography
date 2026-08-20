@@ -5,12 +5,15 @@
     "last_fetched": null,
     "last_fetched_source": "bundled",
     "entry_count": 27,
-    "notes": "Refresh via POST /drug-catalog/refresh to pull live data from ChEMBL REST API"
+    "notes": "Refresh via POST /drug-catalog/refresh to pull live data from ChEMBL REST API",
+    "data_integrity_note": "chemblId, aliases ve pmids alanlari 2026-08-19'da canli ChEMBL ve PubMed (NCBI eutils) API'lerine karsi tek tek dogrulanip duzeltildi (bkz. denetim raporu bulgusu A-16). Eski pmids degerlerinin TAMAMI (31/31) rastgele/ilgisiz PubMed kayitlarina isaret ediyordu. 2026-08-20'de phase/fdaStatus/mechanism/target alanlari da ClinicalTrials.gov ve ChEMBL get_mechanism API'lerine karsi tek tek dogrulandi: 6 kayitta GBM'e ozgu faz numarasi duzeltildi, 2 kayitta fdaStatus (Breakthrough/Fast Track iddiasi kanitlanamadi -> Investigational) duzeltildi, 2 kayitta hedef/mekanizma yanlisligi (Ramucirumab: FLT1 degil KDR/VEGFR2; Lenalidomide: TNFR1 degil CRBN) duzeltildi, 2 kayit (AZD8797, Semaphorin-3A Mimetic) hicbir klinik kayit bulunamadigi icin 'Preklinik' seviyesine dusuruldu, 7 kayitta GBM'e ozgu klinik veri bulunamadigi notlara eklendi. Detaylar her kaydin 'notes' alanindaki 'DUZELTME' etiketli metinlerde."
   },
   "catalog": {
     "SPP1-ITGAV": {
       "drug": "Cilengitide",
-      "aliases": ["EMD121974"],
+      "aliases": [
+        "EMD121974"
+      ],
       "drugClass": "Integrin Antagonist",
       "mechanism": "αvβ3/αvβ5 integrin selektif inhibisyonu ile tümör invazyon ve neovaskülarizasyonunu engeller",
       "target": "ITGAV (αv integrin)",
@@ -18,13 +21,18 @@
       "phase": "III",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.72,
-      "chemblId": "CHEMBL1213",
-      "pmids": ["18559635", "26321513"],
+      "chemblId": "CHEMBL429876",
+      "pmids": [
+        "26918452",
+        "37092563"
+      ],
       "notes": "CENTRIC MGMT-methylated GBM trial (Phase III) negatif sonuçlandı; ITGAV-yüksek alt-grupta araştırma devam ediyor."
     },
     "SPP1-CD44": {
       "drug": "RG7356",
-      "aliases": ["Anti-CD44 mAb"],
+      "aliases": [
+        "RO5429083"
+      ],
       "drugClass": "Monoclonal Antibody",
       "mechanism": "CD44 reseptörüne bağlanarak SPP1-driven MES geçiş ve invazyon sinyal iletimini bloke eder",
       "target": "CD44",
@@ -32,13 +40,17 @@
       "phase": "I",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.35,
-      "chemblId": null,
-      "pmids": ["26152365"],
-      "notes": "MES-like tümör alt-tiplerinde SPP1 ekspresyonu ile güçlü korelasyon; tek ajan aktivite sınırlı."
+      "chemblId": "CHEMBL4594601",
+      "pmids": [
+        "27507056"
+      ],
+      "notes": "MES-like tümör alt-tiplerinde SPP1 ekspresyonu ile güçlü korelasyon; tek ajan aktivite sınırlı. DÜZELTME (2026-08-20): ClinicalTrials.gov'da GBM'e özgü kayıtlı bir çalışma bulunamadı (yalnızca solid tümör ve AML'de Faz I çalışmaları mevcut; ChEMBL'de bu bileşik için mekanizma kaydı yok) — faz bilgisi GBM dışı verilere dayanıyor, spekülatif olarak değerlendirilmeli."
     },
     "MMP9-CD44": {
       "drug": "Marimastat",
-      "aliases": ["BB-2516", "Batimastat"],
+      "aliases": [
+        "BB-2516"
+      ],
       "drugClass": "MMP Inhibitor",
       "mechanism": "Geniş spektrum matriks metalloproteinaz inhibisyonu ile BEH bozulması ve invazyon yolağını keser",
       "target": "MMP9 (ve MMP2)",
@@ -46,13 +58,17 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.42,
-      "chemblId": "CHEMBL1336",
-      "pmids": ["11101108"],
-      "notes": "Musküloskeletal toksisite doz kısıtlayıcı; GBM'de tek ajan etkisi sınırlı."
+      "chemblId": "CHEMBL279785",
+      "pmids": [
+        "16639492"
+      ],
+      "notes": "Musküloskeletal toksisite doz kısıtlayıcı. DÜZELTME (2026-08-20): 'GBM'de tek ajan etkisi sınırlı' ifadesi yanıltıcıydı — ClinicalTrials.gov'da bu ilaç için glioma/GBM çalışması bulunamadı (kayıtlı 5 çalışma meme kanseri, akciğer kanseri ×2, vasküler anomali ve yılan sokması içindir); faz bilgisi GBM dışı verilere dayanıyor."
     },
     "VEGFA-KDR": {
       "drug": "Bevacizumab",
-      "aliases": ["Avastin"],
+      "aliases": [
+        "Avastin"
+      ],
       "drugClass": "Anti-VEGF Monoclonal Antibody",
       "mechanism": "VEGF-A'yı dolaşımdan nötralize ederek KDR (VEGFR2) sinyalini, tümör anjiyogenezini ve BEH geçirgenliğini baskılar",
       "target": "VEGFA",
@@ -61,26 +77,35 @@
       "fdaStatus": "Approved",
       "evidenceScore": 0.88,
       "chemblId": "CHEMBL1201583",
-      "pmids": ["19923552", "22649104"],
+      "pmids": [
+        "34980260",
+        "33339404"
+      ],
       "notes": "FDA onaylı (rekürren GBM, 2009). OS'da anlamlı iyileşme yok; PFS2 ve görüntüleme yanıtı belirgin."
     },
     "VEGFA-FLT1": {
       "drug": "Ramucirumab",
-      "aliases": ["Cyramza"],
-      "drugClass": "VEGFR-1 Antagonist mAb",
-      "mechanism": "VEGFR-1 (FLT1) dış bölgesine bağlanarak VEGFA sinyal blokajı ve anti-anjiyogenez sağlar",
-      "target": "FLT1 (VEGFR1)",
+      "aliases": [
+        "Cyramza"
+      ],
+      "drugClass": "Anti-VEGFR2 Monoclonal Antibody",
+      "mechanism": "ChEMBL/FDA etiketine göre asıl hedefi VEGFR-2 (KDR)'dir, VEGFR-1 (FLT1) değil; VEGFR-2 dış bölgesine bağlanarak VEGFA/VEGFC/VEGFD sinyalini ve anti-anjiyogenezi bloke eder",
+      "target": "KDR (VEGFR2) — NOT: bu LR-ekseni FLT1 olarak etiketlense de belgelenmiş asıl hedefi VEGFR2'dir",
       "primaryZone": "Microvascular Proliferation",
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.51,
-      "chemblId": "CHEMBL1742999",
-      "pmids": ["27548668"],
-      "notes": "VEGFA-KDR blokajına direnç geliştiren hastalarda FLT1 ekseninde alternatif."
+      "chemblId": "CHEMBL1743062",
+      "pmids": [
+        "19754219"
+      ],
+      "notes": "GBM'de tamamlanmış Faz II çalışma mevcut (NCT00895180). DÜZELTME (2026-08-20, ChEMBL mec_id 2273 doğrulaması): Ramucirumab'ın asıl bağlandığı reseptör VEGFR-2 (KDR)'dir — VEGFA-KDR eksenine paralel bir seçenek olarak değerlendirilmeli, doğrudan FLT1 antagonisti değildir."
     },
     "ANGPT2-TEK": {
       "drug": "Trebananib",
-      "aliases": ["AMG386", "Nesvacumab"],
+      "aliases": [
+        "AMG 386"
+      ],
       "drugClass": "Angiopoietin Antagonist",
       "mechanism": "Angiopoietin-1/2'yi nötralize ederek Tie2 aktivasyonunu bloke eder; vasküler normalleştirme",
       "target": "ANGPT2/ANGPT1 (Tie2 ligandları)",
@@ -88,69 +113,96 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.45,
-      "chemblId": "CHEMBL2103804",
-      "pmids": ["24951203"],
+      "chemblId": "CHEMBL2108568",
+      "pmids": [
+        "32154928",
+        "29266174"
+      ],
       "notes": "Bevacizumab ile kombinasyon sinerjisi gözlemlenmiş."
     },
     "CD274-PDCD1": {
       "drug": "Pembrolizumab",
-      "aliases": ["Keytruda", "Nivolumab", "Atezolizumab"],
+      "aliases": [
+        "Keytruda",
+        "MK-3475",
+        "Lambrolizumab"
+      ],
       "drugClass": "PD-1/PD-L1 Checkpoint Inhibitor",
       "mechanism": "PD-1 (T hücre) veya PD-L1 (tümör) blokajı ile T hücre tükenmişliğini geri döndürür, anti-tümör bağışıklığı restore eder",
       "target": "PDCD1 (PD-1) / CD274 (PD-L1)",
       "primaryZone": "Infiltrating Tumor",
       "phase": "III",
-      "fdaStatus": "Breakthrough",
+      "fdaStatus": "Investigational",
       "evidenceScore": 0.61,
-      "chemblId": "CHEMBL2007641",
-      "pmids": ["29149921", "26014291"],
-      "notes": "CheckMate-143 GBM OS negatif. TMB-yüksek / MSI-H alt-grupta etkin; BBB penetrasyonu kısıtlı."
+      "chemblId": "CHEMBL3137343",
+      "pmids": [
+        "42396282",
+        "40466642"
+      ],
+      "notes": "CheckMate-143 GBM OS negatif. TMB-yüksek / MSI-H alt-grupta etkin; BBB penetrasyonu kısıtlı. DÜZELTME (2026-08-20): fdaStatus 'Breakthrough' idi — Pembrolizumab'ın bilinen FDA Atılım Terapi statüleri başka endikasyonlar içindir (örn. 2013 NSCLC), GBM'e özgü bir Atılım statüsü bulunamadı; 'Investigational' olarak düzeltildi. Faz III iddiası kayıtlı GBM çalışmalarıyla (NCT06749925, NCT06556563/EF-41) doğrulandı."
     },
     "TIGIT-VSIG3": {
       "drug": "Tiragolumab",
-      "aliases": ["Vibostolimab", "AB154"],
+      "aliases": [
+        "RO7092284",
+        "MTIG7192A"
+      ],
       "drugClass": "TIGIT Checkpoint Inhibitor",
-      "mechanism": "TIGIT-VSIG3 eksenini bloke ederek NK/CD8+ T hücre fonksiyonunu restore eder; PD-1 ile sinerjik",
+      "mechanism": "TIGIT reseptör blokajı ile NK/CD8+ T hücre fonksiyonunu restore eder; PD-1 ile sinerjik. NOT: TIGIT'in literatürde en iyi belgelenmiş ligandları PVR (CD155) ve PVRL2 (CD112)'dir — VSIG3 daha çok VISTA'nın ligandı olarak tanımlanır, bu yüzden 'TIGIT-VSIG3' eşleşmesi bilimsel olarak tartışmalıdır.",
       "target": "TIGIT",
       "primaryZone": "Infiltrating Tumor",
       "phase": "II",
-      "fdaStatus": "Fast Track",
-      "evidenceScore": 0.40,
-      "chemblId": null,
-      "pmids": ["35623341"],
-      "notes": "Pembrolizumab kombinasyonu ile aktif klinik çalışmalar devam ediyor."
+      "fdaStatus": "Investigational",
+      "evidenceScore": 0.22,
+      "chemblId": "CHEMBL4298050",
+      "pmids": [
+        "38858106"
+      ],
+      "notes": "DÜZELTME (2026-08-20): GBM'e özgü tek kayıtlı çalışma (NCT06328036, Faz II) 0 hasta ile GERİ ÇEKİLDİ (withdrawn, hiç yürütülmedi) — Faz II iddiası zayıf kanıta dayanıyor. fdaStatus 'Fast Track' idi; Tiragolumab'ın NSCLC'de kısa süreli bir Atılım Terapi statüsü vardı (2023'te geri çekildi), GBM'e özgü Hızlı Yol statüsü kanıtı bulunamadı — 'Investigational' olarak düzeltildi, kanıt skoru buna göre düşürüldü."
     },
     "LAG3-MHC2": {
       "drug": "Relatlimab",
-      "aliases": ["BMS-986016"],
+      "aliases": [
+        "BMS-986016"
+      ],
       "drugClass": "LAG-3 Checkpoint Inhibitor",
       "mechanism": "LAG-3 blokajı ile MHC-II bağımlı T hücre aktivasyon baskısını kaldırır",
       "target": "LAG3",
       "primaryZone": "Infiltrating Tumor",
-      "phase": "I",
+      "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.28,
-      "chemblId": null,
-      "pmids": ["33531385"],
-      "notes": "Nivolumab kombinasyonu (Opdualag) melanomda onaylı; GBM'de erken faz."
+      "chemblId": "CHEMBL3990044",
+      "pmids": [
+        "41109920"
+      ],
+      "notes": "Nivolumab kombinasyonu (Opdualag) melanomda onaylı; GBM'de erken faz. DÜZELTME (2026-08-20): phase 'I' idi — kayıtlı Faz II GBM çalışmaları bulundu (NCT06816927 Duke 'GIANT' - aktif; NCT07644312; NCT06325683 - askıya alındı), 'II' olarak düzeltildi."
     },
     "CXCL12-CXCR4": {
       "drug": "Plerixafor",
-      "aliases": ["AMD3100", "Motixafortide"],
+      "aliases": [
+        "Mozobil",
+        "AMD3100"
+      ],
       "drugClass": "CXCR4 Antagonist",
       "mechanism": "CXCR4'ü bloke ederek tümöre myeloid hücre göçünü ve GBM kök hücre nişini bozar",
       "target": "CXCR4",
       "primaryZone": "Infiltrating Tumor",
-      "phase": "I",
+      "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.48,
-      "chemblId": "CHEMBL281074",
-      "pmids": ["22089424", "34315665"],
-      "notes": "FDA onaylı hematopoetik kök hücre mobilizasyonunda; GBM'de temozolomid ile kombinasyon çalışmaları devam ediyor."
+      "chemblId": "CHEMBL18442",
+      "pmids": [
+        "27489862",
+        "25860928"
+      ],
+      "notes": "FDA onaylı hematopoetik kök hücre mobilizasyonunda; GBM'de temozolomid ile kombinasyon çalışmaları devam ediyor. DÜZELTME (2026-08-20): phase 'I' idi — tamamlanmış bir Faz II GBM çalışması bulundu (NCT03746080, sürekli infüzyon plerixafor + WBRT + TMZ, yeni tanı GBM), 'II' olarak düzeltildi."
     },
     "CCL2-CCR2": {
       "drug": "Carlumab",
-      "aliases": ["CNTO888"],
+      "aliases": [
+        "CNTO888"
+      ],
       "drugClass": "Anti-CCL2 Monoclonal Antibody",
       "mechanism": "CCL2 sitokinini nötralize ederek monosit/TAM kaçışını ve tümör mikro-ortamı imunosupresyonunu azaltır",
       "target": "CCL2 (MCP-1)",
@@ -158,9 +210,11 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.32,
-      "chemblId": null,
-      "pmids": ["23853111"],
-      "notes": "Klinik aktivite sınırlı; TAM repolarizasyon kombinasyonları araştırılıyor."
+      "chemblId": "CHEMBL1742999",
+      "pmids": [
+        "22907596"
+      ],
+      "notes": "TAM repolarizasyon kombinasyonları hipotez düzeyinde araştırılıyor. DÜZELTME (2026-08-20): 'Klinik aktivite sınırlı' ifadesi GBM verisi olduğunu ima ediyordu — ClinicalTrials.gov'da glioma/GBM çalışması bulunamadı (kayıtlı 4 çalışma pulmoner fibroz, prostat kanseri ve solid tümör ×2 içindir); faz bilgisi GBM dışı verilere dayanıyor."
     },
     "CX3CL1-CX3CR1": {
       "drug": "AZD8797",
@@ -169,16 +223,21 @@
       "mechanism": "CX3CR1 blokajı ile mikroglia/TAM tutunma ve pro-tümöral polarizasyonunu baskılar",
       "target": "CX3CR1",
       "primaryZone": "Cellular Tumor",
-      "phase": "I",
+      "phase": "Preklinik",
       "fdaStatus": "Investigational",
-      "evidenceScore": 0.25,
-      "chemblId": null,
-      "pmids": ["25616956"],
-      "notes": "Beyin penetrasyonu için optimize edilmiş küçük molekül."
+      "evidenceScore": 0.12,
+      "chemblId": "CHEMBL2349310",
+      "pmids": [
+        "32236410"
+      ],
+      "notes": "Beyin penetrasyonu için optimize edilmiş küçük molekül. DÜZELTME (2026-08-20): phase 'I' idi — ClinicalTrials.gov'da bu bileşik için (herhangi bir endikasyonda) HİÇBİR kayıtlı klinik çalışma bulunamadı; preklinik araç bileşiği olarak 'Preklinik' düzeyine düşürüldü, kanıt skoru buna göre azaltıldı."
     },
     "IL6-IL6R": {
       "drug": "Tocilizumab",
-      "aliases": ["Siltuximab", "Sarilumab"],
+      "aliases": [
+        "Actemra",
+        "RoActemra"
+      ],
       "drugClass": "IL-6R Antagonist mAb",
       "mechanism": "IL-6R'yi bloke ederek STAT3-bağımlı tümör proliferasyonunu, immunosupresyonu ve glukoneogenezi baskılar",
       "target": "IL6R (gp80)",
@@ -186,8 +245,11 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.43,
-      "chemblId": "CHEMBL1201833",
-      "pmids": ["18055556"],
+      "chemblId": "CHEMBL1237022",
+      "pmids": [
+        "19326989",
+        "39231832"
+      ],
       "notes": "FDA onaylı romatolojik hastalıklarda; GBM'de TMZ kombinasyonu araştırılıyor."
     },
     "IL4-IL4R": {
@@ -197,30 +259,39 @@
       "mechanism": "IL-4/IL-13 ortak reseptör blokajı ile Th2-polarize TME imunosupresyonunu kırar",
       "target": "IL4R",
       "primaryZone": "Infiltrating Tumor",
-      "phase": "I",
+      "phase": "Preklinik",
       "fdaStatus": "Investigational",
-      "evidenceScore": 0.20,
-      "chemblId": "CHEMBL4523562",
-      "pmids": ["23946290"],
-      "notes": "Atopik dermatit için onaylı; GBM öncesi klinik düzeyde araştırma."
+      "evidenceScore": 0.2,
+      "chemblId": "CHEMBL2108675",
+      "pmids": [
+        "41159943"
+      ],
+      "notes": "Atopik dermatit için onaylı (GBM dışı). DÜZELTME (2026-08-20): phase 'I' idi ama not zaten 'GBM öncesi klinik düzeyde' diyordu — bu iç tutarsızlık giderildi; ClinicalTrials.gov'da glioma/GBM/beyin tümörü çalışması bulunamadı, 'Preklinik' olarak düzeltildi."
     },
     "TNF-TNFRSF1A": {
       "drug": "Lenalidomide",
-      "aliases": ["Thalidomide"],
-      "drugClass": "Immunomodulatory Agent",
-      "mechanism": "NF-κB/TNF sinyal eksenini baskılayarak tümöral inflamasyon döngüsünü ve anjiogenezi kırar",
-      "target": "TNFRSF1A (TNFR1)",
+      "aliases": [
+        "Revlimid"
+      ],
+      "drugClass": "Immunomodulatory Agent (IMiD)",
+      "mechanism": "ChEMBL/EMA etiketine göre asıl mekanizması cereblon (CRBN) E3 ubiquitin ligaz kompleksine bağlanarak substrat proteinlerini (IKZF1/3) degradasyona uğratmasıdır (klasik IMiD etkisi); NF-κB/TNF baskılanması bu cereblon-aracılı immunomodülasyonun DOLAYLI, downstream bir sonucudur — doğrudan bir TNFR1 antagonisti değildir",
+      "target": "CRBN (Cereblon) — TNFRSF1A üzerindeki etki dolaylıdır",
       "primaryZone": "Cellular Tumor",
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.38,
       "chemblId": "CHEMBL848",
-      "pmids": ["15520062"],
-      "notes": "Anti-anjiyogenik ve imunomodülatör çift etki; bevacizumab ile kombinasyon çalışmaları var."
+      "pmids": [
+        "32323826",
+        "37126770"
+      ],
+      "notes": "Anti-anjiyogenik ve imunomodülatör çift etki; bevacizumab ile kombinasyon çalışmaları var. GBM'de tamamlanmış Faz II çalışma mevcut (NCT00165477). DÜZELTME (2026-08-20, ChEMBL doğrulaması): target 'TNFRSF1A (TNFR1)' idi — belgelenmiş asıl hedef cereblon (CRBN)'dir, TNF baskılanması dolaylı bir etkidir."
     },
     "AREG-EGFR": {
       "drug": "Erlotinib",
-      "aliases": ["Gefitinib", "Osimertinib"],
+      "aliases": [
+        "Tarceva"
+      ],
       "drugClass": "EGFR Tyrosine Kinase Inhibitor",
       "mechanism": "EGFR kinaz aktivitesini reversibl bloke ederek RAS/MAPK ve PI3K/AKT yolağı proliferasyonunu keser",
       "target": "EGFR",
@@ -229,40 +300,56 @@
       "fdaStatus": "Investigational",
       "evidenceScore": 0.55,
       "chemblId": "CHEMBL553",
-      "pmids": ["16166375"],
+      "pmids": [
+        "33235994"
+      ],
       "notes": "EGFR-vIII mutasyonu ve PTEN kaybı varlığında direnç mekanizmaları aktif; CNS penetrasyonu sınırlı."
     },
     "HGF-MET": {
       "drug": "Cabozantinib",
-      "aliases": ["Crizotinib", "Tepotinib"],
+      "aliases": [
+        "Cabometyx",
+        "Cometriq"
+      ],
       "drugClass": "MET/VEGFR2 Kinase Inhibitor",
       "mechanism": "MET aktivasyonunu ve bevacizumab direncinde telafi edici HGF-MET eksenini bloke eder",
       "target": "MET",
       "primaryZone": "Leading Edge",
       "phase": "II",
       "fdaStatus": "Investigational",
-      "evidenceScore": 0.50,
-      "chemblId": "CHEMBL2185978",
-      "pmids": ["22926829"],
+      "evidenceScore": 0.5,
+      "chemblId": "CHEMBL2105717",
+      "pmids": [
+        "29036345",
+        "29660005"
+      ],
       "notes": "Bevacizumab sonrası progresyonda etkinlik göstermiştir; anti-invazif potansiyel."
     },
     "PDGFB-PDGFRB": {
       "drug": "Imatinib",
-      "aliases": ["Gleevec", "Dasatinib"],
+      "aliases": [
+        "Gleevec"
+      ],
       "drugClass": "PDGFR Tyrosine Kinase Inhibitor",
       "mechanism": "PDGFR-β kinaz inhibisyonu ile mikro-ortamdaki pericyte-tümör iletişimini ve anjiogenezi baskılar",
       "target": "PDGFRB",
       "primaryZone": "Microvascular Proliferation",
-      "phase": "II",
+      "phase": "III",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.46,
       "chemblId": "CHEMBL941",
-      "pmids": ["12610505"],
-      "notes": "BBB substrat pump etkisi (P-gp) biyoyararlanımı düşürüyor; TKI kombinasyonları araştırılıyor."
+      "pmids": [
+        "19789313",
+        "18359865"
+      ],
+      "notes": "BBB substrat pump etkisi (P-gp) biyoyararlanımı düşürüyor; TKI kombinasyonları araştırılıyor. DÜZELTME (2026-08-20): phase 'II' idi — tamamlanmış bir Faz III GBM çalışması bulundu (NCT00154375, Novartis, imatinib+hidroksiüre vs. hidroksiüre, TMZ-dirençli progresif GBM, n=240), 'III' olarak düzeltildi."
     },
     "FGF2-FGFR1": {
       "drug": "Erdafitinib",
-      "aliases": ["Pemigatinib", "Infigratinib"],
+      "aliases": [
+        "Balversa",
+        "JNJ-42756493"
+      ],
       "drugClass": "FGFR Tyrosine Kinase Inhibitor",
       "mechanism": "FGF-FGFR1 büyüme faktörü eksenini bloke ederek glioma hücre proliferasyonu ve FGF2-bağımlı anti-apoptozu keser",
       "target": "FGFR1",
@@ -270,41 +357,53 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.38,
-      "chemblId": "CHEMBL3989891",
-      "pmids": ["28706083"],
+      "chemblId": "CHEMBL3545376",
+      "pmids": [
+        "39211518",
+        "42456086"
+      ],
       "notes": "FGFR1/2/3 mutasyonlu tümörlerde seçimli fayda beklentisi."
     },
     "VEGFA-NRP1": {
-      "drug": "Semaphorin-3A Mimetic",
-      "aliases": ["NRP1 mAb"],
-      "drugClass": "Neuropilin-1 Antagonist",
+      "drug": "Semaphorin-3A Mimetic (kavramsal)",
+      "aliases": [
+        "NRP1 mAb"
+      ],
+      "drugClass": "Neuropilin-1 Antagonist (araştırma konsepti)",
       "mechanism": "NRP1 blokajı ile VEGF ko-reseptör aktivasyonunu ve hipoksi-bağımlı tümör damarlanmasını azaltır",
       "target": "NRP1",
       "primaryZone": "Pseudopalisading Necrosis",
-      "phase": "I",
+      "phase": "Preklinik",
       "fdaStatus": "Investigational",
-      "evidenceScore": 0.22,
+      "evidenceScore": 0.1,
       "chemblId": null,
-      "pmids": ["15322522"],
-      "notes": "Hipoksik çekirdek bölgelerinde NRP1 aşırı ekspresyonu GBM'de iyi belgelenmiş."
+      "pmids": [
+        "37788099",
+        "33302912"
+      ],
+      "notes": "Hipoksik çekirdek bölgelerinde NRP1 aşırı ekspresyonu GBM'de iyi belgelenmiş (biyolojik gerekçe geçerli). DÜZELTME (2026-08-20): Bu, isimlendirilmiş gerçek bir klinik aday DEĞİLDİR — ChEMBL/ClinicalTrials.gov'da kayıt yok (chemblId zaten null idi). NRP1-hedefli kavramsal bir yaklaşımı temsil eder; 'Faz I' iddiası kaldırıldı, 'Preklinik' olarak işaretlendi ve isim 'kavramsal' etiketiyle güncellendi."
     },
     "LDHA-SLC16A1": {
       "drug": "2-DG (2-Deoxy-D-Glucose)",
-      "aliases": ["Lonidamine"],
+      "aliases": [],
       "drugClass": "Glycolysis Inhibitor",
       "mechanism": "Warburg etkisini bloke ederek LDHA-bağımlı laktat efflüxü ve tümör metabolik reprogramlama döngüsünü keser",
       "target": "LDHA / SLC16A1 (MCT1)",
       "primaryZone": "Pseudopalisading Necrosis",
       "phase": "I",
       "fdaStatus": "Investigational",
-      "evidenceScore": 0.30,
-      "chemblId": null,
-      "pmids": ["30591582"],
-      "notes": "TMZ-dirençli hücrelerde metabolik sinerjizm; düşük toksisite profili."
+      "evidenceScore": 0.3,
+      "chemblId": "CHEMBL1880349",
+      "pmids": [
+        "39001830"
+      ],
+      "notes": "TMZ-dirençli hücrelerde metabolik sinerjizm; düşük toksisite profili. DÜZELTME (2026-08-20): ClinicalTrials.gov taramasında glioma için kayıtlı bir 2-DG tedavi çalışması bulunamadı (aramada çıkan glioma sonuçları ilgisiz FDG-PET görüntüleme çalışmalarıydı); yayınlanmış literatürde Hindistan'da radyoterapi ile kombine glioma çalışmaları bildirilmiştir ancak muhtemelen CTRI'ye kayıtlıdır, ClinicalTrials.gov'da bağımsız olarak doğrulanamadı."
     },
     "NOTCH1-JAG1": {
       "drug": "Nirogacestat",
-      "aliases": ["PF-03084014", "RO4929097"],
+      "aliases": [
+        "PF-03084014"
+      ],
       "drugClass": "γ-Secretase Inhibitor (GSI)",
       "mechanism": "Notch reseptör proteolitik aktivasyonunu bloke ederek GSC self-renewal ve kök hücre nişini bozar",
       "target": "NOTCH1 (via γ-secretase)",
@@ -312,13 +411,17 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.44,
-      "chemblId": "CHEMBL2180727",
-      "pmids": ["23669421"],
-      "notes": "Gastrointestinal toksisite; GSC popülasyon eliminasyonunda umut verici."
+      "chemblId": "CHEMBL1770916",
+      "pmids": [
+        "38703010"
+      ],
+      "notes": "Gastrointestinal toksisite; GSC popülasyon eliminasyonunda umut verici (preklinik gerekçe). DÜZELTME (2026-08-20): Desmoid tümörler için 'Ogsiveo' adıyla FDA onaylı (GBM ile ilgisiz) — fdaStatus GBM bağlamında doğru şekilde 'Investigational'. Ancak ClinicalTrials.gov'da GBM/glioma çalışması bulunamadı; faz bilgisi GBM dışı verilere dayanıyor."
     },
     "WNT5A-FZD2": {
       "drug": "Vantictumab",
-      "aliases": ["OMP-18R5"],
+      "aliases": [
+        "OMP-18R5"
+      ],
       "drugClass": "Frizzled Antagonist mAb",
       "mechanism": "FZD2'yi bloke ederek WNT/β-catenin bağımsız (non-canonical) GBM invazyon sinyalini keser",
       "target": "FZD2",
@@ -326,13 +429,18 @@
       "phase": "I",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.28,
-      "chemblId": null,
-      "pmids": ["26527310"],
-      "notes": "Non-canonical WNT yolağı GBM MES alt-tiplerinde baskın."
+      "chemblId": "CHEMBL2364652",
+      "pmids": [
+        "32803633",
+        "31338636"
+      ],
+      "notes": "Non-canonical WNT yolağı GBM MES alt-tiplerinde baskın (biyolojik gerekçe). DÜZELTME (2026-08-20): Geliştirilmesi ~2016'da kemik toksisitesi nedeniyle durdurulmuştu (pankreas/meme kanserinde denenmişti); ClinicalTrials.gov'da glioma/GBM çalışması bulunamadı, faz bilgisi GBM dışı verilere dayanıyor. Not: ChEMBL'e göre pan-Frizzled antagonisti (FZD1/2/5/7/8) — 'FZD2' hedefi dar bir tanımlama."
     },
     "TGFB1-TGFBR2": {
       "drug": "Galunisertib",
-      "aliases": ["LY2157299"],
+      "aliases": [
+        "LY2157299"
+      ],
       "drugClass": "TGFβRI Kinase Inhibitor",
       "mechanism": "TGFβ tip-I reseptörünü bloke ederek T hücre tolerans, EMT ve immünosupresif sitokin döngüsünü kırar",
       "target": "TGFBR1 (ALK5)",
@@ -340,13 +448,18 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.53,
-      "chemblId": "CHEMBL2180689",
-      "pmids": ["24825279"],
+      "chemblId": "CHEMBL2364611",
+      "pmids": [
+        "35364220",
+        "34638842"
+      ],
       "notes": "Kardiyotoksisite riski izleniyor; nivolumab ile kombinasyon çalışmaları aktif."
     },
     "EGF-EGFR": {
       "drug": "Cetuximab",
-      "aliases": ["Panitumumab"],
+      "aliases": [
+        "Erbitux"
+      ],
       "drugClass": "Anti-EGFR Monoclonal Antibody",
       "mechanism": "Ekstrasellüler EGFR domainine bağlanarak EGF-driven proliferasyon ve ADCC aracılı hücre ölümünü tetikler",
       "target": "EGFR (HER1)",
@@ -355,12 +468,18 @@
       "fdaStatus": "Investigational",
       "evidenceScore": 0.49,
       "chemblId": "CHEMBL1201577",
-      "pmids": ["22461122"],
+      "pmids": [
+        "20406901",
+        "16709245"
+      ],
       "notes": "EGFRvIII mutasyonlu vaka seçiminde biyobelirteç zorunlu."
     },
     "PDGFA-PDGFRA": {
       "drug": "Olaratumab",
-      "aliases": ["LY3012207"],
+      "aliases": [
+        "Lartruvo",
+        "IMC-3G3"
+      ],
       "drugClass": "PDGFRα Antagonist mAb",
       "mechanism": "PDGFRα'ya bağlanarak PDGFA-driven glioma kök hücre proliferasyonu ve tümör-stroma ilişkisini keser",
       "target": "PDGFRA",
@@ -368,13 +487,19 @@
       "phase": "II",
       "fdaStatus": "Investigational",
       "evidenceScore": 0.36,
-      "chemblId": "CHEMBL4523563",
-      "pmids": ["29431040"],
+      "chemblId": "CHEMBL1743049",
+      "pmids": [
+        "33177152",
+        "31821732"
+      ],
       "notes": "PDGFRα amplifikasyonu/mutasyonu taşıyan GBM alt-grubunda hedefli seçim kritik."
     },
     "EGFR-ERBB2": {
       "drug": "Lapatinib",
-      "aliases": ["Neratinib"],
+      "aliases": [
+        "Tykerb",
+        "Tyverb"
+      ],
       "drugClass": "Dual EGFR/HER2 TKI",
       "mechanism": "EGFR ve HER2 kinazları eş zamanlı bloke ederek ErbB heterodimerleşme ve tümör proliferasyonunu keser",
       "target": "EGFR / ERBB2",
@@ -383,7 +508,10 @@
       "fdaStatus": "Investigational",
       "evidenceScore": 0.41,
       "chemblId": "CHEMBL554",
-      "pmids": ["16954519"],
+      "pmids": [
+        "29293494",
+        "39190205"
+      ],
       "notes": "CNS penetrasyonu tek ajan EGFR TKI'lardan hafif üstün; EGFR-HER2 ko-amplifikasyonlu vakalarda."
     }
   }

@@ -245,11 +245,29 @@ def check_ram() -> dict:
             vm_stat = subprocess.check_output(["vm_stat"]).decode("utf-8")
             pages = {}
             for line in vm_stat.split("\n"):
-                if ":" in line:
-                    k, v = line.split(":", 1)
-                    pages[k.strip()] = int(v.strip().replace(".", ""))
+                if ":" not in line:
+                    continue
+                k, v = line.split(":", 1)
+                # `vm_stat`'ın ilk satırı ("Mach Virtual Memory Statistics:
+                # (page size of 16384 bytes)") da bir ":" içeriyor ama sayısal
+                # bir değer değil — bu satırı int() ile ayrıştırmaya çalışmak
+                # tüm fallback fonksiyonunu istisna ile çökertiyordu (canlı
+                # testte bu makinede doğrulandı). Sayısal olmayan satırları
+                # sessizce atla.
+                try:
+                    pages[k.strip()] = int(v.strip().rstrip(".").replace(",", ""))
+                except ValueError:
+                    continue
             
-            page_size = 4096
+            # Sayfa boyutu sabit 4096 DEĞİL — Apple Silicon'da (arm64) gerçek
+            # sayfa boyutu 16384'tür; bunu sabitlemek kullanılabilir RAM'i
+            # 4 kat düşük hesaplayıp gereksiz "Yetersiz RAM" uyarısına yol
+            # açabilir (bkz. denetim raporu bulgusu C-02). `sysctl hw.pagesize`
+            # her zaman doğru değeri verir.
+            try:
+                page_size = int(subprocess.check_output(["sysctl", "-n", "hw.pagesize"]).strip())
+            except Exception:
+                page_size = 4096  # son çare fallback
             free_pages = pages.get("Pages free", 0)
             inactive_pages = pages.get("Pages inactive", 0)
             avail_bytes = (free_pages + inactive_pages) * page_size

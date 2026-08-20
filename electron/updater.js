@@ -351,6 +351,10 @@ async function installDmgMacOS(dmgPath, appName = 'Glio-Cartography.app') {
     // .app bul
     const appSrc = path.join(mountPoint, appName);
     const appsDest = `/Applications/${appName}`;
+    // Temp/backup paths live next to appsDest (same volume) so the final
+    // step is a fast, atomic rename rather than a cross-volume copy.
+    const tempDest = `${appsDest}.new`;
+    const oldDest = `${appsDest}.old`;
 
     if (!fs.existsSync(appSrc)) {
       console.warn(`[Updater] DMG içinde ${appName} bulunamadı — kullanıcıya bırakılıyor.`);
@@ -359,12 +363,40 @@ async function installDmgMacOS(dmgPath, appName = 'Glio-Cartography.app') {
       return;
     }
 
-    // Kopyala
+    // Yeni bundle'ı Applications altında geçici bir konuma kopyala.
+    // Doğrudan appsDest üzerine yazmak, uygulamanın kendi çalışan binary'sinin
+    // üzerine yazmak anlamına gelir ("Text file busy" riski) — bunun yerine
+    // installAppImageLinux'taki gibi atomic rename ile takas yapılır.
     try {
-      await execFileAsync('cp', ['-Rf', appSrc, appsDest], { timeout: 60000 });
-      console.log('[Updater] macOS: Applications klasörüne kopyalandı.');
+      try { await execFileAsync('rm', ['-rf', tempDest], { timeout: 30000 }); } catch { /* yoksay */ }
+      await execFileAsync('cp', ['-Rf', appSrc, tempDest], { timeout: 60000 });
+      console.log('[Updater] macOS: Yeni sürüm geçici konuma kopyalandı.');
     } catch (cpErr) {
       console.warn('[Updater] macOS: cp başarısız (sudo gerekebilir) — DMG açılıyor.', cpErr.message);
+      try { await execFileAsync('rm', ['-rf', tempDest], { timeout: 30000 }); } catch { /* yoksay */ }
+      await detachSafe();
+      await shell.openPath(dmgPath);
+      return;
+    }
+
+    // Atomic takas: mevcut bundle'ı kenara al, yenisini yerine koy.
+    try {
+      try { fs.rmSync(oldDest, { recursive: true, force: true }); } catch { /* yoksay */ }
+      if (fs.existsSync(appsDest)) {
+        fs.renameSync(appsDest, oldDest);
+      }
+      fs.renameSync(tempDest, appsDest);
+      try { fs.rmSync(oldDest, { recursive: true, force: true }); } catch { /* yoksay */ }
+      console.log('[Updater] macOS: Applications klasörüne atomic olarak takas edildi.');
+    } catch (swapErr) {
+      // Takas başarısız — eski bundle'ı geri getirmeyi dene
+      try {
+        if (!fs.existsSync(appsDest) && fs.existsSync(oldDest)) {
+          fs.renameSync(oldDest, appsDest);
+        }
+      } catch { /* yoksay */ }
+      try { fs.rmSync(tempDest, { recursive: true, force: true }); } catch { /* yoksay */ }
+      console.warn('[Updater] macOS: Atomic takas başarısız (sudo gerekebilir) — DMG açılıyor.', swapErr.message);
       await detachSafe();
       await shell.openPath(dmgPath);
       return;

@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-07-09T09:06:03.995214+00:00",
-  "platform": "Darwin 25.4.0 (arm64)",
+  "timestamp": "2026-08-20T11:04:10.232985+00:00",
+  "platform": "Darwin 25.5.0 (arm64)",
   "status": "error",
   "python": {
     "ok": true,
@@ -137,18 +137,18 @@
   "port": {
     "port": 8765,
     "available": false,
-    "error": "Port 8765 is busy (active connection succeeded)"
+    "error": "Port 8765 is busy (bind failed): [Errno 48] Address already in use"
   },
   "ram": {
-    "available_gb": 1.15,
+    "available_gb": 2.2,
     "total_gb": 8.0,
     "ok": false,
     "required_gb": 8.0,
     "status": "warning",
-    "error": "Insufficient RAM: 1.1 GB available (8.0 GB required)"
+    "error": "Insufficient RAM: 2.2 GB available (8.0 GB required)"
   },
   "errors": [
-    "Port 8765 is busy (active connection succeeded)",
-    "Insufficient RAM: 1.1 GB available (8.0 GB required)"
+    "Port 8765 is busy (bind failed): [Errno 48] Address already in use",
+    "Insufficient RAM: 2.2 GB available (8.0 GB required)"
   ]
 }
