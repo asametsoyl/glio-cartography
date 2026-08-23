@@ -4,14 +4,21 @@ import json
 import urllib.request
 import ssl
 
-# KEGG/Cytoscape indirmeleri için sertifika doğrulaması atlanan, bu modüle
-# ÖZEL bir SSL context. Önceki sürüm `ssl._create_default_https_context`'i
-# global olarak değiştiriyordu — bu, aynı Python sürecinde çalışan BAŞKA
-# HER HTTPS isteğini (ilgisiz modüller, güncelleme kontrolü vb. dahil)
-# sertifika doğrulamasız/MITM'e açık hale getiriyordu (bkz. denetim raporu
-# bulgusu D-20). Artık yalnızca bu modülün kendi `urlopen()` çağrılarına
+# KEGG/Cytoscape indirmeleri için kullanılan, bu modüle ÖZEL SSL context.
+# Önceki sürüm `ssl._create_default_https_context`'i global olarak
+# değiştiriyordu — bu, aynı Python sürecinde çalışan BAŞKA HER HTTPS
+# isteğini (ilgisiz modüller, güncelleme kontrolü vb. dahil) sertifika
+# doğrulamasız/MITM'e açık hale getiriyordu (bkz. denetim raporu bulgusu
+# D-20). Artık yalnızca bu modülün kendi `urlopen()` çağrılarına
 # `context=_UNVERIFIED_SSL_CONTEXT` ile açıkça geçiriliyor.
-_UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
+#
+# Doğrulama varsayılan olarak AÇIKTIR. Yalnızca kurumsal bir MITM proxy'si
+# arkasında KEGG/cdnjs sertifika hatası veriyorsa GLIO_ALLOW_INSECURE_SSL=1
+# ortam değişkeni ile devre dışı bırakılabilir.
+_ALLOW_INSECURE_SSL = os.environ.get("GLIO_ALLOW_INSECURE_SSL") == "1"
+_UNVERIFIED_SSL_CONTEXT = (
+    ssl._create_unverified_context() if _ALLOW_INSECURE_SSL else ssl.create_default_context()
+)
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -20,6 +27,8 @@ from PIL import Image, ImageDraw
 import logging
 
 logger = logging.getLogger("pathway_mapper")
+if _ALLOW_INSECURE_SSL:
+    logger.warning("⚠️  GLIO_ALLOW_INSECURE_SSL=1 — pathway_mapper HTTPS istekleri sertifika doğrulaması YAPMIYOR.")
 
 # ============================================================
 # UTILS & DOWNLOADERS

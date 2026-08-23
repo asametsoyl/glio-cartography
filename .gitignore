@@ -20,6 +20,10 @@ __pycache__/
 .lcfg
 *.lcfg
 
+# Signed portable license files (device/institution-specific, not source)
+portable.gcart
+portable.gcart.bak
+
 # OS files
 .DS_Store
 Thumbs.db
