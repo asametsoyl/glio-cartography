@@ -305,7 +305,24 @@ jobs:
         # gerçekte paketlenen python_env mimarisiyle eşleşir. Intel Mac
         # desteği isteniyorsa ayrı bir `macos-13` (x64) runner job'ı
         # eklenmesi gerekir — bu iş akışı şu an yalnızca arm64 hedefliyor.
-        run: npx electron-builder --mac --arm64 --publish never
+        #
+        # `hdiutil detach` bazen "Resource busy" ile başarısız olur — GitHub
+        # Actions macOS runner'larında Spotlight'ın (mds) DMG'yi yeni
+        # bağlandığı anda taramaya başlamasından kaynaklanan, iyi bilinen bir
+        # yarış durumu. electron-builder'ın kendi iç yeniden denemesi (6 kez)
+        # bunu her zaman aşamıyor, bu yüzden komutun tamamını burada ayrıca
+        # birkaç kez deniyoruz.
+        run: |
+          for attempt in 1 2 3; do
+            if npx electron-builder --mac --arm64 --publish never; then
+              exit 0
+            fi
+            echo "electron-builder mac build failed (attempt $attempt/3) — likely the hdiutil 'Resource busy' race. Cleaning up stray mounts and retrying in 15s..."
+            hdiutil info | awk '/^\/dev\/disk/ {print $1}' | xargs -I{} hdiutil detach {} -force 2>/dev/null || true
+            sleep 15
+          done
+          echo "electron-builder mac build failed after 3 attempts."
+          exit 1
 
       - name: Build Electron App (Linux)
         if: runner.os == 'Linux'
