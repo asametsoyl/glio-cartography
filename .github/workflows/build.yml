@@ -433,6 +433,10 @@ jobs:
         # to become visible first, and retry each individual upload a few
         # times before giving up on it.
         run: |
+          echo "gh version: $(gh --version)"
+          echo "### gh auth status" >> "$GITHUB_STEP_SUMMARY"
+          { gh auth status; } >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+
           echo "Waiting for release ${{ github.ref_name }} to become visible via the API..."
           for i in 1 2 3 4 5 6 7 8 9 10; do
             if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
@@ -447,16 +451,18 @@ jobs:
             size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
             echo "Uploading $f ($size bytes)..."
             uploaded=false
-            for attempt in 1 2 3 4 5; do
-              if gh release upload "${{ github.ref_name }}" "$f" --clobber; then
+            last_err=""
+            for attempt in 1 2; do
+              if last_err=$(gh release upload "${{ github.ref_name }}" "$f" --clobber 2>&1); then
                 uploaded=true
                 break
               fi
-              echo "Attempt $attempt failed for $f, retrying in 6s..."
+              echo "Attempt $attempt failed for $f: $last_err"
               sleep 6
             done
             if [ "$uploaded" != true ]; then
-              echo "::warning title=Asset upload failed::$f ($size bytes) could not be attached after 5 attempts — likely exceeds GitHub's 2GB per-asset limit. See the job summary for exact sizes."
+              short_err=$(printf '%s' "$last_err" | tr '\n' ' ' | cut -c1-350)
+              echo "::warning title=Asset upload failed::$f ($size bytes): $short_err"
             fi
           done
 
