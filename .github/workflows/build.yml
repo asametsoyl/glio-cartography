@@ -365,10 +365,20 @@ jobs:
           path: release-files
           merge-multiple: true
 
-      - name: List Release Files
-        run: find release-files -type f -ls
+      - name: List Release Files (sizes)
+        # Prints exact byte sizes to the job summary so this is diagnosable
+        # without needing to sign in to view raw logs (GitHub Step Summaries
+        # are visible to anyone who can see the run, even signed out).
+        run: |
+          {
+            echo "### Release asset sizes"
+            echo '```'
+            find release-files -maxdepth 1 -type f -exec ls -la {} + | awk '{printf "%-12s %s\n", $5, $NF}' | sort -n
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          find release-files -type f -ls
 
-      - name: Publish GitHub Release
+      - name: Create GitHub Release (no assets yet)
         uses: softprops/action-gh-release@v2
         with:
           name: "Glio-Cartography ${{ github.ref_name }}"
@@ -383,15 +393,26 @@ jobs:
             1. `Glio-Cartography*.dmg` dosyasını açın, Applications'a sürükleyin
 
             > PyTorch 2.6.0 (CPU-only) + PyTorch Geometric 2.7.0
-          files: |
-            release-files/*.exe
-            release-files/*.dmg
-            release-files/*.AppImage
-            release-files/python_env_windows.zip
-            release-files/python_env_macos.zip
-            release-files/python_env_linux.zip
           draft: false
           prerelease: false
-          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload each asset independently
+        # Uploading via a single softprops/action-gh-release `files:` list means
+        # ONE oversized/rejected asset (GitHub's hard 2GB-per-file limit) fails
+        # the whole step and the release ends up with NONE of the platform
+        # installers attached — which is exactly what happened on v3.2.2 (5
+        # assets logged as uploaded, 0 actually attached). Uploading one file
+        # per `gh release upload` call means a single failure only skips that
+        # file — every other platform's installer still ships.
+        run: |
+          for f in release-files/*; do
+            size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+            echo "Uploading $f ($size bytes)..."
+            if ! gh release upload "${{ github.ref_name }}" "$f" --clobber; then
+              echo "::warning title=Asset upload failed::$f ($size bytes) was not attached to the release — likely exceeds GitHub's 2GB per-asset limit. See the job summary for exact sizes."
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
