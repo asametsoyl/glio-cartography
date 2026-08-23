@@ -244,41 +244,58 @@ jobs:
       - name: Install NPM Dependencies
         run: npm install --ignore-scripts
 
-      - name: Build Electron App (Windows)
+      - name: Configure code signing (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         # WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD electron-builder tarafından
         # otomatik okunur (bkz. https://www.electron.build/code-signing).
         # Repo secrets'a henüz gerçek bir Authenticode sertifikası
-        # eklenmediği için bu boş kalır ve electron-builder imzasız
-        # (unsigned) build üretmeye devam eder — mevcut davranışta
-        # değişiklik yoktur. İleride bir sertifika edinilirse, GitHub repo
-        # Settings → Secrets → Actions altına WIN_CSC_LINK (base64 .pfx)
-        # ve WIN_CSC_KEY_PASSWORD eklemek yeterlidir, başka kod değişikliği
+        # eklenmedi. `${{ secrets.WIN_CSC_LINK }}` boş bir secret için
+        # boş STRING üretir (undefined değil) — bunu doğrudan env: olarak
+        # geçirmek electron-builder'ın "CSC_LINK == null" kontrolünü atlatıp
+        # boş path'i workspace kök klasörüne çözümlemesine ve
+        # "not a file" hatasıyla patlamasına yol açıyordu (v3.2.1 build
+        # kırığı). Bu yüzden değişkeni yalnızca gerçekten doluysa
+        # $GITHUB_ENV'e yazıyoruz; boşsa hiç tanımlanmıyor ve
+        # electron-builder imzasız (unsigned) build üretmeye devam ediyor.
+        # İleride bir sertifika edinilirse, GitHub repo Settings → Secrets
+        # → Actions altına WIN_CSC_LINK (base64 .pfx) ve
+        # WIN_CSC_KEY_PASSWORD eklemek yeterlidir, başka kod değişikliği
         # gerekmez.
+        run: |
+          if [ -n "${{ secrets.WIN_CSC_LINK }}" ]; then
+            echo "WIN_CSC_LINK=${{ secrets.WIN_CSC_LINK }}" >> "$GITHUB_ENV"
+            echo "WIN_CSC_KEY_PASSWORD=${{ secrets.WIN_CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Electron App (Windows)
+        if: runner.os == 'Windows'
         env:
           GH_TOKEN: ""
           GITHUB_TOKEN: ""
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: npx electron-builder --win --x64 --publish never
 
-      - name: Build Electron App (macOS)
+      - name: Configure code signing (macOS)
         if: runner.os == 'macOS'
-        # CSC_LINK / CSC_KEY_PASSWORD electron-builder tarafından otomatik
-        # okunur. Repo secrets'a henüz gerçek bir Apple Developer ID
-        # sertifikası eklenmediği için bu boş kalır ve build imzasız
-        # (unsigned/ad-hoc) üretilmeye devam eder — mevcut davranışta
-        # değişiklik yoktur. İleride bir sertifika edinilirse, GitHub repo
-        # Settings → Secrets → Actions altına CSC_LINK (base64 .p12) ve
-        # CSC_KEY_PASSWORD eklemek yeterlidir. Notarization (APPLE_ID /
+        shell: bash
+        # Aynı boş-string sorunu CSC_LINK/CSC_KEY_PASSWORD için de geçerli
+        # (bkz. yukarıdaki Windows adımındaki açıklama). Gerçek bir Apple
+        # Developer ID sertifikası eklenene kadar build imzasız/ad-hoc
+        # üretilmeye devam eder. Notarization (APPLE_ID /
         # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID) ayrıca package.json
         # build.mac.notarize alanının eklenmesini gerektirir — bu, gerçek
         # bir Developer ID hesabı temin edilene kadar bilerek eklenmedi.
+        run: |
+          if [ -n "${{ secrets.CSC_LINK }}" ]; then
+            echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> "$GITHUB_ENV"
+            echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Electron App (macOS)
+        if: runner.os == 'macOS'
         env:
           GH_TOKEN: ""
           GITHUB_TOKEN: ""
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         # `macos-latest` GitHub runner'ları arm64'tür (Apple Silicon) ve
         # yukarıdaki Miniforge adımı python_env'i bu runner'ın kendi
         # mimarisinde (arm64) native olarak kuruyor. Önceki `--x64`
