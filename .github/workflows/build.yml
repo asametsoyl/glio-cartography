@@ -406,13 +406,44 @@ jobs:
         # assets logged as uploaded, 0 actually attached). Uploading one file
         # per `gh release upload` call means a single failure only skips that
         # file — every other platform's installer still ships.
+        #
+        # v3.2.3/v3.2.4 both still ended up with 0 real assets despite this —
+        # `gh release upload` was run immediately after the release was
+        # created, and a freshly-created release/tag is not always
+        # immediately visible via the API yet (softprops/action-gh-release
+        # itself has to retry internally for this exact reason — see its
+        # "not yet discoverable by tag" log line). So: wait for the release
+        # to become visible first, and retry each individual upload a few
+        # times before giving up on it.
         run: |
+          echo "Waiting for release ${{ github.ref_name }} to become visible via the API..."
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+              echo "Release visible after attempt $i."
+              break
+            fi
+            echo "Not visible yet, retrying in 6s... ($i/10)"
+            sleep 6
+          done
+
           for f in release-files/*; do
             size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
             echo "Uploading $f ($size bytes)..."
-            if ! gh release upload "${{ github.ref_name }}" "$f" --clobber; then
-              echo "::warning title=Asset upload failed::$f ($size bytes) was not attached to the release — likely exceeds GitHub's 2GB per-asset limit. See the job summary for exact sizes."
+            uploaded=false
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "${{ github.ref_name }}" "$f" --clobber; then
+                uploaded=true
+                break
+              fi
+              echo "Attempt $attempt failed for $f, retrying in 6s..."
+              sleep 6
+            done
+            if [ "$uploaded" != true ]; then
+              echo "::warning title=Asset upload failed::$f ($size bytes) could not be attached after 5 attempts — likely exceeds GitHub's 2GB per-asset limit. See the job summary for exact sizes."
             fi
           done
+
+          echo "Final release asset list:"
+          gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name' || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
