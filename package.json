@@ -1,6 +1,6 @@
 {
   "name": "glio-cartography",
-  "version": "3.2.3",
+  "version": "3.2.4",
   "description": "Glio-Cartography — Spatial Tumor Microenvironment Atlas for Glioblastoma",
   "main": "electron/main.js",
   "author": "Glio-Cartography Team",
@@ -34,6 +34,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "Glio-Cartography-mac.${ext}",
       "target": [
         "dmg",
         "zip"
@@ -44,6 +45,7 @@
       "publisherName": "Glio-Cartography Team",
       "requestedExecutionLevel": "asInvoker",
       "verifyUpdateCodeSignature": false,
+      "artifactName": "Glio-Cartography-Setup-win.${ext}",
       "target": [
         "nsis"
       ]
@@ -56,12 +58,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Glio-Cartography",
-      "uninstallDisplayName": "Glio-Cartography v3.2.3",
+      "uninstallDisplayName": "Glio-Cartography v3.2.4",
       "deleteAppDataOnUninstall": false
     },
     "linux": {
       "icon": "assets/icon.png",
       "category": "Science;Medical;",
+      "artifactName": "Glio-Cartography-linux.${ext}",
       "target": [
         "AppImage"
       ]
