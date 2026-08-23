@@ -439,7 +439,7 @@ jobs:
 
           echo "Waiting for release ${{ github.ref_name }} to become visible via the API..."
           for i in 1 2 3 4 5 6 7 8 9 10; do
-            if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
               echo "Release visible after attempt $i."
               break
             fi
@@ -453,7 +453,7 @@ jobs:
             uploaded=false
             last_err=""
             for attempt in 1 2; do
-              if last_err=$(gh release upload "${{ github.ref_name }}" "$f" --clobber 2>&1); then
+              if last_err=$(gh release upload "${{ github.ref_name }}" "$f" --clobber --repo "${{ github.repository }}" 2>&1); then
                 uploaded=true
                 break
               fi
@@ -467,6 +467,6 @@ jobs:
           done
 
           echo "Final release asset list:"
-          gh release view "${{ github.ref_name }}" --json assets --jq '.assets[].name' || true
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
