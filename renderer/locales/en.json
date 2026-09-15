@@ -355,7 +355,8 @@
     "connecting_server": "Connecting to application server...",
     "copy_failed": "Clipboard copy failed. Please copy manually.",
     "preparing": "Preparing...",
-    "machine_id_desc": "(send this value for license request)"
+    "machine_id_desc": "(send this value for license request)",
+    "no_internet_note": "No internet connection? If using a portable license via USB/CD, restart the application — it will be recognized automatically."
   },
   "titlebar": {
     "connecting": "Connecting to components..."

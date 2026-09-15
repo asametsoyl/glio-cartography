@@ -355,7 +355,8 @@
     "connecting_server": "Uygulama sunucusuna bağlanılıyor...",
     "copy_failed": "Panoya kopyalama başarısız oldu. Lütfen manuel olarak kopyalayın.",
     "preparing": "Hazırlanıyor...",
-    "machine_id_desc": "(lisans talebinde bu değeri gönderin)"
+    "machine_id_desc": "(lisans talebinde bu değeri gönderin)",
+    "no_internet_note": "İnternet bağlantısı yok mu? USB/CD ile taşınabilir lisans kullanıyorsanız uygulamayı yeniden başlatın — otomatik tanınacaktır."
   },
   "titlebar": {
     "connecting": "Bileşenlere bağlanıyor..."
