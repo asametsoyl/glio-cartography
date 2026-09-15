@@ -211,8 +211,9 @@ jobs:
           find "${ENV_PATH}" -type f -name "*.a" -delete 2>/dev/null || true
           find "${ENV_PATH}" -type f -name "*.lib" -delete 2>/dev/null || true
           rm -rf "${ENV_PATH}/include" 2>/dev/null || true
-          find "${ENV_PATH}" -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true
-          find "${ENV_PATH}" -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
+          # Keep numpy._core/tests because numpy.testing._private.utils requires numpy._core.tests._natype
+          find "${ENV_PATH}" -type d -name "tests" ! -path "*/numpy/_core/*" -exec rm -rf {} + 2>/dev/null || true
+          find "${ENV_PATH}" -type d -name "test" ! -path "*/numpy/_core/*" -exec rm -rf {} + 2>/dev/null || true
           rm -rf "${ENV_PATH}/share" 2>/dev/null || true
           find "${ENV_PATH}" -type d -name "include" -path "*/torch/*" -exec rm -rf {} + 2>/dev/null || true
           if [ "$(uname)" = "Linux" ]; then
