@@ -45,7 +45,9 @@
     },
     "win": {
       "icon": "assets/icon.png",
-      "publisherName": "Glio-Cartography Team",
+      "signtoolOptions": {
+        "publisherName": "Glio-Cartography Team"
+      },
       "requestedExecutionLevel": "asInvoker",
       "verifyUpdateCodeSignature": false,
       "artifactName": "Glio-Cartography-Setup-win.${ext}",
