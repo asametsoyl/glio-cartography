@@ -115,9 +115,15 @@ def main():
     (OUTPUT_DIR / "preprocessing" / "spatial").mkdir(parents=True, exist_ok=True)
 
     # Görüntü ve scale faktörleri frontend için kopyala (Symlink ile disk alanı optimizasyonu)
-    spatial_img_dir = SPATIAL_DIR / "spatial"
+    if (SPATIAL_DIR / "tissue_hires_image.png").exists():
+        spatial_img_dir = SPATIAL_DIR
+    elif (SPATIAL_DIR / "spatial" / "tissue_hires_image.png").exists():
+        spatial_img_dir = SPATIAL_DIR / "spatial"
+    else:
+        spatial_img_dir = None
+
     out_img_dir = OUTPUT_DIR / "spatial_data"
-    if spatial_img_dir.exists() and spatial_img_dir.is_dir():
+    if spatial_img_dir and spatial_img_dir.exists() and spatial_img_dir.is_dir():
         try:
             if not out_img_dir.exists():
                 os.symlink(spatial_img_dir, out_img_dir)
@@ -162,12 +168,18 @@ def main():
         
         chunk_list = []
         try:
-            for chunk in pd.read_csv(SCRNA_PATH, sep=sep, index_col=0, chunksize=2000):
+            total_rows_approx = 30000
+            rows_processed = 0
+            for chunk in pd.read_csv(SCRNA_PATH, sep=sep, index_col=0, chunksize=5000):
                 dropped_cols = chunk.select_dtypes(exclude=[np.number]).columns.tolist()
                 if dropped_cols:
                     logger.warning(f"Sayısal olmayan kolonlar elendi: {dropped_cols}")
                 numeric_chunk = chunk.select_dtypes(include=[np.number]).astype(np.float32)
                 chunk_list.append(numeric_chunk)
+                rows_processed += len(numeric_chunk)
+                pct = min(14, int(5 + (rows_processed / total_rows_approx) * 8))
+                report_progress(pct)
+                logger.info(f"   scRNA matrisi okunuyor: {rows_processed:,} satır işlendi (%{pct})...")
                 
             logger.info("   Tüm parçalar birleştiriliyor...")
             df = pd.concat(chunk_list, axis=0)
@@ -392,29 +404,51 @@ def main():
     # ── Load Spatial ─────────────────────────────────────────────
     logger.info(f"📍 Spatial veri yükleniyor: {SPATIAL_DIR}")
 
+    actual_spatial_dir = SPATIAL_DIR
+    # Eğer kullanıcı doğrudan 'spatial' alt klasörünü seçtiyse veya imajlar doğrudan bu klasördeyse:
+    if SPATIAL_DIR.name == "spatial" or ((SPATIAL_DIR / "tissue_hires_image.png").exists() and not (SPATIAL_DIR / "spatial").exists()):
+        parent = SPATIAL_DIR.parent
+        h5_self = list(SPATIAL_DIR.glob("*.h5"))
+        h5_parent = list(parent.glob("*.h5"))
+        if not h5_parent and h5_self:
+            link = parent / "filtered_feature_bc_matrix.h5"
+            if not link.exists():
+                try: link.symlink_to(h5_self[0])
+                except Exception: pass
+        actual_spatial_dir = parent
+    elif (SPATIAL_DIR / "spatial").exists():
+        h5_root = list(SPATIAL_DIR.glob("*.h5"))
+        h5_sub = list((SPATIAL_DIR / "spatial").glob("*.h5"))
+        if not h5_root and h5_sub:
+            link = SPATIAL_DIR / "filtered_feature_bc_matrix.h5"
+            if not link.exists():
+                try: link.symlink_to(h5_sub[0])
+                except Exception: pass
+        actual_spatial_dir = SPATIAL_DIR
+
     try:
-        adata_sp = sq.read.visium(SPATIAL_DIR)
-        logger.info("   Visium formatı tanındı")
+        h5_files = list(actual_spatial_dir.glob("*.h5"))
+        counts_file = h5_files[0].name if h5_files else None
+        if counts_file:
+            adata_sp = sq.read.visium(actual_spatial_dir, counts_file=counts_file)
+        else:
+            adata_sp = sq.read.visium(actual_spatial_dir)
+        logger.info(f"   Visium formatı başarıyla tanındı ({counts_file or 'varsayılan'})")
     except Exception as e_vis:
         try:
-            h5_files = list(SPATIAL_DIR.glob("*.h5"))
-            if h5_files:
-                adata_sp = sq.read.visium(SPATIAL_DIR, counts_file=h5_files[0].name)
-                logger.info(f"   Visium formatı tanındı ({h5_files[0].name})")
-            else:
-                raise ValueError("Klasörde .h5 dosyası bulunamadı.")
-        except Exception as e_vis_h5:
-            h5ad_files = list(SPATIAL_DIR.glob("*.h5ad"))
+            h5ad_files = list(actual_spatial_dir.glob("*.h5ad")) or list(SPATIAL_DIR.glob("*.h5ad"))
             if h5ad_files:
                 adata_sp = sc.read_h5ad(h5ad_files[0])
                 logger.info(f"   H5AD yüklendi: {h5ad_files[0].name}")
             else:
-                exit_with_error(
-                    f"Spatial veri formatı tanınamadı! Klasör geçerli bir 10X Visium yapısı "
-                    f"veya .h5ad dosyası içermiyor. Hata detayları:\n"
-                    f"- Visium yükleme hatası: {e_vis}\n"
-                    f"- H5 arama hatası: {e_vis_h5}"
-                )
+                raise ValueError("Klasörde .h5ad dosyası bulunamadı.")
+        except Exception as e_vis_h5:
+            exit_with_error(
+                f"Spatial veri formatı tanınamadı! Klasör geçerli bir 10X Visium yapısı "
+                f"veya .h5ad dosyası içermiyor. Hata detayları:\n"
+                f"- Visium yükleme hatası: {e_vis}\n"
+                f"- H5AD arama hatası: {e_vis_h5}"
+            )
 
     report_progress(60)
 
