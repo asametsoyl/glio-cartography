@@ -101,8 +101,8 @@ def test_cell_type_annotation_marker_matching_is_case_insensitive():
     gerektirir), düzeltmenin kullandığı AYNI eşleştirme mantığını izole
     test ediyoruz.
     """
-    sc_var_names = ['egfr', 'pten', 'idh1', 'tp53', 'cdkn2a', 'met', 'vim', 'gfap']
-    markers = ['EGFR', 'PTEN', 'IDH1', 'TP53', 'CDKN2A', 'MET']
+    sc_var_names = ['egfr', 'pdgfra', 'sox2', 'olig2', 'cd44', 'chi3l1', 'vim', 'gfap']
+    markers = ['EGFR', 'PDGFRA', 'SOX2', 'OLIG2', 'CD44', 'CHI3L1']
 
     old_style_valid = [m for m in markers if m in sc_var_names]
     assert len(old_style_valid) == 0, "Bu senaryo eski (buggy) davranışı yeniden üretmeli"

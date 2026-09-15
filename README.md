@@ -2,7 +2,7 @@
 
 **Spatial Tumor Microenvironment Analysis Platform for Glioblastoma (GBM)**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/sametsoysal/glio-cartography/releases)
+[![Version](https://img.shields.io/badge/version-3.2.9-blue)](https://github.com/sametsoysal/glio-cartography/releases)
 [![License](https://img.shields.io/badge/license-Proprietary-red)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)]()
 
@@ -10,7 +10,7 @@
 
 ## What is Glio-Cartography?
 
-Glio-Cartography is a desktop application that automatically analyzes 10x Visium spatial transcriptomics data from glioblastoma patients. It combines cell-type deconvolution (Tangram), graph neural networks (GNN), and IVY GAP zone classification to generate a spatial tumor microenvironment atlas and a clinical decision-support report.
+Glio-Cartography is a desktop application that analyzes 10x Visium spatial transcriptomics data from glioblastoma research cohorts. It combines cell-type deconvolution (Tangram), graph neural networks (GNN), and IVY GAP-inspired zone mapping to generate a spatial tumor microenvironment atlas and a research-use report.
 
 ### Key Features
 
@@ -18,14 +18,14 @@ Glio-Cartography is a desktop application that automatically analyzes 10x Visium
 - 🧠 **GNN-based Zone Mapping** — IVY GAP classification (Pseudopalisading Necrosis, Microvascular Proliferation, Leading Edge, etc.)  
 - 💊 **Drug Target Scoring** — Spatially resolved pharmacological target alignment  
 - 📊 **Interactive Spatial Map** — Zoom/pan canvas with Zone, Drug Score, TCGA Risk, Cell Type, and Ligand-Receptor views  
-- 📄 **Automated Clinical Report** — WHO grade, IDH/MGMT status, treatment recommendations  
+- 📄 **Automated Research Report** — Spatial evidence, quality and uncertainty findings
 - 👥 **Multi-patient Comparison** — Side-by-side analysis of two patients  
 
 ---
 
 ## Requirements
 
-- **Node.js** ≥ 18  
+- **Node.js** ≥ 22.12
 - **Python** ≥ 3.10 with the following packages:
   - `scanpy`, `squidpy`, `tangram-sc`
   - `torch`, `torch_geometric`
@@ -72,7 +72,7 @@ Include your **Machine ID** (displayed on the license screen when you first open
 
 ## Disclaimer
 
-> ⚕️ This software is intended for **research purposes only**. Clinical predictions generated (WHO grade, IDH/MGMT status, treatment recommendations) are computational proxy metrics and do not replace certified pathological evaluation. They should not be used for clinical decision-making.
+> ⚕️ This software is intended for **research purposes only**. It does not infer a diagnosis, molecular test result, prognosis, survival time, or treatment recommendation and must not be used for clinical decision-making.
 
 ---
 

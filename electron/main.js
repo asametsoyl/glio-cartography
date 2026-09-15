@@ -92,7 +92,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true
+      webSecurity: true,
+      sandbox: true
     },
     show: false
   };
@@ -108,6 +109,15 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // The application UI is fully local. Never allow compromised report/data
+  // content to navigate the privileged application window or create popups.
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    const currentUrl = mainWindow.webContents.getURL();
+    if (currentUrl && targetUrl !== currentUrl) event.preventDefault();
+  });
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
 
   if (isDev) mainWindow.webContents.openDevTools({ mode: 'detach' });
 

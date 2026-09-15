@@ -1794,9 +1794,9 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
     # `survival_head` bir HeteroData grafiği başına TEK skaler üretir
     # (bkz. ZONE_RISK_WEIGHT tanımının üstündeki not) — bu artık spot'lara
     # olduğu gibi kopyalanmıyor, aşağıda zon-ağırlıklı olarak moduluyor.
-    global_surv = float(survival_preds[0]) if survival_preds.ndim > 0 else float(survival_preds)
-
-    # ── Zon-ağırlıklı mekansal risk (A-03 düzeltmesi) ──────────────
+    # No time-to-event labels are supplied, so the survival head is untrained
+    # and must not contribute to output. This dimensionless spatial proxy is
+    # constructed only from zone probabilities and myeloid composition.
     zone_weight_arr = np.array(
         [ZONE_RISK_WEIGHT.get(zn, 1.0) for zn in ZONE_NAMES], dtype=np.float32
     )
@@ -1821,9 +1821,10 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
             myeloid_frac_arr = np.clip(y_np[:, myeloid_cols].sum(axis=1), 0.0, 1.0).astype(np.float32)
 
     myeloid_modulation = 1.0 + MYELOID_RISK_COEF * (myeloid_frac_arr - float(myeloid_frac_arr.mean()))
-    risk_arr_real = np.clip(
-        global_surv * zone_weight_arr[zone_argmax] * myeloid_modulation, 0.0, 1.0
-    ).astype(np.float32)
+    base_proxy = np.sum(zone_preds * zone_weight_arr[None, :], axis=1)
+    raw_proxy = base_proxy * myeloid_modulation
+    proxy_min, proxy_max = float(raw_proxy.min()), float(raw_proxy.max())
+    risk_arr_real = ((raw_proxy - proxy_min) / (proxy_max - proxy_min + 1e-8)).astype(np.float32)
 
     # ── Gerçek veriden türetilmiş ilaç hedef skoru (A-01 düzeltmesi) ──
     # `drug_head` mimari olarak var ama hiçbir kayıp fonksiyonuna
@@ -1981,7 +1982,10 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
             "drug_lr_basis": lr_key,
             "drug_status": "Klinik Aşama",
             "tcga_risk": float(risk_arr_real[si]),
-            "survival_months": float(max(0.0, global_surv * 20)),
+            # Dimensionless exploratory score only. A spatial section has no
+            # patient-level time-to-event label; converting this to months
+            # would fabricate clinical precision.
+            "model_risk_index": float(risk_arr_real[si]),
             "pseudotime": float(data.pseudotime[si]) if hasattr(data, 'pseudotime') else 0.0,
             "vec_x": float(data.vec_x[si]) if hasattr(data, 'vec_x') else 0.0,
             "vec_y": float(data.vec_y[si]) if hasattr(data, 'vec_y') else 0.0,

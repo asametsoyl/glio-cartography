@@ -59,7 +59,14 @@ def is_relative_to_compat(path: Path, root: Path) -> bool:
     except ValueError:
         return False
 
-ALLOWED_ROOTS = [Path.home(), Path(tempfile.gettempdir()).resolve()]
+# macOS may report a per-user /var/folders temp directory while callers use
+# the conventional /tmp path (which resolves to /private/tmp). Accept both
+# canonical system temp locations without weakening the home/temp boundary.
+ALLOWED_ROOTS = {
+    Path.home().resolve(),
+    Path(tempfile.gettempdir()).resolve(),
+    Path('/tmp').resolve(),
+}
 if not any(is_relative_to_compat(OUTPUT_DIR, r) for r in ALLOWED_ROOTS):
     exit_with_error("OUTPUT_DIR güvenlik nedeniyle izin verilen dizinler dışında (Ev dizini veya geçici dizinler) olmalıdır.")
 
@@ -855,13 +862,24 @@ def main():
         surv_scores = risk_arr.astype(np.float32)
         logger.warning("   survival_predictions.npy bulunamadı veya boş, data.json tcga_risk kullanılıyor.")
 
+    # This pipeline receives no patient-level follow-up cohort. A Kaplan-Meier
+    # curve or median OS in months would therefore be synthetic. Suppress the
+    # legacy artifacts; the dimensionless spatial risk map remains available.
+    for legacy_path in (pub_out / "fig_kaplan_meier.png", gnn_out / "kaplan_meier_summary.json"):
+        try:
+            legacy_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(f"   Eski sağkalım artefaktı silinemedi: {exc}")
+    logger.info("   Kaplan-Meier/medyan OS üretimi atlandı: gerçek takip verisi yok.")
+    surv_scores = np.array([], dtype=np.float32)
+
     # NaN/Inf temizliği
     surv_scores = np.nan_to_num(surv_scores, nan=0.5, posinf=1.0, neginf=0.0)
     surv_scores = np.clip(surv_scores, 0.0, 1.0)
 
     # Verify that surv_scores is not empty to prevent errors
     if surv_scores.size == 0:
-        logger.warning("Hayatta kalma skorları boş (0 spot). Kaplan-Meier çizimi atlanıyor.")
+        logger.warning("Gerçek hasta takip verisi yok; Kaplan-Meier ve medyan OS üretimi atlanıyor.")
     else:
         # ── 2. Medyan eşiğe göre Yüksek/Düşük Risk stratifikasyonu ──
         median_risk = float(np.median(surv_scores))

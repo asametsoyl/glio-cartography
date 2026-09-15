@@ -773,14 +773,26 @@ def main():
         sc.pp.log1p(adata_sc_copy)
         adata_sc_copy.layers['log1p_counts'] = adata_sc_copy.X.copy()
 
-    sc.tl.rank_genes_groups(adata_sc_copy, groupby='cell_type', method='wilcoxon', use_raw=False)
+    # Scanpy rejects the entire differential-expression run when even one
+    # predicted cell type has a single member. Keep rare cells in the actual
+    # deconvolution input, but exclude under-powered groups from marker
+    # discovery instead of crashing the complete pipeline.
+    group_counts = adata_sc_copy.obs['cell_type'].value_counts()
+    eligible_groups = group_counts[group_counts >= 2].index
+    marker_mask = adata_sc_copy.obs['cell_type'].isin(eligible_groups)
+    marker_adata = adata_sc_copy[marker_mask].copy()
+    if marker_adata.obs['cell_type'].nunique() >= 2:
+        marker_adata.obs['cell_type'] = marker_adata.obs['cell_type'].astype(str).astype('category')
+        sc.tl.rank_genes_groups(marker_adata, groupby='cell_type', method='wilcoxon', use_raw=False)
+    else:
+        logger.warning("   Marker gen analizi için en az iki yeterli hücre grubu yok; HVG fallback kullanılacak.")
 
     marker_genes = set()
-    for ct in adata_sc_copy.obs['cell_type'].unique():
+    for ct in marker_adata.obs['cell_type'].unique():
         if ct == "unknown":
             continue
         try:
-            genes_df = sc.get.rank_genes_groups_df(adata_sc_copy, group=ct, key='rank_genes_groups')
+            genes_df = sc.get.rank_genes_groups_df(marker_adata, group=ct, key='rank_genes_groups')
             genes_df = genes_df[
                 (genes_df['logfoldchanges'] > 0.5) &
                 (genes_df['pvals_adj'] < 0.05)
@@ -789,7 +801,7 @@ def main():
         except Exception as exc:
             logger.warning(f"   Marker gen çıkarımı başarısız (grup={ct}): {exc}")
 
-    del adata_sc_copy   # free RAM before heavy deconvolution runs
+    del marker_adata, adata_sc_copy   # free RAM before heavy deconvolution runs
 
     if len(marker_genes) < 100 and 'highly_variable' in adata_sc.var.columns:
         hvg = set(adata_sc.var_names[adata_sc.var['highly_variable']])

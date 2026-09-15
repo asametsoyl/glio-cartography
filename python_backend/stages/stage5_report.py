@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 5: Clinical PDF report generation"""
+"""Stage 5: Research-use report generation."""
 import os, sys, json, base64
 from pathlib import Path
 from datetime import datetime
@@ -342,7 +342,35 @@ def compute_clinical_profile(gnn_sum, deconv_sum, prep_sum):
     Analiz çıktılarından klinik profil çıkar. 
     Önemli: Bu tahminler hesapsal öngörüler olup klinik onay gerektirir.
     """
-    profile = {}
+    # Expression/deconvolution data cannot establish WHO grade, IDH mutation,
+    # or MGMT promoter methylation. Do not manufacture molecular calls or
+    # treatment advice from unvalidated proxies.
+    mean_props = deconv_sum.get("mean_proportions", {})
+    def _sum_fraction(needles):
+        return float(sum(v for k, v in mean_props.items()
+                         if any(n in k.lower() for n in needles)))
+    tumor_fraction = float(sum(
+        v for k, v in mean_props.items()
+        if any(n in k.lower() for n in ("tumor", "malignant", "gbm"))
+        and not any(n in k.lower() for n in ("macrophage", "tam"))
+    ))
+    unavailable = "Not assessed — requires a validated molecular assay" if is_english else "Değerlendirilmedi — doğrulanmış moleküler test gerekir"
+    return {
+        "diagnosis": "Not inferred from transcriptomics" if is_english else "Transkriptomikten tanı çıkarılmadı",
+        "who_grade": unavailable, "who_grade_color": "#F4A261",
+        "idh_status": unavailable,
+        "idh_note": "No mutation call is produced." if is_english else "Mutasyon çağrısı üretilmez.",
+        "mgmt_status": unavailable,
+        "mgmt_status_short": "Not assessed" if is_english else "Değerlendirilmedi",
+        "mgmt_color": "#F4A261", "mgmt_confidence": None,
+        "protocols": ["No patient-specific treatment recommendation is generated." if is_english else "Hastaya özgü tedavi önerisi üretilmez."],
+        "rationale": ["Research-use findings require independent validation." if is_english else "Araştırma bulguları bağımsız doğrulama gerektirir."],
+        "tumor_frac": tumor_fraction,
+        "myeloid_frac": _sum_fraction(("myeloid", "microglia", "macrophage", "monocyte")),
+        "tcell_frac": _sum_fraction(("t_cell", "t-cell", "treg", "lymph")),
+    }
+
+    profile = {}  # Legacy logic below is intentionally unreachable.
     mgmt_methylated = None
 
     # Dekonvolüsyon verileri
@@ -767,7 +795,7 @@ def main() -> None:
                     )
                 elif dominant_lr_val == "SPP1-PTPN1":
                     synthesis += (
-                        "SPP1-PTPN1 checkpoint interaction reinforces the suppressive immune response in the microenvironment by inducing T-cell exhaustion. "
+                        "SPP1-PTPN1 is not a validated ligand-receptor pair and is excluded from biological interpretation. "
                     )
                 
                 synthesis += (
@@ -824,7 +852,7 @@ def main() -> None:
                     )
                 elif dominant_lr_val == "SPP1-PTPN1":
                     synthesis += (
-                        "SPP1-PTPN1 kontrol noktası etkileşimi, T-hücre tükenmesini uyararak mikroçevredeki baskılayıcı immün yanıtı güçlendirmektedir. "
+                        "SPP1-PTPN1 doğrulanmış bir ligand-reseptör çifti değildir ve biyolojik yorumun dışında tutulmuştur. "
                     )
                 
                 synthesis += (
@@ -979,19 +1007,16 @@ def main() -> None:
     if is_english:
         mes_clause = f"a <strong>{mes_avg:.1f}% Mesenchymal (MES)</strong> fraction and a " if mes_avg is not None else ""
         exec_summary = (
-            f"Glio-Cartography analysis of the patient revealed a microenvironment characterized by {mes_clause}"
-            f"<strong>{tam_avg:.1f}% Tumor-Associated Macrophage (TAM)</strong> infiltration across the tumor, presenting a <strong>{risk_level_safe}</strong> risk profile. "
-            f"The <strong>{dominant_lr_val_safe}</strong> interaction, identified as the most active signaling axis in the spatial communication analysis, supports intense "
-            f"immunosuppression and high invasive potential. Considering the patient's <strong>{mgmt_status_short_safe}</strong> status, an aggressive combined treatment protocol is recommended."
+            f"This research analysis estimated {mes_clause}<strong>{tam_avg:.1f}% Tumor-Associated Macrophage (TAM)</strong> "
+            f"signal across the tissue. <strong>{dominant_lr_val_safe}</strong> was the highest-scoring tested interaction axis. "
+            "These are computational hypotheses, not diagnostic, prognostic, or treatment findings."
         )
     else:
         mes_clause = f"<strong>%{mes_avg:.1f} Mezenkimal (MES)</strong> fraksiyonu ve " if mes_avg is not None else ""
         exec_summary = (
-            f"Hastada yapılan Glio-Cartography analizi sonucunda, tümör genelinde {mes_clause}"
-            f"<strong>%{tam_avg:.1f} Tümör İlişkili Makrofaj (TAM)</strong> infiltrasyonu ile karakterize, <strong>{risk_level_safe}</strong> risk profiline sahip "
-            f"bir mikroçevre saptanmıştır. Uzamsal iletişim analizinde en aktif sinyal ekseni olan <strong>{dominant_lr_val_safe}</strong> etkileşimi, yoğun "
-            f"immünsüpresyonu ve yüksek invazyon potansiyelini desteklemekte olup, hastanın <strong>{mgmt_status_short_safe}</strong> "
-            f"statusu da göz önüne alınarak agresif bir kombine tedavi protokolü önerilmektedir."
+            f"Bu araştırma analizinde doku genelinde {mes_clause}<strong>%{tam_avg:.1f} Tümör İlişkili Makrofaj (TAM)</strong> "
+            f"sinyali tahmin edildi. Test edilen etkileşimler içinde <strong>{dominant_lr_val_safe}</strong> en yüksek skoru aldı. "
+            "Bunlar tanı, prognoz veya tedavi sonucu değil, doğrulanması gereken hesapsal hipotezlerdir."
         )
 
     # PubMed References
@@ -1019,7 +1044,7 @@ def main() -> None:
 
     # SVG Map
     svg_map_html = generate_mini_svg_risk_map(spots_data)
-    version_stamp = "Glio-Cartography v3.0 [Clinical Report Edition]"
+    version_stamp = "Glio-Cartography v3.0 [Research Use Only]"
 
     # Safe HTML Template construction
     patient_id_safe = escape_html(PATIENT_ID)
@@ -1037,11 +1062,11 @@ def main() -> None:
 
     # Localized UI elements
     T_HTML_LANG = "en" if is_english else "tr"
-    T_TITLE = f"Glio-Cartography — Clinical Report: {patient_id_safe}" if is_english else f"Glio-Cartography — Klinik Rapor: {patient_id_safe}"
+    T_TITLE = f"Glio-Cartography — Research Report: {patient_id_safe}" if is_english else f"Glio-Cartography — Araştırma Raporu: {patient_id_safe}"
     T_TME_ATLAS = "Spatial Tumor Microenvironment Atlas" if is_english else "Spatial Tümör Mikroçevre Atlası"
     T_PATIENT = f"Patient: {patient_id_safe}" if is_english else f"Hasta: {patient_id_safe}"
     T_DOWNLOAD_PDF = "📥 Download PDF" if is_english else "📥 PDF Olarak İndir"
-    T_SUMMARY_TITLE = "📋 Clinical Executive Summary &amp; Spatial Risk Map" if is_english else "📋 Klinik Yönetici Özeti &amp; Uzamsal Risk Haritası"
+    T_SUMMARY_TITLE = "📋 Research Summary &amp; Spatial Model Index" if is_english else "📋 Araştırma Özeti &amp; Uzamsal Model İndeksi"
     T_EXEC_SUMMARY = "📋 Executive Summary" if is_english else "📋 Yönetici Özeti"
     T_SVG_MAP_TITLE = "🗺️ Vectorial Spatial Risk Map (Mini SVG)" if is_english else "🗺️ Vektörel Uzamsal Risk Haritası (Mini SVG)"
     T_STABLE_LABEL = "● Stable (Low Risk)" if is_english else "● Stabil (Düşük Risk)"
@@ -1065,10 +1090,10 @@ def main() -> None:
     )
     T_OVERALL_LEVEL = "Genel Değerlendirme" if not is_english else "Overall Assessment"
 
-    T_CLINICAL_DECISION = "🧬 Clinical Profile &amp; Decision Support" if is_english else "🧬 Klinik Özellikler &amp; Karar Destek"
+    T_CLINICAL_DECISION = "🧬 Molecular Assay Boundaries" if is_english else "🧬 Moleküler Test Sınırları"
     T_RUO_WARNING = "⚠️ These evaluations are computational predictions. Histopathology and molecular testing are required for clinical validation." if is_english else "⚠️ Bu değerlendirmeler hesapsal tahmindir. Klinik onay için histopatoloji ve moleküler testler gereklidir."
     T_MOLECULAR_PROFILE = "Molecular Profile (Computational)" if is_english else "Moleküler Profil (Hesapsal)"
-    T_RECOMMENDED_PROTOCOL = "Recommended Treatment Protocol" if is_english else "Önerilen Tedavi Protokolü"
+    T_RECOMMENDED_PROTOCOL = "Clinical Output" if is_english else "Klinik Çıktı"
     T_PROTOCOL_DESC = "Based on GNN + Spatial microenvironment analysis:" if is_english else "GNN + Spatial mikroçevre analizine dayalı:"
     T_SOURCES = "Sources" if is_english else "Kaynaklar"
     
@@ -1101,7 +1126,7 @@ def main() -> None:
     T_INDUCED_PATHWAY = "Induced Pathway" if is_english else "Uyarılmış Yolak"
     T_ACTIVE_DRUG = "Active Drug" if is_english else "Etkin İlaç"
     T_MECHANISM = "Mechanism of Action" if is_english else "Etki Mekanizması"
-    T_CLINICAL_STAGE = "Clinical Stage" if is_english else "Klinik Aşama"
+    T_CLINICAL_STAGE = "Evidence Stage" if is_english else "Kanıt Aşaması"
     T_ZONAL_TITLE = "📊 Zonal Pathway Contrast Analysis" if is_english else "📊 Zonal Yolak Kontrast Analizi"
     T_PATHOLOGICAL_ZONE = "Pathological Zone" if is_english else "Patolojik Zon"
     
@@ -1279,7 +1304,7 @@ def main() -> None:
     logger.info(f"   ✅ HTML rapor: {html_path}")
 
     # ── PDF Report (User's v2.0 Gold Standard) ────────────────────
-    logger.info("📄 Klinik PDF Rapor oluşturuluyor (v2.0 Gold Standard)...")
+    logger.info("📄 Araştırma PDF raporu oluşturuluyor...")
     try:
         import subprocess
         pdf_script = Path(__file__).parent.parent / "generate_pdf_report.py"

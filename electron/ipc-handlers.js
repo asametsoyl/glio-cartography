@@ -266,7 +266,12 @@ function registerIpcHandlers() {
 
   // ── Python Path ──────────────────────────────────────────────
   ipcMain.handle('save-custom-python-path', (_, pythonPath) => {
-    if (_store) _store.set('customPythonPath', pythonPath);
+    if (typeof pythonPath !== 'string' || pythonPath.includes('\0')) return false;
+    let resolved;
+    try { resolved = fs.realpathSync(pythonPath); } catch { return false; }
+    const executableName = path.basename(resolved).toLowerCase();
+    if (!fs.statSync(resolved).isFile() || !/^python(?:3(?:\.\d+)?)?(?:\.exe)?$/.test(executableName)) return false;
+    if (_store) _store.set('customPythonPath', resolved);
     return true;
   });
 
@@ -334,13 +339,33 @@ function registerIpcHandlers() {
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('open-output-folder', (_, folderPath) => shell.openPath(folderPath));
+  ipcMain.handle('open-output-folder', (_, folderPath) => {
+    if (typeof folderPath !== 'string' || folderPath.includes('\0')) return false;
+    try {
+      const resolved = fs.realpathSync(folderPath);
+      if (!isPathAllowed(resolved) || !fs.statSync(resolved).isDirectory()) return false;
+      return shell.openPath(resolved);
+    } catch {
+      return false;
+    }
+  });
 
   // ── Backend HTTP Proxy ───────────────────────────────────────
   ipcMain.handle('backend-request', async (_, endpoint, method, body) => {
+    const safeMethod = String(method || 'GET').toUpperCase();
+    if (!['GET', 'POST'].includes(safeMethod)) {
+      throw new Error('Desteklenmeyen HTTP yöntemi');
+    }
+    if (typeof endpoint !== 'string' || !/^\/[a-z0-9_./?=&%-]*$/i.test(endpoint) || endpoint.includes('..')) {
+      throw new Error('Geçersiz backend endpoint adresi');
+    }
     return new Promise((resolve, reject) => {
-      const isGet = !method || method === 'GET';
+      const isGet = safeMethod === 'GET';
       const postData = (!isGet && body) ? JSON.stringify(body) : '';
+      if (Buffer.byteLength(postData) > 2 * 1024 * 1024) {
+        reject(new Error('İstek gövdesi izin verilen boyutu aşıyor'));
+        return;
+      }
       const headers = { 'Content-Type': 'application/json' };
       if (!isGet) headers['Content-Length'] = Buffer.byteLength(postData);
 
@@ -348,7 +373,7 @@ function registerIpcHandlers() {
         hostname: BACKEND_HOST,
         port: BACKEND_PORT,
         path: endpoint,
-        method: method || 'GET',
+        method: safeMethod,
         headers,
         // Raised from 30s to 120s — GNN graph analyses can exceed 30s on large datasets
         timeout: 120000
@@ -357,11 +382,27 @@ function registerIpcHandlers() {
       let completed = false;
       const req = http.request(options, (res) => {
         let data = '';
+        let responseBytes = 0;
         res.setTimeout(120000, () => {
+          if (completed) return;
+          completed = true;
           data = '';
           res.destroy();
+          reject(new Error('İstek zaman aşımına uğradı'));
+        });
+        res.on('error', (err) => {
+          if (completed) return;
+          completed = true;
+          reject(err);
         });
         res.on('data', chunk => {
+          responseBytes += chunk.length;
+          if (responseBytes > 64 * 1024 * 1024) {
+            completed = true;
+            res.destroy(new Error('Backend yanıtı izin verilen boyutu aşıyor'));
+            reject(new Error('Backend yanıtı izin verilen boyutu aşıyor'));
+            return;
+          }
           data += chunk;
         });
         res.on('end', () => {
@@ -550,7 +591,14 @@ function registerIpcHandlers() {
       return { ok: false, error: 'Python bulunamadı' };
     }
 
-    const pkgList = Array.isArray(packages) ? packages : [];
+    const approvedPackages = new Set([
+      'scanpy', 'squidpy', 'torch', 'torch-geometric', 'fastapi', 'anndata',
+      'numpy', 'pandas', 'scipy', 'scikit-learn', 'tangram-sc',
+      'cell2location', 'optuna', 'psutil', 'loguru', 'uvicorn'
+    ]);
+    const pkgList = Array.isArray(packages)
+      ? packages.filter(p => typeof p === 'string' && approvedPackages.has(p))
+      : [];
     if (pkgList.length === 0) {
       return { ok: false, error: 'Onarılacak paket listesi boş' };
     }
@@ -653,11 +701,19 @@ function registerIpcHandlers() {
       show: false,
       webPreferences: {
         nodeIntegration: false,
-        contextIsolation: true
+        contextIsolation: true,
+        sandbox: true,
+        javascript: false
       }
     });
 
-    const tempFilePath = path.join(__dirname, '..', 'renderer', 'temp_report.html');
+    if (typeof htmlContent !== 'string' || Buffer.byteLength(htmlContent, 'utf8') > 10 * 1024 * 1024) {
+      tempWin.destroy();
+      throw new Error('Rapor içeriği geçersiz veya çok büyük.');
+    }
+    // Application resources are read-only in packaged builds and a fixed file
+    // name races when two exports overlap. Use a per-export file in OS temp.
+    const tempFilePath = path.join(app.getPath('temp'), `glio-report-${crypto.randomUUID()}.html`);
     try {
       fs.writeFileSync(tempFilePath, htmlContent, 'utf8');
       await tempWin.loadFile(tempFilePath);

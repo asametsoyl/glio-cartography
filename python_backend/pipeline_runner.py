@@ -18,8 +18,11 @@ from pathlib import Path
 from datetime import datetime
 from enum import Enum
 
-# Project root = desktop_app/../..
+# Workspace root used only as the subprocess working directory. Runtime assets
+# are resolved explicitly below so an unrelated parent-level config cannot win.
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+APP_ROOT = Path(__file__).resolve().parent.parent
+APP_CONFIG_PATH = APP_ROOT / "configs" / "config.yaml"
 
 class PipelineStatus(str, Enum):
     IDLE     = "idle"
@@ -210,6 +213,9 @@ class PipelineRunner:
             cmd = [python, str(script_path)] + (args or [])
             
         env = {**os.environ, **(env_extra or {}), "GLIO_LANG": self.lang}
+        if APP_CONFIG_PATH.exists():
+            env["GLIO_CONFIG_PATH"] = str(APP_CONFIG_PATH)
+        env["GLIO_PROJECT_ROOT"] = str(APP_ROOT)
 
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,

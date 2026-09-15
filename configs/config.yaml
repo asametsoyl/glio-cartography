@@ -47,11 +47,11 @@ preprocessing:
 cell_markers:
   malignant_tumor:
     - EGFR
-    - PTEN
-    - IDH1
-    - TP53
-    - CDKN2A
-    - MET
+    - PDGFRA
+    - SOX2
+    - OLIG2
+    - CD44
+    - CHI3L1
   # ── GBM Kök Hücre (GSC) Markerları ──────────────────────
   gbm_stem_cell:
     - PROM1      # CD133 — GSC tanımlayıcısı
@@ -102,7 +102,6 @@ cell_markers:
     - TOX
     - TIGIT
     - LAG3
-    - TIM3
     - HAVCR2
   cd8_t_cell:
     - CD8A

@@ -1,6 +1,6 @@
 """
-stage5_report.py::compute_clinical_profile — hücre-tipi oran eşleştirme
-regresyon testi.
+stage5_report.py::compute_clinical_profile — hücre-tipi oran eşleştirme ve
+bilimsel iddia sınırı regresyon testi.
 
 2026-08-20'de ikinci bir sentetik hasta profiliyle (düşük tümör oranı,
 yüksek T-hücre infiltrasyonu) canlı pipeline testi sırasında bulundu:
@@ -8,9 +8,9 @@ tumor_keys/myeloid_keys/tcell_keys eşleştirmesi büyük/küçük harfe
 duyarlıydı ve yalnızca sabit kodlanmış acil-durum fallback panelindeki
 ("T_Cell" gibi) isimlerle eşleşiyordu — configs/config.yaml'daki GERÇEK
 panel küçük harfli olduğu için ("t_cell", "microglia", "gbm_stem_cell")
-tcell_frac HER ZAMAN 0 çıkıyor, IDH-mutant (olası) dalına hiçbir zaman
-ulaşılamıyor ve "tumor_associated_macrophage" (miyeloid, malign değil)
-yanlışlıkla tumor_frac'e dahil ediliyordu.
+tcell_frac HER ZAMAN 0 çıkıyor ve "tumor_associated_macrophage" (miyeloid,
+malign değil) yanlışlıkla tumor_frac'e dahil ediliyordu. IDH/WHO/MGMT ise
+bu oranlardan güvenilir biçimde çıkarılamayacağı için artık çağrılmıyor.
 """
 import os
 import sys
@@ -76,11 +76,10 @@ def test_config_driven_cell_type_names_are_matched_case_and_name_correctly(monke
         "TAM payı tümör fraksiyonuna değil miyeloid fraksiyona ait olmalı"
     )
 
-    assert profile["idh_status"] in (
-        "IDH-mutant (olası)", "IDH-mutant (likely)"
-    ), f"Düşük tümör + yüksek T-hücre profili IDH-mutant dalını tetiklemeli, geldi: {profile['idh_status']}"
-
-    assert profile["who_grade"] == "Grade 3"
+    assert "Değerlendirilmedi" in profile["idh_status"] or "Not assessed" in profile["idh_status"]
+    assert "Değerlendirilmedi" in profile["who_grade"] or "Not assessed" in profile["who_grade"]
+    assert "Değerlendirilmedi" in profile["mgmt_status"] or "Not assessed" in profile["mgmt_status"]
+    assert profile["protocols"] == ["Hastaya özgü tedavi önerisi üretilmez."]
 
 
 def test_gbm_stem_cell_counts_as_tumor_not_ignored(monkeypatch, tmp_path):

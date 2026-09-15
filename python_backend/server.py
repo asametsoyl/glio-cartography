@@ -15,7 +15,7 @@ import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 # Force UTF-8 encoding on standard streams to prevent UnicodeEncodeError on Windows
 if sys.platform == "win32":
@@ -36,7 +36,7 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse, StreamingResponse
     import uvicorn
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
 except ImportError:
     print("FastAPI not installed. Run: pip install fastapi uvicorn pydantic", file=sys.stderr)
     sys.exit(1)
@@ -163,21 +163,21 @@ app.add_middleware(
 # Request Models
 # =============================================================
 class PipelineStartRequest(BaseModel):
-    spatial_dir: str
-    scrna_path: str
-    output_dir: str
-    patient_id: Optional[str] = "Patient_A"
+    spatial_dir: str = Field(min_length=1, max_length=4096)
+    scrna_path: str = Field(min_length=1, max_length=4096)
+    output_dir: str = Field(min_length=1, max_length=4096)
+    patient_id: Optional[str] = Field(default="Patient_A", min_length=1, max_length=100)
     run_optuna: Optional[bool] = False
-    optuna_trials: Optional[int] = 5
-    gnn_epochs: Optional[int] = 100
-    deconv_method: Optional[str] = "tangram"  # tangram | cell2location | stereoscope
+    optuna_trials: Optional[int] = Field(default=5, ge=1, le=100)
+    gnn_epochs: Optional[int] = Field(default=100, ge=1, le=5000)
+    deconv_method: Optional[Literal["tangram", "cell2location", "stereoscope"]] = "tangram"
     # ── Klinik Metadata (FAZ 1 — Race Condition Önleme: env yerine JSON payload) ──
-    clinical_age: Optional[int] = None          # Hasta yaşı (yıl); None → imputation
-    clinical_mgmt: Optional[float] = None       # MGMT metilasyon skoru [0.0–1.0]; None → imputation
-    clinical_idh: Optional[float] = None        # IDH mutasyon skoru [0.0–1.0]; None → imputation
-    clinical_kps: Optional[int] = None          # Karnofsky Performance Score [0–100]; None → imputation
-    imputation_mode: Optional[str] = "worst"    # "worst" | "median"
-    lang: Optional[str] = "tr"                  # Arayüz dili (tr | en)
+    clinical_age: Optional[int] = Field(default=None, ge=0, le=120)
+    clinical_mgmt: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    clinical_idh: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    clinical_kps: Optional[int] = Field(default=None, ge=0, le=100)
+    imputation_mode: Optional[Literal["worst", "median"]] = "worst"
+    lang: Optional[Literal["tr", "en"]] = "tr"
 
 
 class LicenseCheckRequest(BaseModel):

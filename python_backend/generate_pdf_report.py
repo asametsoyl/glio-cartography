@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GLIO-CARTOGRAPHY — Klinik PDF Rapor Üreticisi (v3.0 - Clinical Decision Support)
+GLIO-CARTOGRAPHY — Araştırma PDF Rapor Üreticisi (v3.0)
 
 Düzeltmeler (v3.0):
 - Downstream pathway activation scores (PI3K/AKT/mTOR, MAPK/ERK, JAK/STAT, NFkB)
@@ -37,7 +37,6 @@ is_english = (GLIO_LANG == "en")
 # Biyolojik risk eşikleri (literatür tabanlı)
 MES_HIGH_THRESHOLD = 15.0   # %15 üzeri Tumor_MES → yüksek invazyon riski
 TAM_HIGH_THRESHOLD = 20.0   # %20 üzeri TAM → yüksek immünsüpresyon
-TCGA_MEDIAN_OS     = 14.0   # TCGA IDH-wildtype GBM medyan OS (ay)
 
 # Renk paleti (web atlasıyla tutarlı)
 COLORS = {
@@ -77,10 +76,10 @@ GBM_DRUG_DB_TR = {
         "mechanism": "MIF inhibitörü — mikroglia aracılı immünsüpresyonu azaltır"
     },
     "SPP1-PTPN1": {
-        "drug":      "Nivolumab",
-        "target":    "PD-1 / SPP1 ekseni",
-        "status":    "Faz III",
-        "mechanism": "Checkpoint inhibitörü — T hücre tükenmesini tersine çevirir"
+        "drug":      "Doğrulanmış eşleşmiş tedavi yok",
+        "target":    "Desteklenmeyen eksen",
+        "status":    "Kullanmayın",
+        "mechanism": "SPP1–PTPN1 doğrulanmış bir ligand–reseptör çifti değildir; klinik yorum yapılamaz"
     },
     "DEFAULT": {
         "drug":      "Temozolomide",
@@ -110,10 +109,10 @@ GBM_DRUG_DB_EN = {
         "mechanism": "MIF inhibitor — reduces microglia-mediated immunosuppression"
     },
     "SPP1-PTPN1": {
-        "drug":      "Nivolumab",
-        "target":    "PD-1 / SPP1 axis",
-        "status":    "Phase III",
-        "mechanism": "Checkpoint inhibitor — reverses T-cell exhaustion"
+        "drug":      "No validated matched therapy",
+        "target":    "Unsupported axis",
+        "status":    "Do not use",
+        "mechanism": "SPP1–PTPN1 is not a validated ligand–receptor pair; no clinical interpretation is supported"
     },
     "DEFAULT": {
         "drug":      "Temozolomide",
@@ -127,7 +126,7 @@ GBM_DRUG_DB = GBM_DRUG_DB_EN if is_english else GBM_DRUG_DB_TR
 
 MAIN_LOCALE = {
     "tr": {
-        "title": "KLİNİK PDF RAPOR ÜRETİCİSİ v3.0",
+        "title": "ARAŞTIRMA PDF RAPOR ÜRETİCİSİ v3.0",
         "json_not_found": "❌ JSON verisi bulunamadı: {}",
         "run_export": "Önce export_for_web.py çalıştırın.",
         "loading": "Veri yükleniyor: {}",
@@ -137,26 +136,26 @@ MAIN_LOCALE = {
         "aggregating": "{:,} spot agregasyonu hesaplanıyor...",
         "agg_error": "❌ Agregasyon hatası: {}",
         "risk_profile": "Risk profili: {}",
-        "median_os": "Medyan tahmini OS: {:.1f} Ay",
-        "top_drugs": "Top ilaçlar: {}",
+        "median_os": "Sağkalım tahmini üretilmedi: takip verisi sağlanmadı.",
+        "top_drugs": "Literatür eşleşmeleri: {}",
         "generating_pdf": "PDF dokümanı oluşturuluyor (3 sayfa)...",
         "page1_added": "  ✅ Sayfa 1 (Global Özet) eklendi",
         "page2_added": "  ✅ Sayfa 2 (Detay Analiz) eklendi",
-        "page3_added": "  ✅ Sayfa 3 (Tedavi Yanıtı ve Sentez) eklendi",
+        "page3_added": "  ✅ Sayfa 3 (Araştırma Hipotezleri) eklendi",
         "pdf_error": "❌ PDF oluşturma hatası: {}",
-        "pdf_success": "✅ Klinik PDF Raporu hazırlandı: {}",
+        "pdf_success": "✅ Araştırma PDF Raporu hazırlandı: {}",
         "page_count": "   Sayfa sayısı  : 3",
         "spot_count": "   Spot sayısı   : {:,}",
         "risk_profile_lbl": "   Risk profili  : {}",
-        "median_os_lbl": "   Medyan OS     : {:.1f} Ay",
-        "top_drug_lbl": "   Top ilaç      : {}",
-        "pdf_title": "Glio-Cartography Klinik Onkoloji Raporu v3.0",
+        "median_os_lbl": "   Sağkalım     : Üretilmedi",
+        "top_drug_lbl": "   Literatür eşleşmesi: {}",
+        "pdf_title": "Glio-Cartography Araştırma Raporu v3.0",
         "pdf_author": "Glio-Cartography GNN v3.0",
         "pdf_subject": "GBM Spatial Transcriptomics Analizi — RUO",
         "pdf_keywords": "GBM, Spatial, GNN, Tangram, TCGA, Pathways, Zonal Contrast"
     },
     "en": {
-        "title": "CLINICAL PDF REPORT GENERATOR v3.0",
+        "title": "RESEARCH PDF REPORT GENERATOR v3.0",
         "json_not_found": "❌ JSON data not found: {}",
         "run_export": "Run export_for_web.py first.",
         "loading": "Loading data: {}",
@@ -166,20 +165,20 @@ MAIN_LOCALE = {
         "aggregating": "Calculating aggregation for {:,} spots...",
         "agg_error": "❌ Aggregation error: {}",
         "risk_profile": "Risk profile: {}",
-        "median_os": "Est. Median OS: {:.1f} Months",
-        "top_drugs": "Top drugs: {}",
+        "median_os": "No survival estimate generated: follow-up data were not provided.",
+        "top_drugs": "Literature matches: {}",
         "generating_pdf": "Generating PDF document (3 pages)...",
         "page1_added": "  ✅ Page 1 (Global Summary) added",
         "page2_added": "  ✅ Page 2 (Detailed Analysis) added",
-        "page3_added": "  ✅ Page 3 (Treatment Response and Synthesis) added",
+        "page3_added": "  ✅ Page 3 (Research Hypotheses) added",
         "pdf_error": "❌ PDF generation error: {}",
-        "pdf_success": "✅ Clinical PDF Report generated: {}",
+        "pdf_success": "✅ Research PDF Report generated: {}",
         "page_count": "   Page count   : 3",
         "spot_count": "   Spot count   : {:,}",
         "risk_profile_lbl": "   Risk profile : {}",
-        "median_os_lbl": "   Median OS    : {:.1f} Months",
-        "top_drug_lbl": "   Top drug     : {}",
-        "pdf_title": "Glio-Cartography Clinical Oncology Report v3.0",
+        "median_os_lbl": "   Survival     : Not estimated",
+        "top_drug_lbl": "   Literature match: {}",
+        "pdf_title": "Glio-Cartography Research Report v3.0",
         "pdf_author": "Glio-Cartography GNN v3.0",
         "pdf_subject": "GBM Spatial Transcriptomics Analysis — RUO",
         "pdf_keywords": "GBM, Spatial, GNN, Tangram, TCGA, Pathways, Zonal Contrast"
@@ -322,18 +321,17 @@ def aggregate_data(spots, zone_names, zonal_contrast_data=None):
     )[:4]
 
     # Survival
-    median_survival = float(np.median(survival_vals)) if survival_vals else TCGA_MEDIAN_OS
     mean_risk       = float(np.mean(risk_vals)) if risk_vals else 0.5
 
     # Risk sınıflandırması
     if is_english:
         mes_risk = "HIGH" if mes_avg > MES_HIGH_THRESHOLD else "MEDIUM"
         tam_risk = "HIGH" if tam_avg > TAM_HIGH_THRESHOLD else "MEDIUM"
-        gen_risk = "AGGRESSIVE" if (mes_risk == "HIGH" or tam_risk == "HIGH") else "STABLE"
+        gen_risk = "HIGHER PROXY" if (mes_risk == "HIGH" or tam_risk == "HIGH") else "LOWER PROXY"
     else:
         mes_risk = "YÜKSEK" if mes_avg > MES_HIGH_THRESHOLD else "ORTA"
         tam_risk = "YÜKSEK" if tam_avg > TAM_HIGH_THRESHOLD else "ORTA"
-        gen_risk = "AGRESİF" if (mes_risk == "YÜKSEK" or tam_risk == "YÜKSEK") else "STABİL"
+        gen_risk = "YÜKSEK VEKİL" if (mes_risk == "YÜKSEK" or tam_risk == "YÜKSEK") else "DÜŞÜK VEKİL"
 
     # Zonal contrast processing (if not provided, calculate it)
     zonal_contrast = zonal_contrast_data
@@ -379,9 +377,7 @@ def aggregate_data(spots, zone_names, zonal_contrast_data=None):
         'top_lr':          top_lr,
         'pathway_avgs':    pathway_avgs,
         'zonal_contrast':  zonal_contrast,
-        'median_survival': median_survival,
         'mean_risk':       mean_risk,
-        'survival_delta':  median_survival - TCGA_MEDIAN_OS,
     }
 
 
@@ -443,7 +439,7 @@ def generate_clinical_synthesis(stats, zonal_contrast):
             )
         elif dominant_lr == "SPP1-PTPN1":
             synthesis += (
-                "The SPP1-PTPN1 checkpoint interaction reinforces the suppressive immune response in the microenvironment by promoting T-cell exhaustion. "
+                "SPP1-PTPN1 is not a validated ligand-receptor pair and is excluded from biological interpretation. "
             )
         
         synthesis += (
@@ -500,7 +496,7 @@ def generate_clinical_synthesis(stats, zonal_contrast):
             )
         elif dominant_lr == "SPP1-PTPN1":
             synthesis += (
-                "SPP1-PTPN1 kontrol noktası etkileşimi, T-hücre tükenmesini uyararak mikroçevredeki baskılayıcı immün yanıtı güçlendirmektedir. "
+                "SPP1-PTPN1 doğrulanmış bir ligand-reseptör çifti değildir ve biyolojik yorumun dışında tutulmuştur. "
             )
         
         synthesis += (
@@ -526,13 +522,13 @@ def draw_page1(fig, stats, zone_names, patient_label="HASTA A"):
 
     # ── Başlık ──────────────────────────────────────────────
     fig.text(0.5, 0.95,
-             "GLIO-CARTOGRAPHY  |  CLINICAL ONCOLOGY SUMMARY REPORT" if is_english else "GLIO-CARTOGRAPHY  |  KLİNİK ONKOLOJİ ÖZET RAPORU",
+             "GLIO-CARTOGRAPHY  |  RESEARCH ANALYSIS SUMMARY" if is_english else "GLIO-CARTOGRAPHY  |  ARAŞTIRMA ANALİZİ ÖZETİ",
              ha='center', va='top', fontsize=16, weight='bold',
              color=COLORS['accent'], fontfamily='monospace')
 
     analysis_lbl = f"Analysis: {stats['n_spots']:,} Visium Spots" if is_english else f"Analiz: {stats['n_spots']:,} Visium Spotu"
     fig.text(0.5, 0.915,
-             f"{patient_label}  |  Glioblastoma Multiforme (IDH-wildtype)  |  "
+             f"{patient_label}  |  Presumed GBM research cohort (diagnosis not inferred)  |  "
              f"{analysis_lbl}",
              ha='center', va='top', fontsize=10,
              color='#cccccc')
@@ -572,12 +568,12 @@ def draw_page1(fig, stats, zone_names, patient_label="HASTA A"):
     ax2.axis('off')
     ax2.set_facecolor(COLORS['bg_panel'])
 
-    risk_color = COLORS['danger'] if stats['gen_risk'] in ("AGRESİF", "AGGRESSIVE") \
+    risk_color = COLORS['danger'] if stats['gen_risk'] in ("YÜKSEK VEKİL", "HIGHER PROXY") \
                  else COLORS['accent']
 
-    ax2.text(0.05, 0.95, "🔴  GLOBAL RISK PROFILE" if is_english else "🔴  GLOBAL RİSK PROFİLİ",
+    ax2.text(0.05, 0.95, "SPATIAL MODEL-INDEX PROFILE" if is_english else "UZAMSAL MODEL İNDEKSİ PROFİLİ",
              transform=ax2.transAxes, color=COLORS['danger'],
-             fontsize=11, weight='bold', va='top')
+             fontsize=9, weight='bold', va='top')
 
     rows = [
         ("Invasive Mesenchymal (MES)" if is_english else "İnvaziv Mezenkimal (MES)", f"{stats['mes_avg']:.1f}%" if is_english else f"%{stats['mes_avg']:.1f}", stats['mes_risk']),
@@ -592,11 +588,11 @@ def draw_page1(fig, stats, zone_names, patient_label="HASTA A"):
                  transform=ax2.transAxes, color=rc,
                  fontsize=10, weight='bold')
 
-    lbl_score = f"Global GNN Score:  {stats['gen_risk']}" if is_english else f"GNN Genel Skor:  {stats['gen_risk']}"
+    lbl_score = f"Exploratory category: {stats['gen_risk']}" if is_english else f"Keşifsel kategori: {stats['gen_risk']}"
     ax2.text(0.05, 0.28,
              lbl_score,
              transform=ax2.transAxes, color=risk_color,
-             fontsize=12, weight='bold')
+             fontsize=10, weight='bold')
 
     ax2.add_patch(mpatches.FancyBboxPatch(
         (0.0, 0.0), 1.0, 1.0,
@@ -640,32 +636,28 @@ def draw_page1(fig, stats, zone_names, patient_label="HASTA A"):
     ax4.axis('off')
     ax4.set_facecolor(COLORS['bg_panel'])
 
-    delta      = stats['survival_delta']
-    delta_col  = COLORS['accent'] if delta >= 0 else COLORS['danger']
-    delta_sign = "+" if delta >= 0 else ""
-
-    ax4.text(0.05, 0.95, "📊  TCGA Survival Profile" if is_english else "📊  TCGA Survival Profili",
+    ax4.text(0.05, 0.95, "📊  Exploratory Model Risk" if is_english else "📊  Keşifsel Model Risk İndeksi",
              transform=ax4.transAxes, color=COLORS['accent'],
              fontsize=10, weight='bold', va='top')
     
-    os_lbl = f"Est. Median OS:  {stats['median_survival']:.1f} Months" if is_english else f"Tahmini Medyan OS:  {stats['median_survival']:.1f} Ay"
+    os_lbl = f"Dimensionless index:  {stats['mean_risk']:.3f}" if is_english else f"Boyutsuz indeks:  {stats['mean_risk']:.3f}"
     ax4.text(0.05, 0.72,
              os_lbl,
              transform=ax4.transAxes, color='white',
              fontsize=12, weight='bold')
     
-    ref_lbl = f"TCGA Reference:  {TCGA_MEDIAN_OS:.1f} Months" if is_english else f"TCGA Referans:  {TCGA_MEDIAN_OS:.1f} Ay"
+    ref_lbl = "No patient follow-up data provided" if is_english else "Hasta takip verisi sağlanmadı"
     ax4.text(0.05, 0.52,
              ref_lbl,
              transform=ax4.transAxes, color='#aaaaaa', fontsize=9)
     
-    delta_lbl = f"Profile Delta:  {delta_sign}{delta:.1f} Months" if is_english else f"Profil Farkı:  {delta_sign}{delta:.1f} Ay"
+    delta_lbl = "Not convertible to survival time" if is_english else "Sağkalım süresine dönüştürülemez"
     ax4.text(0.05, 0.34,
              delta_lbl,
-             transform=ax4.transAxes, color=delta_col,
+             transform=ax4.transAxes, color=COLORS['warning'],
              fontsize=11, weight='bold')
     
-    warning_lbl = "⚠️ Simulative — not a clinical decision tool" if is_english else "⚠️ Simülatif — klinik karar aracı değil"
+    warning_lbl = "⚠️ Research-only; not a prognosis" if is_english else "⚠️ Yalnızca araştırma; prognoz değildir"
     ax4.text(0.05, 0.14,
              warning_lbl,
              transform=ax4.transAxes, color='#888888',
@@ -709,9 +701,9 @@ def draw_page1(fig, stats, zone_names, patient_label="HASTA A"):
 
     # ── Disclaimer ───────────────────────────────────────────
     disclaimer_text = (
-        "⚠️  FOR RESEARCH USE ONLY (RUO) — Not a clinical decision-making tool. Requires specialist oncologist supervision.  |  Glio-Cartography GNN v3.0"
+        "⚠️  RESEARCH USE ONLY — No diagnosis, prognosis, survival estimate, prescription, or treatment recommendation.  |  Glio-Cartography GNN v3.0"
         if is_english else
-        "⚠️  ARAŞTIRMA KULLANIMI İÇİN (RUO) — Klinik karar verme aracı değildir. Uzman onkolog denetimi gerektirir.  |  Glio-Cartography GNN v3.0"
+        "⚠️  YALNIZCA ARAŞTIRMA — Tanı, prognoz, sağkalım tahmini, reçete veya tedavi önerisi üretmez.  |  Glio-Cartography GNN v3.0"
     )
     fig.text(
         0.5, 0.04,
@@ -836,7 +828,7 @@ def draw_page2(fig, stats, zone_names, patient_label="HASTA A"):
 # ============================================================
 
 def draw_page3(fig, stats, patient_label="HASTA A"):
-    """Kişiselleştirilmiş İlaç Önerileri & Klinik Sentez Raporu (v3.0)."""
+    """Research hypotheses and evidence-boundary summary."""
     fig.patch.set_facecolor(COLORS['bg_dark'])
     gs = GridSpec(2, 2, figure=fig,
                   left=0.08, right=0.95,
@@ -845,11 +837,11 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
 
     # ── Başlık ──────────────────────────────────────────────
     fig.text(0.5, 0.95,
-             "GLIO-CARTOGRAPHY  |  CLINICAL ONCOLOGY SUMMARY REPORT" if is_english else "GLIO-CARTOGRAPHY  |  KLİNİK ONKOLOJİ ÖZET RAPORU",
+             "GLIO-CARTOGRAPHY  |  RESEARCH HYPOTHESIS REPORT" if is_english else "GLIO-CARTOGRAPHY  |  ARAŞTIRMA HİPOTEZİ RAPORU",
              ha='center', va='top', fontsize=16, weight='bold',
              color=COLORS['accent'], fontfamily='monospace')
 
-    sub_title = f"{patient_label}  |  Personalized Drug Matching & Clinical Synthesis" if is_english else f"{patient_label}  |  Kişiselleştirilmiş İlaç Eşleştirme & Klinik Sentez"
+    sub_title = f"{patient_label}  |  Target-Literature Matching (Not a Prescription)" if is_english else f"{patient_label}  |  Hedef-Literatür Eşleştirmesi (Reçete Değildir)"
     fig.text(0.5, 0.915,
              sub_title,
              ha='center', va='top', fontsize=10,
@@ -866,8 +858,8 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
                     color=bar_colors[:len(d_labels)],
                     edgecolor=COLORS['bg_dark'], linewidth=0.5, height=0.5)
 
-    ax1.set_xlabel("Recommended Spot Count" if is_english else "Önerilen Spot Sayısı", color='#cccccc', fontsize=9)
-    ax1.set_title("Targeted Drug Recommendations — Spot Distribution" if is_english else "Hedefe Yönelik İlaç Önerileri — Spot Dağılımı",
+    ax1.set_xlabel("Matched Spot Count" if is_english else "Eşleşen Spot Sayısı", color='#cccccc', fontsize=9)
+    ax1.set_title("Exploratory Target Matches — Spot Distribution" if is_english else "Keşifsel Hedef Eşleşmeleri — Spot Dağılımı",
                   color='white', fontsize=10, weight='bold', pad=8)
     ax1.tick_params(colors='white', labelsize=8)
     ax1.spines['bottom'].set_color('#444')
@@ -889,7 +881,7 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
     ax2.axis('off')
     ax2.set_facecolor(COLORS['bg_panel'])
 
-    ax2.text(0.05, 0.95, "💊 RECOMMENDED DRUG DETAILS" if is_english else "💊 ÖNERİLEN İLAÇ DETAYLARI",
+    ax2.text(0.05, 0.95, "💊 LITERATURE-MATCH DETAILS" if is_english else "💊 LİTERATÜR EŞLEŞME DETAYLARI",
              transform=ax2.transAxes, color=COLORS['accent'],
              fontsize=10, weight='bold', va='top')
 
@@ -908,7 +900,8 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
         if not info:
             info = GBM_DRUG_DB.get(drug_db_key, GBM_DRUG_DB["DEFAULT"]) if drug_db_key else GBM_DRUG_DB["DEFAULT"]
         
-        ax2.text(0.05, y, f"• {drug} ({info.get('status', 'N/A')})",
+        evidence_status = info.get('status', 'N/A').replace('Klinik Aşama', 'Klinik araştırma').replace('Clinical Stage', 'Clinical research')
+        ax2.text(0.05, y, f"• {drug} ({evidence_status})",
                  transform=ax2.transAxes, color='white',
                  fontsize=9, weight='bold')
         
@@ -931,12 +924,20 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
     ax3.axis('off')
     ax3.set_facecolor(COLORS['bg_panel'])
 
-    synthesis_title = "🩺 CLINICAL SYNTHESIS & TUMOR MICROENVIRONMENT (TME) DYNAMICS" if is_english else "🩺 KLİNİK SENTEZ VE TÜMÖR MİKROÇEVRESİ (TME) DİNAMİKLERİ"
+    synthesis_title = "🧪 RESEARCH INTERPRETATION & EVIDENCE BOUNDARIES" if is_english else "🧪 ARAŞTIRMA YORUMU VE KANIT SINIRLARI"
     ax3.text(0.03, 0.93, synthesis_title,
              transform=ax3.transAxes, color=COLORS['warning'],
              fontsize=11, weight='bold', va='top')
 
-    synthesis_text = generate_clinical_synthesis(stats, stats.get('zonal_contrast', {}))
+    synthesis_text = (
+        "The listed compounds are literature-linked hypotheses derived from expression and ligand-receptor scores. "
+        "They are not patient-specific efficacy predictions or treatment recommendations. Confirmation requires orthogonal assays, "
+        "appropriate disease-context evidence, dose and safety review, and prospective clinical validation."
+        if is_english else
+        "Listelenen bileşikler ekspresyon ve ligand-reseptör skorlarından türetilen literatür bağlantılı hipotezlerdir. "
+        "Hastaya özgü etkinlik tahmini veya tedavi önerisi değildir. Ortogonal testler, hastalık bağlamına uygun kanıt, "
+        "doz ve güvenlik değerlendirmesi ile ileriye dönük klinik doğrulama gerekir."
+    )
     wrapped_lines = textwrap.wrap(synthesis_text, width=105)
     
     y = 0.82
@@ -955,9 +956,9 @@ def draw_page3(fig, stats, patient_label="HASTA A"):
 
     # ── Disclaimer ───────────────────────────────────────────
     disclaimer_text = (
-        "⚠️  FOR RESEARCH USE ONLY (RUO) — Not a clinical decision-making tool. Requires specialist oncologist supervision.  |  Glio-Cartography GNN v3.0"
+        "⚠️  RESEARCH USE ONLY — No diagnosis, prognosis, survival estimate, prescription, or treatment recommendation.  |  Glio-Cartography GNN v3.0"
         if is_english else
-        "⚠️  ARAŞTIRMA KULLANIMI İÇİN (RUO) — Klinik karar verme aracı değildir. Uzman onkolog denetimi gerektirir.  |  Glio-Cartography GNN v3.0"
+        "⚠️  YALNIZCA ARAŞTIRMA — Tanı, prognoz, sağkalım tahmini, reçete veya tedavi önerisi üretmez.  |  Glio-Cartography GNN v3.0"
     )
     fig.text(
         0.5, 0.04,
@@ -1019,7 +1020,7 @@ def main():
         return False
 
     logger.info(main_loc["risk_profile"].format(stats['gen_risk']))
-    logger.info(main_loc["median_os"].format(stats['median_survival']))
+    logger.info(main_loc["median_os"])
     logger.info(main_loc["top_drugs"].format([d[0] for d in stats['top_drugs']]))
 
     # Çıktı dizini
@@ -1074,7 +1075,7 @@ def main():
     logger.info(main_loc["page_count"])
     logger.info(main_loc["spot_count"].format(stats['n_spots']))
     logger.info(main_loc["risk_profile_lbl"].format(stats['gen_risk']))
-    logger.info(main_loc["median_os_lbl"].format(stats['median_survival']))
+    logger.info(main_loc["median_os_lbl"])
     logger.info(main_loc["top_drug_lbl"].format(stats['top_drugs'][0][0] if stats['top_drugs'] else 'N/A'))
     logger.info("=" * 60)
     return True
