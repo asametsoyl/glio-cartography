@@ -84,6 +84,22 @@ function handleStateChange(prop, value, oldValue) {
     if (value === 'tumor-map' && typeof drawTumorMap === 'function') {
       drawTumorMap();
     }
+
+    if (value === 'figures' && typeof loadFigures === 'function') {
+      loadFigures();
+    }
+
+    if (value === 'report' && typeof loadReport === 'function') {
+      loadReport();
+    }
+
+    if (value === 'quality' && typeof loadDeconvQuality === 'function') {
+      loadDeconvQuality();
+    }
+
+    if (value === 'model' && typeof loadGnnModel === 'function') {
+      loadGnnModel();
+    }
   }
 
   // 2. Monitor panel controls on running state changes
