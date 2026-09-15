@@ -1,6 +1,6 @@
 {
   "name": "glio-cartography",
-  "version": "3.2.11",
+  "version": "3.2.12",
   "description": "Glio-Cartography — Spatial Tumor Microenvironment Atlas for Glioblastoma",
   "main": "electron/main.js",
   "author": "Glio-Cartography Team",
@@ -63,7 +63,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Glio-Cartography",
-      "uninstallDisplayName": "Glio-Cartography v3.2.11",
+      "uninstallDisplayName": "Glio-Cartography v3.2.12",
       "deleteAppDataOnUninstall": false
     },
     "linux": {
