@@ -96,49 +96,126 @@ function execFileSyncWithRetry(file, args = [], options = {}, retries = 3) {
   }
 }
 
+let _store = null;
+const _customAllowedDirs = new Set();
+
+function setStore(store) {
+  _store = store;
+}
+
+/**
+ * Dynamically whitelists a user-chosen file or directory path for the current session.
+ * @param {string} dirOrFilePath
+ */
+function addAllowedPath(dirOrFilePath) {
+  if (!dirOrFilePath || typeof dirOrFilePath !== 'string') return;
+  try {
+    const clean = path.resolve(dirOrFilePath).replace(/^\\\\\?\\/, '');
+    if (fs.existsSync(clean) && !fs.statSync(clean).isDirectory()) {
+      _customAllowedDirs.add(path.dirname(clean));
+    } else {
+      _customAllowedDirs.add(clean);
+    }
+  } catch {
+    // If path does not exist yet (e.g. pending output dir), add its resolved directory
+    try {
+      _customAllowedDirs.add(path.resolve(dirOrFilePath).replace(/^\\\\\?\\/, ''));
+    } catch {}
+  }
+}
+
 // ── Whitelist base directories ────────────────────────────────
 function getAllowedBaseDirs() {
-  const { app } = require('electron');
   const path = require('path');
   const os = require('os');
-  return [
-    app.getPath('userData'),
-    app.getPath('documents'),
-    app.getPath('desktop'),
-    app.getPath('home'),
-    app.getPath('temp'),
-    os.tmpdir()
-  ].map(d => path.resolve(d));
+
+  const dirs = [os.tmpdir()];
+
+  try {
+    if (process.versions && process.versions.electron) {
+      const electron = require('electron');
+      const app = electron && electron.app;
+      if (app && typeof app.getPath === 'function') {
+        try { dirs.push(app.getPath('userData')); } catch {}
+        try { dirs.push(app.getPath('documents')); } catch {}
+        try { dirs.push(app.getPath('desktop')); } catch {}
+        try { dirs.push(app.getPath('home')); } catch {}
+        try { dirs.push(app.getPath('temp')); } catch {}
+        try { dirs.push(app.getPath('downloads')); } catch {}
+      }
+    }
+  } catch {}
+
+  // Include user paths saved in config store
+  if (_store) {
+    try {
+      const lastPaths = _store.get('lastPaths', null);
+      if (lastPaths && typeof lastPaths === 'object') {
+        if (lastPaths.output) dirs.push(lastPaths.output);
+        if (lastPaths.spatial) dirs.push(lastPaths.spatial);
+        if (lastPaths.scrna) dirs.push(path.dirname(lastPaths.scrna));
+      }
+      const profiles = _store.get('profiles', []);
+      if (Array.isArray(profiles)) {
+        for (const p of profiles) {
+          if (p && typeof p === 'object') {
+            if (p.output) dirs.push(p.output);
+            if (p.spatial) dirs.push(p.spatial);
+            if (p.scrna) dirs.push(path.dirname(p.scrna));
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Include dynamically whitelisted session paths
+  for (const cd of _customAllowedDirs) {
+    dirs.push(cd);
+  }
+
+  return dirs
+    .filter(Boolean)
+    .map(d => path.resolve(d).replace(/^\\\\\?\\/, ''));
 }
 
 /**
  * Checks if a resolved path is within the allowed whitelisted base directories,
- * using case-insensitive checks on macOS/Windows and Unicode NFC normalization.
+ * using case-insensitive checks on macOS/Windows, Unicode NFC normalization,
+ * and stripping the Windows \\?\ extended-length path prefix.
  */
 function isPathAllowed(filePath) {
-  if (!filePath) return false;
+  if (!filePath || typeof filePath !== 'string') return false;
+
+  // Strip Windows extended path prefix if present in input
+  const cleanInput = filePath.replace(/^\\\\\?\\/, '');
+
   let resolvedPath;
   try {
-    resolvedPath = fs.realpathSync(filePath);
+    resolvedPath = fs.realpathSync(cleanInput);
   } catch (err) {
     try {
-      resolvedPath = path.resolve(filePath);
+      resolvedPath = path.resolve(cleanInput);
     } catch {
-      resolvedPath = filePath;
+      resolvedPath = cleanInput;
     }
   }
+
+  // Strip Windows extended path prefix if added by fs.realpathSync
+  resolvedPath = resolvedPath.replace(/^\\\\\?\\/, '');
 
   const normResolved = resolvedPath.normalize('NFC');
   const allowedDirs = getAllowedBaseDirs();
 
   return allowedDirs.some(baseDir => {
+    let cleanBaseDir = (baseDir || '').replace(/^\\\\\?\\/, '');
     let rPath = normResolved;
-    let bDir = baseDir.normalize('NFC');
+    let bDir = cleanBaseDir.normalize('NFC');
     if (process.platform === 'darwin' || process.platform === 'win32') {
       rPath = rPath.toLowerCase();
       bDir = bDir.toLowerCase();
     }
-    return rPath === bDir || rPath.startsWith(bDir + path.sep);
+    const bDirWithSep = bDir.endsWith(path.sep) ? bDir : bDir + path.sep;
+    return rPath === bDir || rPath.startsWith(bDirWithSep);
   });
 }
 
@@ -153,4 +230,15 @@ function safeSend(mainWindow, channel, ...args) {
   }
 }
 
-module.exports = { logToFile, setLogPath, getLogPath, execSyncWithRetry, execFileSyncWithRetry, getAllowedBaseDirs, isPathAllowed, safeSend };
+module.exports = {
+  logToFile,
+  setLogPath,
+  getLogPath,
+  execSyncWithRetry,
+  execFileSyncWithRetry,
+  getAllowedBaseDirs,
+  isPathAllowed,
+  safeSend,
+  setStore,
+  addAllowedPath
+};

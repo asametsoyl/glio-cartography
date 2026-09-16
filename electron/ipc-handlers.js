@@ -16,9 +16,8 @@ const crypto = require('crypto');
 
 const { validateLicense, saveOnlineActivation } = require('./license');
 const { getMachineId } = require('./machine-id');
-const { getLogPath, isPathAllowed, safeSend: safeSendUtil } = require('./utils');
+const { getLogPath, isPathAllowed, safeSend: safeSendUtil, addAllowedPath } = require('./utils');
 const {
-  startBackend, waitForBackend, killBackend, killProcessOnPort,
   findExtractedPython,
   setBackendState, getBackendState,
   BACKEND_PORT, BACKEND_HOST
@@ -319,7 +318,9 @@ function registerIpcHandlers() {
       properties: ['openDirectory'],
       title: 'Spatial Veri Klasörünü Seçin'
     });
-    return result.canceled ? null : result.filePaths[0];
+    const selected = result.canceled ? null : result.filePaths[0];
+    if (selected) addAllowedPath(selected);
+    return selected;
   });
 
   ipcMain.handle('select-file', async (_, filters) => {
@@ -328,7 +329,9 @@ function registerIpcHandlers() {
       title: 'scRNA-seq Veri Dosyasını Seçin',
       filters: filters || [{ name: 'scRNA Data', extensions: ['h5ad', 'h5', 'loom', 'csv', 'tsv'] }]
     });
-    return result.canceled ? null : result.filePaths[0];
+    const selected = result.canceled ? null : result.filePaths[0];
+    if (selected) addAllowedPath(selected);
+    return selected;
   });
 
   ipcMain.handle('select-output-folder', async () => {
@@ -336,13 +339,15 @@ function registerIpcHandlers() {
       properties: ['openDirectory', 'createDirectory'],
       title: 'Çıktı Klasörünü Seçin'
     });
-    return result.canceled ? null : result.filePaths[0];
+    const selected = result.canceled ? null : result.filePaths[0];
+    if (selected) addAllowedPath(selected);
+    return selected;
   });
 
   ipcMain.handle('open-output-folder', (_, folderPath) => {
     if (typeof folderPath !== 'string' || folderPath.includes('\0')) return false;
     try {
-      const resolved = fs.realpathSync(folderPath);
+      const resolved = fs.realpathSync(folderPath).replace(/^\\\\\?\\/, '');
       if (!isPathAllowed(resolved) || !fs.statSync(resolved).isDirectory()) return false;
       return shell.openPath(resolved);
     } catch {
@@ -441,6 +446,7 @@ function registerIpcHandlers() {
       try { resolvedPath = path.resolve(filePath); }
       catch { return null; }
     }
+    resolvedPath = resolvedPath.replace(/^\\\\\?\\/, '');
 
     if (!isPathAllowed(resolvedPath)) {
       console.warn('[read-json-file] Access denied — path outside allowed dirs:', resolvedPath);
@@ -459,6 +465,7 @@ function registerIpcHandlers() {
       try { resolvedPath = path.resolve(filePath); }
       catch { return false; }
     }
+    resolvedPath = resolvedPath.replace(/^\\\\\?\\/, '');
 
     if (!isPathAllowed(resolvedPath)) {
       console.warn('[file-exists] Access denied — path outside allowed dirs:', resolvedPath);
@@ -472,6 +479,11 @@ function registerIpcHandlers() {
   // ── User Preferences ─────────────────────────────────────────
   ipcMain.handle('get-last-paths', () => _store ? _store.get('lastPaths', null) : null);
   ipcMain.handle('save-last-paths', (_, paths) => {
+    if (paths && typeof paths === 'object') {
+      if (paths.output) addAllowedPath(paths.output);
+      if (paths.spatial) addAllowedPath(paths.spatial);
+      if (paths.scrna) addAllowedPath(paths.scrna);
+    }
     if (_store) _store.set('lastPaths', paths);
     return true;
   });
@@ -488,6 +500,10 @@ function registerIpcHandlers() {
     const safe = Object.fromEntries(
       ALLOWED_KEYS.map(k => [k, String(profile[k] || '').slice(0, MAX_LENS[k] || 1000)])
     );
+    if (safe.output) addAllowedPath(safe.output);
+    if (safe.spatial) addAllowedPath(safe.spatial);
+    if (safe.scrna) addAllowedPath(safe.scrna);
+
     const profiles = _store.get('datasetProfiles', []);
     const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
     profiles.push({ id, ...safe, createdAt: new Date().toISOString() });

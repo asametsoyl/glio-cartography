@@ -93,10 +93,12 @@ contextBridge.exposeInMainWorld('glioAPI', {
   setLanguageLocked: (locked) => ipcRenderer.invoke('set-language-locked', locked),
   printReportToPDF: (htmlContent) => ipcRenderer.invoke('print-report-to-pdf', htmlContent),
   toLocalUrl: (filePath) => {
-    if (!filePath) return '';
+    if (!filePath || typeof filePath !== 'string') return '';
+    if (filePath.startsWith('local://')) return filePath;
     let normalized = filePath.replace(/\\/g, '/');
     let url;
     if (process.platform === 'win32' || (normalized.length >= 2 && normalized.charCodeAt(1) === 58)) {
+      normalized = normalized.replace(/^\/+/, '');
       url = `local:///${normalized}`;
     } else {
       url = `local://${normalized.startsWith('/') ? '' : '/'}${normalized}`;

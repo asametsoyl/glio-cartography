@@ -25,6 +25,60 @@ const MIME_TYPES = {
 };
 
 /**
+ * Converts a local:// protocol URL into a clean, canonical filesystem path.
+ * Handles Windows drive letters (C:\...), Chromium URL normalization (stripped colons, localhost host),
+ * URI encoding, query parameters, and hashes.
+ *
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+function urlToFilePath(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+
+  // 1. Strip query string and fragment
+  let cleanUrl = rawUrl.split('?')[0].split('#')[0];
+
+  // 2. Strip scheme prefix: local://, local:///, local:/
+  let pathPart = cleanUrl.replace(/^local:\/{1,3}/i, '');
+
+  // 3. URI decode (%20, non-ASCII chars)
+  try {
+    pathPart = decodeURIComponent(pathPart);
+  } catch {
+    // Keep raw string if URI decoding encounters invalid escapes
+  }
+
+  // 4. Strip localhost if injected as hostname by Chromium
+  pathPart = pathPart.replace(/^localhost[\\/]/i, '');
+
+  if (process.platform === 'win32') {
+    // Strip leading slashes: /C:/foo or ///C:/foo -> C:/foo
+    pathPart = pathPart.replace(/^[\\/]+/, '');
+
+    // Normalize Windows drive letter:
+    // Case 1: C:/path or C:\path
+    // Case 2: C/path (Chromium stripped colon when parsing as host)
+    // Case 3: C:path
+    const driveMatch = pathPart.match(/^([a-zA-Z])(?::[\\/]|[\\/]|:)(.*)/);
+    if (driveMatch) {
+      const driveLetter = driveMatch[1].toUpperCase();
+      const restOfPath = driveMatch[2].replace(/^[\\/]+/, '');
+      pathPart = `${driveLetter}:\\${restOfPath.replace(/\//g, '\\')}`;
+    } else {
+      pathPart = pathPart.replace(/\//g, '\\');
+    }
+  } else {
+    // POSIX (macOS, Linux): Must start with single /
+    pathPart = pathPart.replace(/^[\\/]+/, '/');
+    if (!pathPart.startsWith('/')) {
+      pathPart = '/' + pathPart;
+    }
+  }
+
+  return pathPart;
+}
+
+/**
  * Registers the local:// protocol handler with path traversal protection.
  * Only files within the allowed base directories can be served.
  *
@@ -36,21 +90,10 @@ function registerLocalProtocol(protocol, app) {
 
   protocol.handle('local', async (request) => {
     try {
-      let urlPath = request.url;
-      if (urlPath.startsWith('local://')) urlPath = urlPath.slice(8);
-
-      // Strip query string and fragment
-      urlPath = urlPath.split('?')[0].split('#')[0];
-      let decodedPath = decodeURIComponent(urlPath);
-
-      // Normalize platform paths
-      if (process.platform !== 'win32') {
-        if (!decodedPath.startsWith('/')) decodedPath = '/' + decodedPath;
-      } else {
-        // Handle /C:/foo/bar → C:/foo/bar on Windows
-        if (decodedPath.startsWith('/') && decodedPath.charCodeAt(2) === 58) {
-          decodedPath = decodedPath.slice(1);
-        }
+      const decodedPath = urlToFilePath(request.url);
+      if (!decodedPath) {
+        console.warn('[Local Protocol] Bad request URL:', request.url);
+        return new Response('Bad Request', { status: 400 });
       }
 
       // Resolve to an absolute path and resolve symlinks to prevent traversal via symlinks
@@ -61,6 +104,9 @@ function registerLocalProtocol(protocol, app) {
         // Fallback for non-existent files to check whitelist
         resolvedPath = path.resolve(decodedPath);
       }
+
+      // Strip Windows extended path prefix (\\?\) so comparisons and APIs work cleanly
+      resolvedPath = resolvedPath.replace(/^\\\\\?\\/, '');
 
       // ── Path traversal protection ───────────────────────────
       if (!isPathAllowed(resolvedPath)) {
@@ -88,4 +134,4 @@ function registerLocalProtocol(protocol, app) {
   });
 }
 
-module.exports = { registerLocalProtocol };
+module.exports = { registerLocalProtocol, urlToFilePath };

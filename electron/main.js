@@ -23,7 +23,7 @@ const fs = require('fs');
 
 // ── Bootstrap logging BEFORE app.whenReady() ─────────────────
 // logPath starts in tmpdir; updated to documents dir once app is ready.
-const { logToFile, setLogPath, getLogPath } = require('./utils');
+const { logToFile, setLogPath, getLogPath, setStore: setUtilsStore } = require('./utils');
 
 const _origLog   = console.log;
 const _origError = console.error;
@@ -169,6 +169,7 @@ app.whenReady().then(async () => {
   }
   setLicenseStore(store);
   setIpcStore(store);
+  setUtilsStore(store);
 
   // ── 4. Register all IPC handlers ──────────────────────────
   registerIpcHandlers();
