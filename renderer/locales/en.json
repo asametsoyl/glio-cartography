@@ -276,7 +276,12 @@
     "modal_title": "Glio-Cartography Update",
     "notes_loading": "Loading release notes...",
     "preparing": "Preparing...",
-    "download": "Download"
+    "download": "Download",
+    "download_failed": "Update download failed",
+    "up_to_date_msg": "Glio-Cartography is up to date (v{{version}}).",
+    "new_version_info": "New version: v{{latest}} (Current: v{{current}})",
+    "no_release_notes": "No release notes available.",
+    "download_starting": "Starting download..."
   },
   "toast": {
     "analysis_started": "Analysis started",
@@ -296,7 +301,9 @@
     "process_error": "Process Error",
     "unexpected_error": "An unexpected error occurred.",
     "unexpected_error_retry": "An unexpected error occurred. Please try again.",
-    "webgl_context_lost": "⚠️ WebGL context lost. Waiting for auto-restart..."
+    "webgl_context_lost": "⚠️ WebGL context lost. Waiting for auto-restart...",
+    "export_success": "Report successfully saved as PDF!",
+    "export_canceled": "PDF export canceled."
   },
   "dialog": {
     "confirm": "Confirm",
@@ -355,6 +362,7 @@
     "connecting_server": "Connecting to application server...",
     "copy_failed": "Clipboard copy failed. Please copy manually.",
     "preparing": "Preparing...",
+    "activating": "Activating...",
     "machine_id_desc": "(send this value for license request)",
     "no_internet_note": "No internet connection? If using a portable license via USB/CD, restart the application — it will be recognized automatically."
   },

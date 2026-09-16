@@ -276,7 +276,12 @@
     "modal_title": "Glio-Cartography Güncelleme",
     "notes_loading": "Sürüm notları yükleniyor...",
     "preparing": "Hazırlanıyor...",
-    "download": "İndir"
+    "download": "İndir",
+    "download_failed": "Güncelleme indirme başarısız oldu",
+    "up_to_date_msg": "Glio-Cartography güncel (v{{version}}).",
+    "new_version_info": "Yeni sürüm: v{{latest}} (Mevcut: v{{current}})",
+    "no_release_notes": "Sürüm notu bulunmuyor.",
+    "download_starting": "İndirme başlatılıyor..."
   },
   "toast": {
     "analysis_started": "Analiz başlatıldı",
@@ -296,7 +301,9 @@
     "process_error": "İşlem Hatası",
     "unexpected_error": "Beklenmeyen bir hata oluştu.",
     "unexpected_error_retry": "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
-    "webgl_context_lost": "⚠️ WebGL bağlamı kayboldu. Otomatik yeniden başlatma bekleniyor..."
+    "webgl_context_lost": "⚠️ WebGL bağlamı kayboldu. Otomatik yeniden başlatma bekleniyor...",
+    "export_success": "Rapor PDF olarak başarıyla kaydedildi!",
+    "export_canceled": "PDF kaydetme iptal edildi."
   },
   "dialog": {
     "confirm": "Onayla",
@@ -355,6 +362,7 @@
     "connecting_server": "Uygulama sunucusuna bağlanılıyor...",
     "copy_failed": "Panoya kopyalama başarısız oldu. Lütfen manuel olarak kopyalayın.",
     "preparing": "Hazırlanıyor...",
+    "activating": "Etkinleştiriliyor...",
     "machine_id_desc": "(lisans talebinde bu değeri gönderin)",
     "no_internet_note": "İnternet bağlantısı yok mu? USB/CD ile taşınabilir lisans kullanıyorsanız uygulamayı yeniden başlatın — otomatik tanınacaktır."
   },

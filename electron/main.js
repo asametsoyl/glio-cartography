@@ -222,7 +222,7 @@ app.whenReady().then(async () => {
 
       setBackendState('starting');
       await startBackend(mainWindow, store, app);
-      const ready = await waitForBackend(30);
+      const ready = await waitForBackend(process.platform === 'win32' ? 90 : 45);
       console.log(`[Main] Backend ready: ${ready}`);
 
       if (ready) setBackendState('ready');

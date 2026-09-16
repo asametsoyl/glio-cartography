@@ -315,7 +315,7 @@ async function runEnvDiagnostics(mainWindow, pythonInfo, app) {
         PYTHONUTF8: '1',
       },
       stdio: 'pipe',
-      timeout: 30000,
+      timeout: 60000,
     });
 
     let stderr = '';
@@ -325,8 +325,8 @@ async function runEnvDiagnostics(mainWindow, pythonInfo, app) {
     const timer = setTimeout(() => {
       try { diagProc.kill(); } catch { }
       console.warn('[check_env] Tanılama zaman aşımına uğradı.');
-      resolve({ status: 'timeout', errors: ['Tanılama 30s zaman aşımı'] });
-    }, 30000);
+      resolve({ status: 'timeout', errors: ['Tanılama zaman aşımı'] });
+    }, 60000);
 
     diagProc.on('close', () => {
       clearTimeout(timer);
@@ -461,7 +461,7 @@ function startBackend(mainWindow, store, app) {
 }
 
 // ── Health Check ──────────────────────────────────────────────
-function waitForBackend(maxTries = 30) {
+function waitForBackend(maxTries = (process.platform === 'win32' ? 90 : 45)) {
   return new Promise((resolve) => {
     let tries = 0;
     const check = () => {

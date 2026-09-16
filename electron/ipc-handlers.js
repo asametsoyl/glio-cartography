@@ -298,7 +298,7 @@ function registerIpcHandlers() {
       killBackend();
       killProcessOnPort(BACKEND_PORT);
       await startBackend(_mainWindow, _store, app);
-      const ready = await waitForBackend(30);
+      const ready = await waitForBackend(process.platform === 'win32' ? 90 : 45);
       console.log(`[IPC] restart-backend result: ${ready}`);
       if (ready) setBackendState('ready');
       else setBackendState('failed', 'Analiz bileşenleri başlatıldı ancak bağlantı kurulamadı. Lütfen sistem tanılama kayıtlarını kontrol edin.');
