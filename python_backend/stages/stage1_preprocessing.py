@@ -3,7 +3,6 @@
 import os, sys, json
 from pathlib import Path
 import numpy as np
-import scipy.stats as stats
 import scipy.sparse as sp
 import yaml
 import shutil
@@ -255,7 +254,8 @@ def main():
 
     # Adaptif Doublet (MAD) Filtresi (gen sayısına dayalı basit filtre)
     median_genes = np.median(adata_sc.obs['n_genes_by_counts'])
-    mad_genes = stats.median_abs_deviation(adata_sc.obs['n_genes_by_counts'])
+    genes_values = np.asarray(adata_sc.obs['n_genes_by_counts'], dtype=float)
+    mad_genes = np.median(np.abs(genes_values - median_genes))
     max_genes_limit = config.preprocessing.scrna.max_genes
     max_genes = min(max_genes_limit, median_genes + 3 * mad_genes)
     logger.info(f"   Doublet filtering using MAD: max_genes={max_genes:.2f} (median={median_genes:.2f}, MAD={mad_genes:.2f})")
@@ -264,7 +264,8 @@ def main():
 
     # Adaptif Mitochondrial Filtresi (MAD bazlı, 5% - 15% arası clamp edilmiş)
     median_mt = np.median(adata_sc.obs['pct_counts_mt'])
-    mad_mt = stats.median_abs_deviation(adata_sc.obs['pct_counts_mt'])
+    mt_values = np.asarray(adata_sc.obs['pct_counts_mt'], dtype=float)
+    mad_mt = np.median(np.abs(mt_values - median_mt))
     max_mito_pct_cfg = config.preprocessing.scrna.max_mito_pct
     max_mt = np.clip(median_mt + 3 * mad_mt, 5.0, max_mito_pct_cfg)
     logger.info(f"   scRNA MT filtering threshold: {max_mt:.2f}% (median={median_mt:.2f}%, MAD={mad_mt:.2f}%)")

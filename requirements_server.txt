@@ -46,7 +46,7 @@ optuna>=3.0.0
 # --- Data science ---
 numpy
 pandas
-scipy
+scipy==1.15.2
 scikit-learn
 scikit-image
 statsmodels
@@ -96,4 +96,3 @@ tqdm
 requests
 pillow>=10.0.0         # PIL (used by pathway_mapper KEGG image overlay)
 psutil>=5.9.0          # System resource monitoring
-

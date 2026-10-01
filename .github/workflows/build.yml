@@ -103,6 +103,7 @@ jobs:
           }
           $filtered | Out-File -FilePath "$env:TEMP\filtered_reqs.txt" -Encoding utf8
           conda run -n gliocarto pip install -r "$env:TEMP\filtered_reqs.txt" --no-cache-dir
+          conda run -n gliocarto python -c "import scipy, scipy.stats, scipy.sparse; print('SciPy smoke test passed:', scipy.__version__)"
           Write-Host "=== Done! ==="
 
       # ── Install Python packages (macOS/Linux) ────────────────
@@ -145,6 +146,7 @@ jobs:
             grep -v "^#" | \
             grep -v "^$" > /tmp/filtered_reqs.txt
           conda run -n gliocarto pip install -r /tmp/filtered_reqs.txt --no-cache-dir
+          conda run -n gliocarto python -c "import scipy, scipy.stats, scipy.sparse; print('SciPy smoke test passed:', scipy.__version__)"
           echo "=== Done! ==="
 
       # ── conda-pack ───────────────────────────────────────────
