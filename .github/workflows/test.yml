@@ -28,6 +28,21 @@ jobs:
         working-directory: python_backend
         run: python -m pytest tests -q
 
+  spatialcore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install spatialcore with test extras
+        run: pip install -e '.[test]'
+
+      - name: spatialcore tests (data model, loaders, phantom)
+        run: python -m pytest tests/spatialcore -q
+
   renderer:
     runs-on: ubuntu-latest
     steps:

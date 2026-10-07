@@ -1,0 +1,38 @@
+# Public data used to validate SpatialCore. Nothing here is redistributed in this repository.
+# Every entry records what was VERIFIED and what is still an open question (sections 2 / 8 of the Z-BRIDGE docs).
+schema_version: 1
+datasets:
+  - id: dlpfc_maynard2021
+    description: Human DLPFC, 10x Visium, 3 donors x 4 sections, manual cortical-layer labels (obs['Truth'])
+    source:
+      primary_publication: "Maynard et al. 2021, Nat Neurosci, doi:10.1038/s41593-020-00787-0 (PMC8095368)"
+      mirror: "Zenodo 10.5281/zenodo.22043830, file 10xVisium_DLPFC.zip (SpaDiff dataset record; CC-BY-4.0)"
+      mirror_md5: a299bfd6a5cdbee16d2729c8f51bda42
+      mirror_sha256: 1ce7a6143903afd595d237e3fdf849e6235f77abb8fec11b60404a688e9c338f
+    license: "CC-BY-4.0 on the mirror record; primary-source terms to be confirmed before any redistribution"
+    donors:
+      Br5292: ["151507", "151508", "151509", "151510"]
+      Br5595: ["151669", "151670", "151671", "151672"]
+      Br8100: ["151673", "151674", "151675", "151676"]
+    # Verified from the primary publication full text (PMC8095368):
+    section_geometry:
+      thickness_um: 10
+      thickness_source: nominal        # "10um serial tissue sections"
+      adjacent_pairs: "two directly adjacent sections per pair (first two and last two of each donor, in the listed order)"
+      pair_offset_um: 300              # "second pair located 300 um posterior from the first"; pair-to-pair, not gap-after-slice
+      pair_offset_source: nominal
+    coordinates:
+      unit: fullres_pixel              # median nearest-neighbour distance ~137 px == 100 um pitch (~0.73 um/px); estimated, not read from metadata
+      spatial_key: spatial
+    labels: {key: Truth, classes: [Layer_1, Layer_2, Layer_3, Layer_4, Layer_5, Layer_6, WM], unlabeled: "a few NaN spots"}
+    open_questions:
+      - "Which order inside a pair is physically 'top' is not stated in the files; treat the listed order as an assumption."
+      - "Overlap with foundation-model pre-training corpora (stFormer, Nicheformer) is UNVERIFIED -> leakage check required before using those backbones."
+      - "The authors themselves call each adjacent pair 'spatial replicates' and block on them in the statistics; this is an analysis choice, not an algorithm."
+    use: [registration_sanity, boundary_vs_layer_labels, replicate_noise_floor_real_data]
+  - id: mouse_brain_visium_single
+    description: One sagittal mouse-brain Visium section from the same mirror (single section; NOT a serial-section series)
+    source: {mirror: "Zenodo 10.5281/zenodo.22043830, file 10xVisium_MouseBrain.zip", mirror_md5: bae30324ec1a6038adb32b058377f945}
+    license: "CC-BY-4.0 on the mirror record"
+    open_questions: ["Contains one h5ad; 10x 'Serial Section 1/2' datasets are NOT included (cf.10xgenomics.com returns 403 from this environment)."]
+    use: [single_section_backward_compatibility]

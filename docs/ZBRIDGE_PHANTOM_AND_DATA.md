@@ -1,6 +1,6 @@
 # Z-BRIDGE — Sentetik Fantom Spesifikasyonu ve Veri Kaynakları
 
-> Durum: tasarım. Hiçbir veri indirilmedi (bu ortamda yalnız GitHub erişilebilir; bkz. §3).
+> Durum: fantom `spatialcore/synthetic/` içinde uygulandı (Faz 2b); DLPFC indirildi ve doğrulandı (§4). §2–§3 tarihsel kayıttır.
 > Fantom **gerçek biyoloji kanıtı değildir**; yalnız algoritma/mühendislik doğrulaması içindir.
 
 ## 1. Fantom: ileri model (forward model)
@@ -78,3 +78,40 @@ arXiv, Europe PMC, OpenAlex, Semantic Scholar, Zenodo, LIBD ve diğerleri. Yaln�
 `link.springer.com`, `www.nature.com`, `zenodo.org`, `figshare.com`, `ndownloader.figshare.com`,
 `cf.10xgenomics.com`, `www.10xgenomics.com`, `research.libd.org`, `gbmvisium.snu.ac.kr`.
 Adımlar: https://code.claude.com/docs/en/cloud-environments#network-access
+
+
+## 4. Uygulama durumu (2026-10-07)
+
+### 4.1 Fantom (`spatialcore/synthetic/`, testler `tests/spatialcore/test_phantom.py`)
+
+Uygulananlar: analitik 6 domain (normal, tümör çekirdeği, bağışıklık kabuğu, damar, parmak, kayan levha),
+altıgen Visium ızgarası (100 µm / 55 µm disk), disk × kalınlık kuadratürü ile domain payları, NB sayımlar,
+kesit-başı bağımsız gürültü ve derinlik, rigid + ölçek + kayma + GP-benzeri non-rigid, kısmi örtüşme (düz kesim),
+doku kaybı (blob), yırtık, spot düşmesi, eksik kesit (kalan kesitlerin `gap_um`'u günceller),
+bilinmeyen kalınlık, E/M/H katmanları, B ailesi: ambient sızıntı, sıfır-şişkinlik, gen-bazlı batch,
+tek bozuk kesit, kayan sınır hız çarpanı. Tam ground truth: dönüşümler, spot→doku konumu, domain payları,
+sınır bayrağı, gerçek footprint örtüşmesi (`true_overlap`).
+
+Belgeden **sapmalar / yapılmayanlar** (gizlenmedi):
+- **Katlanma (fold)** uygulanmadı; H katmanında yalnız yırtık var.
+- Tümör z yarı-ekseni 60 µm (7×10 µm kesit aralığında kapakların görünmesi için); bu bir varsayımdır.
+- `true_overlap` eş-disk mercek alanını kullanır; ölçek/kayma kaynaklı elips bozulmasını yok sayar.
+- Domain içi yumuşak ifade değişimi yok: kesitler arası fark yalnız gürültü + sınır/domain değişiminden gelir.
+  Bu M1 gürültü tabanı testini kolaylaştırır; gerçek veride daha zor olacaktır.
+- 1/7 eksik kesit H katmanında sabit `missing_sections=(3,)`.
+
+### 4.2 Gerçek veri: DLPFC (`benchmarks/datasets.yaml`, `benchmarks/fetch_data.py`)
+
+İndirilen: Zenodo 10.5281/zenodo.22043830 `10xVisium_DLPFC.zip` (CC-BY-4.0; md5 Zenodo'nun bildirdiğiyle eşleşti),
+12 h5ad (3 donör × 4 kesit), katman etiketi `obs['Truth']` (Layer_1–6, WM; birkaç NaN).
+**Birincil makaleden (Maynard 2021, PMC8095368) doğrulandı:** her donörde iki *doğrudan komşu* 10 µm kesit çifti;
+ikinci çift birincisinin **300 µm posteriorunda**. Yazarlar komşu çiftleri "spatial replicates" olarak adlandırıp
+istatistikte blok faktörü yaptı — bu bir analiz tercihi, algoritma değil (yenilik iddiamızı değiştirmez ama bilinmeli).
+Koordinatlar tam çözünürlüklü piksel; medyan en yakın komşu mesafesi ≈137 px = 100 µm ⇒ ≈0,73 µm/px
+(metadata'dan değil, ızgaradan **tahmin**; `uns['um_per_unit']` içinde kayıtlı).
+
+Açık: çift içinde hangi kesitin "üst" olduğu dosyalardan bilinmiyor (listelenen sıra varsayım); ön-eğitim
+derlemleriyle örtüşme **doğrulanmadı** (stFormer/Nicheformer kullanılmadan önce zorunlu kontrol).
+`10xVisium_MouseBrain.zip` yalnız **tek** kesit içeriyor; 10x "Serial Section 1/2" bu ortamdan erişilemedi (CDN 403).
+Katman-pseudobulk korelasyonu (komşu çift ≈0,968 vs uzak ≈0,964) ayırt edici değil — gen ortalaması baskın; bu
+ölçüt replika gürültü tabanı için **kullanılmamalı**, M1 spot düzeyinde kayıttan sonra ölçülmeli.
