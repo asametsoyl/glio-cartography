@@ -80,21 +80,12 @@ is_english = (GLIO_LANG == "en")
 if is_english:
     labels = {
         "spatial_zone_title": "Spatial Zone Map — {patient_id}",
-        "drug_score_title": "Drug Target Score — {patient_id}{moran}",
-        "risk_title": "TCGA Risk Map — {patient_id}{moran}",
         "zone_dist_title": "Zone Distribution — {patient_id}",
         "mean_prob": "Mean Probability",
-        "drug_score": "Drug Score",
-        "survival_risk": "Survival Risk",
         "time_months": "Time (Months)",
-        "survival_prob": "Estimated Survival Probability",
-        "kaplan_meier_title": "GNN Risk Stratification — {patient_id}\n(Estimated median OS: High={high}m / Low={low}m)",
-        "high_risk": "High Risk",
-        "low_risk": "Low Risk",
         "lr_comm_title": "Zonal L-R Communication Activity\n(Ligand-Receptor signaling)",
         "lr_comm_xlabel": "Ligand → Receptor Pair (Cell Types)",
         "lr_comm_ylabel": "GNN Zone",
-        "drug_targets_title": "Top 15 Actionable Downstream Drug Targets",
         "spots_count": "Spot Count",
         "volcano_title": "Volcano Plot: Necrosis vs Edge ({de_method})\n[Warning: Spatial dependency not corrected]",
         "bipartite_title": "Bipartite Graph: GNN Zones vs Top Downstream Target Genes",
@@ -104,18 +95,12 @@ if is_english:
         "Leading Edge": "Leading Edge",
         "Infiltrating Tumor": "Infiltrating Tumor",
         "lr_cbar": "Z-score (Normalized per L-R pair)",
-        "fallback_title": "Top Actionable Drug Targets — {patient_id}",
-        "km_high_label": "High Risk (n={n_high}, score≥{median:.2f})",
-        "km_low_label": "Low Risk (n={n_low}, score<{median:.2f})",
-        "km_ci_label": "±5% Illustrative Band (Not CI)",
         "month_suffix": "mo",
-        "km_subtitle": "[MODEL PREDICTION — Not Real Clinical Follow-up]",
         "gnn_uncertainty_title": "GNN Learned Multi-Task Loss Weights (Kendall et al.)",
         "gnn_uncertainty_ylabel": "Learned Task Weight (exp(-s))",
         "gnn_uncertainty_xlabel": "Learning Task",
         "task_ct": "Cell Type\nClassification",
         "task_zone": "Tumor Zone\nSegmentation",
-        "task_surv": "Survival\nStratification",
         "task_dgi": "Contrastive\nRepresentation",
         "task_smooth": "Spatial\nSmoothness",
         "task_attn_reg": "Biology-Guided\nAttention",
@@ -123,21 +108,12 @@ if is_english:
 else:
     labels = {
         "spatial_zone_title": "Spatial Zone Haritası — {patient_id}",
-        "drug_score_title": "İlaç Hedef Skoru — {patient_id}{moran}",
-        "risk_title": "TCGA Risk Haritası — {patient_id}{moran}",
         "zone_dist_title": "Zone Dağılımı — {patient_id}",
         "mean_prob": "Ortalama Olasılık",
-        "drug_score": "İlaç Skoru",
-        "survival_risk": "Hayatta Kalma Riski",
         "time_months": "Süre (Ay)",
-        "survival_prob": "Tahmini Hayatta Kalma Olasılığı",
-        "kaplan_meier_title": "GNN Risk Stratifikasyonu — {patient_id}\n(Tahmini medyan OS: Yüksek={high}ay / Düşük={low}ay)",
-        "high_risk": "Yüksek Risk",
-        "low_risk": "Düşük Risk",
         "lr_comm_title": "Bölgesel L-R İletişim Aktivitesi\n(Ligand-Reseptör Sinyalleşmesi)",
         "lr_comm_xlabel": "Ligand → Reseptör Çifti (Hücre Tipleri)",
         "lr_comm_ylabel": "GNN Zonu",
-        "drug_targets_title": "En Etkin 15 İlaç Hedef Proteini (Downstream)",
         "spots_count": "Spot Sayısı",
         "volcano_title": "Volcano Plot: Nekroz vs Sınır ({de_method})\n[Uyarı: Spatial bağımlılık düzeltilmedi]",
         "bipartite_title": "İki Kümeli Grafik: GNN Zonları vs Downstream Hedef Genleri",
@@ -147,18 +123,12 @@ else:
         "Leading Edge": "Tümör Sınırı",
         "Infiltrating Tumor": "İnfiltratif Tümör",
         "lr_cbar": "Z-score (L-R çifti başına normalizasyon)",
-        "fallback_title": "En Etkin İlaç Hedefleri — {patient_id}",
-        "km_high_label": "Yüksek Risk (n={n_high}, skor≥{median:.2f})",
-        "km_low_label": "Düşük Risk (n={n_low}, skor<{median:.2f})",
-        "km_ci_label": "±5% Gösterimlik Bant (CI Değil)",
         "month_suffix": "ay",
-        "km_subtitle": "[MODEL TAHMİNİ — Gerçek Klinik Follow-up Değil]",
         "gnn_uncertainty_title": "GNN Öğrenilmiş Çoklu Görev Kayıp Ağırlıkları (Kendall et al.)",
         "gnn_uncertainty_ylabel": "Öğrenilmiş Görev Ağırlığı (exp(-s))",
         "gnn_uncertainty_xlabel": "Öğrenme Görevi",
         "task_ct": "Hücre Tipi\nSınıflandırma",
         "task_zone": "Tümör Bölge\nSegmentasyonu",
-        "task_surv": "Hayatta Kalma\nStratifikasyonu",
         "task_dgi": "Kontrastif\nTemsil",
         "task_smooth": "Uzamsal\nPürüzsüzlük",
         "task_attn_reg": "Biyoloji Kılavuzlu\nDikkat",
@@ -547,8 +517,6 @@ def main():
 
     coords    = np.array([[s["x"], s["y"]] for s in spots])
     zone_pred = np.array([[s["zones"][z] for z in ZONE_NAMES] for s in spots])
-    drug_arr  = np.array([s.get("drug_score", 0) for s in spots])
-    risk_arr  = np.array([s.get("tcga_risk", 0) for s in spots])
 
     ZONE_COLORS = {
         "Pseudopalisading Necrosis": "#E63946",
@@ -567,21 +535,6 @@ def main():
             logger.info(f"📂 spatial_deconvolved.h5ad yüklendi: {adata_sp.n_obs} spot")
         except Exception as e_adata:
             logger.warning(f"spatial_deconvolved.h5ad yüklenemedi: {e_adata}")
-
-    # ── Spatial Autocorrelation (Moran's I) ──────────────────────
-    moran_risk = 0.0
-    moran_drug = 0.0
-    moran_available = False
-    
-    if adata_sp is not None and 'connectivities' in adata_sp.obsp:
-        try:
-            W = adata_sp.obsp['connectivities']
-            moran_risk = compute_morans_i(risk_arr, W)
-            moran_drug = compute_morans_i(drug_arr, W)
-            moran_available = True
-            logger.info(f"   Spatial Autocorrelation (Moran's I) — Risk: {moran_risk:.4f} | Drug: {moran_drug:.4f}")
-        except Exception as e_moran:
-            logger.warning(f"Moran's I hesaplanırken hata: {e_moran}")
 
     # ── Load Background Image ────────────────────────────────────
     bg_img = None
@@ -633,50 +586,6 @@ def main():
     report_progress(20)
 
     # ─────────────────────────────────────────────────────────────
-    # Figure 2: Drug Score Heatmap
-    # ─────────────────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(10, 9), facecolor='#0d1117')
-    plot_background(ax)
-    sc_plot = ax.scatter(plot_coords[:, 0], plot_coords[:, 1], c=drug_arr,
-                         cmap='plasma', s=15, alpha=0.9, vmin=0, vmax=1)
-    cbar = plt.colorbar(sc_plot, ax=ax)
-    cbar.set_label(labels["drug_score"], color='white')
-    cbar.ax.yaxis.set_tick_params(color='white')
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
-    ax.set_facecolor('#0d1117')
-    moran_title = f" | Moran's I: {moran_drug:.3f}" if moran_available else ""
-    ax.set_title(labels["drug_score_title"].format(patient_id=PATIENT_ID, moran=moran_title), color='white', fontsize=14, fontweight='bold')
-    ax.tick_params(colors='white')
-    ax.axis('off')
-    plt.tight_layout()
-    fig.savefig(pub_out / "fig_drug_score_map.png", dpi=plot_dpi, facecolor='#0d1117', bbox_inches='tight')
-    plt.close()
-    logger.info("   ✅ Drug score haritası")
-    report_progress(35)
-
-    # ─────────────────────────────────────────────────────────────
-    # Figure 3: TCGA Risk Map
-    # ─────────────────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(10, 9), facecolor='#0d1117')
-    plot_background(ax)
-    sc_plot = ax.scatter(plot_coords[:, 0], plot_coords[:, 1], c=risk_arr,
-                         cmap='RdYlGn_r', s=15, alpha=0.9, vmin=0, vmax=1)
-    cbar = plt.colorbar(sc_plot, ax=ax)
-    cbar.set_label(labels["survival_risk"], color='white')
-    cbar.ax.yaxis.set_tick_params(color='white')
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
-    ax.set_facecolor('#0d1117')
-    moran_title = f" | Moran's I: {moran_risk:.3f}" if moran_available else ""
-    ax.set_title(labels["risk_title"].format(patient_id=PATIENT_ID, moran=moran_title), color='white', fontsize=14, fontweight='bold')
-    ax.tick_params(colors='white')
-    ax.axis('off')
-    plt.tight_layout()
-    fig.savefig(pub_out / "fig_risk_map.png", dpi=plot_dpi, facecolor='#0d1117', bbox_inches='tight')
-    plt.close()
-    logger.info("   ✅ Risk haritası")
-    report_progress(50)
-
-    # ─────────────────────────────────────────────────────────────
     # Figure 4: Zone stacked bars
     # ─────────────────────────────────────────────────────────────
     zone_means = zone_pred.mean(axis=0)
@@ -699,7 +608,6 @@ def main():
     # ─────────────────────────────────────────────────────────────
     # Figure 5: Ligand-Reseptör (L-R) İletişim Haritası
     # ─────────────────────────────────────────────────────────────
-    _lr_success = False
 
     if adata_sp is not None:
         try:
@@ -808,219 +716,10 @@ def main():
             plt.close()
             logger.info("   ✅ L-R iletişim haritası (hücre-hücre iletişim skoru)")
             report_progress(75)
-            _lr_success = True
 
         except Exception as _lr_err:
             logger.warning(f"   L-R heatmap oluşturulamadı: {_lr_err}")
             logger.warning("   Fallback: İlaç hedef dağılım histogramı")
-
-    if not _lr_success:
-        # ── Fallback: İlaç Hedef Dağılımı (Histogram) ───────────────
-        drug_freq: dict = {}
-        for s in spots:
-            d = s.get("drug", "N/A")
-            drug_freq[d] = drug_freq.get(d, 0) + 1
-
-        top_drugs = sorted(drug_freq.items(), key=lambda x: x[1], reverse=True)[:8]
-        drugs_list, counts_list = zip(*top_drugs) if top_drugs else ([], [])
-
-        fig, ax = plt.subplots(figsize=(10, 5), facecolor='#0d1117')
-        colors_bar = plasma_cmap(np.linspace(0.3, 0.9, len(drugs_list)))
-        ax.barh(list(drugs_list), list(counts_list), color=colors_bar)
-        ax.set_xlabel(labels["spots_count"], color='white')
-        ax.set_title(
-            labels["fallback_title"].format(patient_id=PATIENT_ID),
-            color='white', fontsize=12, fontweight='bold'
-        )
-        ax.set_facecolor('#1a1a2e')
-        ax.tick_params(colors='white')
-        fig.patch.set_facecolor('#0d1117')
-        plt.tight_layout()
-        fig.savefig(pub_out / "fig_drug_targets.png", dpi=plot_dpi,
-                    facecolor='#0d1117', bbox_inches='tight')
-        plt.close()
-        logger.info("   ✅ Fallback: İlaç hedef dağılımı")
-        report_progress(75)
-
-    # ─────────────────────────────────────────────────────────────
-    # Figure 6: Risk Stratification — GNN Predicted Survival
-    # ─────────────────────────────────────────────────────────────
-    logger.info("📈 Risk stratifikasyonu (GNN-tahminli) oluşturuluyor...")
-
-    # ── 1. Gerçek risk skorlarını yükle ──────────────────────────
-    surv_scores = None
-    surv_npy_path = gnn_out / "survival_predictions.npy"
-    if surv_npy_path.exists():
-        try:
-            surv_scores = np.load(surv_npy_path).flatten().astype(np.float32)
-            logger.info(f"   survival_predictions.npy yüklendi: {len(surv_scores)} spot")
-        except Exception as e_surv:
-            logger.warning(f"   survival_predictions.npy yüklenirken hata: {e_surv}")
-
-    if surv_scores is None or surv_scores.size == 0:
-        # Fallback: data.json'daki tcga_risk skorlarını kullan
-        surv_scores = risk_arr.astype(np.float32)
-        logger.warning("   survival_predictions.npy bulunamadı veya boş, data.json tcga_risk kullanılıyor.")
-
-    # This pipeline receives no patient-level follow-up cohort. A Kaplan-Meier
-    # curve or median OS in months would therefore be synthetic. Suppress the
-    # legacy artifacts; the dimensionless spatial risk map remains available.
-    for legacy_path in (pub_out / "fig_kaplan_meier.png", gnn_out / "kaplan_meier_summary.json"):
-        try:
-            legacy_path.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning(f"   Eski sağkalım artefaktı silinemedi: {exc}")
-    logger.info("   Kaplan-Meier/medyan OS üretimi atlandı: gerçek takip verisi yok.")
-    surv_scores = np.array([], dtype=np.float32)
-
-    # NaN/Inf temizliği
-    surv_scores = np.nan_to_num(surv_scores, nan=0.5, posinf=1.0, neginf=0.0)
-    surv_scores = np.clip(surv_scores, 0.0, 1.0)
-
-    # Verify that surv_scores is not empty to prevent errors
-    if surv_scores.size == 0:
-        logger.warning("Gerçek hasta takip verisi yok; Kaplan-Meier ve medyan OS üretimi atlanıyor.")
-    else:
-        # ── 2. Medyan eşiğe göre Yüksek/Düşük Risk stratifikasyonu ──
-        median_risk = float(np.median(surv_scores))
-        high_risk_mask = surv_scores >= median_risk
-        low_risk_mask  = ~high_risk_mask
-
-        n_high = int(high_risk_mask.sum())
-        n_low  = int(low_risk_mask.sum())
-        mean_high = float(surv_scores[high_risk_mask].mean()) if n_high > 0 else 0.5
-        mean_low  = float(surv_scores[low_risk_mask].mean()) if n_low > 0 else 0.5
-
-        logger.info(f"   Risk eşiği (medyan): {median_risk:.4f}")
-        logger.info(f"   Yüksek Risk: {n_high} spot  |  Ortalama skor: {mean_high:.4f}")
-        logger.info(f"   Düşük  Risk: {n_low} spot  |  Ortalama skor: {mean_low:.4f}")
-
-        # ── 3. Hayatta kalma eğrilerini oluştur ──────────────────────
-        KM_MONTHS = np.linspace(0, 30, 300)
-
-        # Yayınlanmış TCGA GBM medyan OS değerleri (ay)
-        MEDIAN_OS_HIGH_REF = 12.6   # Brennan et al., Cell 2013 — yüksek risk
-        MEDIAN_OS_LOW_REF  = 18.4   # Brennan et al., Cell 2013 — düşük risk
-        WEIBULL_K          = 1.2    # GBM survival için hafif üst-eksponansiyel
-        SCALE_ALPHA        = 0.8    # Risk skoru → lambda lineer katsayısı
-
-        def weibull_survival(t, median_os, k=WEIBULL_K):
-            """S(t) = exp(-((t / lambda) ^ k)),  lambda = median / ln(2)^(1/k)"""
-            lam = median_os / (np.log(2) ** (1.0 / k))
-            return np.exp(-((t / (lam + 1e-9)) ** k))
-
-        # Risk skoru ortalamalarına göre medyan OS'u ölçekle
-        delta_high = (mean_high - 0.5) * SCALE_ALPHA   # pozitif → daha kötü
-        delta_low  = (mean_low  - 0.5) * SCALE_ALPHA   # negatif → daha iyi
-
-        median_high_adj = MEDIAN_OS_HIGH_REF * np.exp(-delta_high)
-        median_low_adj  = MEDIAN_OS_LOW_REF  * np.exp(-delta_low)
-        median_high_adj = float(np.clip(median_high_adj, 4.0, 36.0))
-        median_low_adj  = float(np.clip(median_low_adj,  6.0, 48.0))
-
-        km_high_curve = weibull_survival(KM_MONTHS, median_high_adj)
-        km_low_curve  = weibull_survival(KM_MONTHS, median_low_adj)
-
-        logger.info(f"   Tahmini medyan OS — Yüksek Risk: {median_high_adj:.1f} ay | Düşük Risk: {median_low_adj:.1f} ay")
-
-        # ── 4. Figürü çiz ─────────────────────────────────────────────
-        fig, ax = plt.subplots(figsize=(9, 6), facecolor='#0d1117')
-
-        # Eğriler
-        ax.plot(KM_MONTHS, km_high_curve, color='#E63946', linewidth=2.5,
-                label=labels["km_high_label"].format(n_high=n_high, median=median_risk))
-        ax.plot(KM_MONTHS, km_low_curve,  color='#2A9D8F', linewidth=2.5,
-                label=labels["km_low_label"].format(n_low=n_low, median=median_risk))
-
-        # Güven aralığı (±%5 Weibull varyansı — gösterimlik/illustrative band, NOT a statistical CI)
-        ci_width = 0.05
-        ax.fill_between(KM_MONTHS,
-                        np.clip(km_high_curve - ci_width, 0, 1),
-                        np.clip(km_high_curve + ci_width, 0, 1),
-                        alpha=0.15, color='#E63946',
-                        label=labels["km_ci_label"])
-        ax.fill_between(KM_MONTHS,
-                        np.clip(km_low_curve - ci_width, 0, 1),
-                        np.clip(km_low_curve + ci_width, 0, 1),
-                        alpha=0.15, color='#2A9D8F')
-
-        # Medyan OS dikey çizgileri
-        ax.axvline(median_high_adj, color='#E63946', linestyle=':', linewidth=1.2, alpha=0.6)
-        ax.axvline(median_low_adj,  color='#2A9D8F', linestyle=':', linewidth=1.2, alpha=0.6)
-        ax.axhline(0.5, color='#64748b', linestyle='--', linewidth=0.8, alpha=0.5)
-        ax.text(median_high_adj + 0.3, 0.52, f'{median_high_adj:.0f} {labels["month_suffix"]}',
-                color='#E63946', fontsize=7.5, va='bottom')
-        ax.text(median_low_adj  + 0.3, 0.52, f'{median_low_adj:.0f} {labels["month_suffix"]}',
-                color='#2A9D8F', fontsize=7.5, va='bottom')
-
-        # Eksenler ve etiketler
-        ax.set_xlabel(labels["time_months"], color='#94a3b8', fontsize=10)
-        ax.set_ylabel(labels["survival_prob"], color='#94a3b8', fontsize=10)
-        ax.set_title(
-            f"{labels['kaplan_meier_title'].format(patient_id=PATIENT_ID, high=round(median_high_adj, 1), low=round(median_low_adj, 1))}\n"
-            f"{labels['km_subtitle']}",
-            color='white', fontsize=12, fontweight='bold', pad=12
-        )
-        ax.set_xlim(0, 30)
-        ax.set_ylim(0, 1.05)
-        ax.set_facecolor('#0d1117')
-        ax.tick_params(colors='#94a3b8', labelsize=9)
-        for spine in ax.spines.values():
-            spine.set_edgecolor('#1e3355')
-
-        ax.legend(
-            facecolor='#111c35', labelcolor='white',
-            fontsize=8.5, framealpha=0.9,
-            loc='upper right'
-        )
-
-        # Dipnot — bilimsel dürüstlük bildirimi
-        if is_english:
-            disclaimer = (
-                "⚠ This chart is model-predicted, not actual patient survival data.\n"
-                "Stratification is based on the median GNN tcga_risk scores (n=" + str(len(surv_scores)) + " spots);\n"
-                "curves are Weibull-fitted and calibrated to the TCGA GBM cohort (Brennan et al. Cell 2013)."
-            )
-        else:
-            disclaimer = (
-                "⚠ Bu grafik gerçek hasta survival verisi değildir.\n"
-                "GNN tcga_risk skorları (n=" + str(len(surv_scores)) + " spot) ile medyan stratifikasyon yapılmış;\n"
-                "eğriler TCGA GBM kohortuna (Brennan et al. Cell 2013) Weibull ile kalibre edilmiştir."
-            )
-        fig.text(0.5, 0.01, disclaimer,
-                 ha='center', va='bottom', fontsize=6.5,
-                 color='#64748b', style='italic',
-                 wrap=True)
-
-        fig.patch.set_facecolor('#0d1117')
-        plt.tight_layout(rect=[0, 0.07, 1, 1])
-
-        fig.savefig(pub_out / "fig_kaplan_meier.png", dpi=plot_dpi, facecolor='#0d1117', bbox_inches='tight')
-        plt.close()
-        logger.info(f"   ✅ Risk stratifikasyon figürü — medyan OS tahmini: "
-                    f"Yüksek={median_high_adj:.1f}ay / Düşük={median_low_adj:.1f}ay")
-        report_progress(85)
-
-        # Kaplan-Meier özet verilerini JSON'a yaz (rapor için)
-        km_summary = {
-            "method": "weibull_tcga_calibrated",
-            "reference": "Brennan et al., Cell 2013 — TCGA GBM (n=516)",
-            "median_risk_threshold": round(median_risk, 4),
-            "n_high_risk_spots": n_high,
-            "n_low_risk_spots": n_low,
-            "mean_risk_score_high": round(mean_high, 4),
-            "mean_risk_score_low": round(mean_low, 4),
-            "estimated_median_os_high_months": round(median_high_adj, 1),
-            "estimated_median_os_low_months": round(median_low_adj, 1),
-            "disclaimer": (
-                "Model-predicted only. No real patient time-to-event data used. "
-                "Survival curves are Weibull-fitted and calibrated to TCGA GBM "
-                "published medians. Do not use for clinical decision-making."
-            )
-        }
-        (gnn_out / "kaplan_meier_summary.json").write_text(json.dumps(km_summary, indent=2), encoding='utf-8')
-        logger.info("   ✅ Kaplan-Meier özeti JSON'a yazıldı")
-        report_progress(90)
 
     # ============================================================
     # ADVANCED BIOLOGICAL FIGURES (v2.0 - From User's Publication Scripts)
@@ -1187,13 +886,12 @@ def main():
         if summary_path.exists():
             summary_info = json.loads(summary_path.read_text(encoding='utf-8'))
             loss_scale_factors = summary_info.get("loss_scale_factors")
-            if loss_scale_factors is not None and len(loss_scale_factors) == 6:
+            if loss_scale_factors is not None and len(loss_scale_factors) == 5:
                 logger.info("   Model-specific uncertainty weights are being plotted...")
                 # Task names
                 tasks = [
                     labels["task_ct"],
                     labels["task_zone"],
-                    labels["task_surv"],
                     labels["task_dgi"],
                     labels["task_smooth"],
                     labels["task_attn_reg"]
@@ -1206,10 +904,9 @@ def main():
                 ax.set_facecolor('#1a1a2e')
                 bars = ax.bar(tasks, weights, color='#457B9D', edgecolor='#0d1117', width=0.55)
                 
-                # Highlight key tasks (e.g. cell type classification or survival) with different colors
+                # Highlight key tasks (cell type classification, zone segmentation) with different colors
                 bars[0].set_color('#E63946') # Cell type
                 bars[1].set_color('#2A9D8F') # Zone
-                bars[2].set_color('#E9C46A') # Survival
                 
                 ax.set_ylabel(labels["gnn_uncertainty_ylabel"], color='white', fontsize=10)
                 ax.set_xlabel(labels["gnn_uncertainty_xlabel"], color='#94a3b8', fontsize=10)

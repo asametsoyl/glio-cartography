@@ -554,42 +554,6 @@ trajectory:
   plot_velocity_arrows: true
 
 # -----------------------------------------------------------
-# Klinik Metadata Entegrasyonu
-# -----------------------------------------------------------
-clinical_metadata:
-  include_covariates: true
-  source: "tcga"                    # TCGA-GBM'den çekilecek
-  survival_model: "cox_ph"          # Cox proportional hazards
-  features:
-    patient_demographics:
-      - age_at_diagnosis
-      - gender
-      - kps_score              # Karnofsky Performance Status
-    molecular_profile:
-      - IDH_status             # Mutant vs Wild-type (temel prognostik)
-      - MGMT_promoter_status   # Methylated → TMZ'ye yanıt verir
-      - CDKN2A_deletion
-      - EGFR_amplification
-      - TERT_promoter_status
-    treatment_history:
-      - surgery_extent         # GTR / STR / biopsy
-      - radiotherapy           # Yes/No
-      - temozolomide_tmz       # Yes/No
-      - bevacizumab            # Anti-VEGF tedavi
-    outcomes:
-      - survival_months        # Overall Survival (OS)
-      - progression_free_months
-      - response_to_treatment
-  tme_survival_correlation:  # Hangi TME özellikleri survival ile korelasyon?
-    features_to_correlate:
-      - m2_fraction            # M2-TAM oranı
-      - t_cell_exhaustion_score
-      - stemness_score
-      - hypoxia_score
-      - dc_maturation_score
-      - antigen_presentation_score
-
-# -----------------------------------------------------------
 # Graph Construction
 # -----------------------------------------------------------
 graph:
@@ -610,18 +574,6 @@ gnn:
   epochs: 200
   batch_size: 128
   device: "mps"            # M3 Apple Silicon GPU
-
-# -----------------------------------------------------------
-# Drug Matching
-# -----------------------------------------------------------
-drug_matching:
-  dgidb_api: "https://dgidb.org/api/v2"
-  sources:
-    - DrugBank
-    - ChEMBL
-    - TTD
-    - NCI
-  min_interaction_score: 0.5
 
 # -----------------------------------------------------------
 # Visualization

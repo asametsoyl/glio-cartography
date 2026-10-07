@@ -45,8 +45,7 @@ RUNNER_LOCALE = {
             "gnn_training": "🧠 GNN Eğitimi",
             "visualization": "📊 Görselleştirme",
             "report": "📄 Rapor Oluşturma"
-        },
-        "clinical_meta": "📋 Klinik metadata: Yaş={}, MGMT={}, IDH={}, KPS={} [{}-case imputation]"
+        }
     },
     "en": {
         "started": "🚀 Glio-Cartography Pipeline started",
@@ -61,24 +60,15 @@ RUNNER_LOCALE = {
             "gnn_training": "🧠 GNN Training",
             "visualization": "📊 Visualization",
             "report": "📄 Report Generation"
-        },
-        "clinical_meta": "📋 Clinical metadata: Age={}, MGMT={}, IDH={}, KPS={} [{}-case imputation]"
+        }
     }
 }
-
-# Imputation varsayılanları (Plan 1.7)
-WORST_CASE_DEFAULTS = {"age": 60,  "mgmt": 0.0,  "idh": 0.0,  "kps": 70}
-MEDIAN_CASE_DEFAULTS = {"age": 55, "mgmt": 0.45, "idh": 0.08, "kps": 80}
-
 
 class PipelineRunner:
     def __init__(self, spatial_dir, scrna_path, output_dir,
                  patient_id="Patient_A", run_optuna=False,
                  optuna_trials=5, gnn_epochs=100, deconv_method="tangram",
-                 # ── Klinik metadata (FAZ 1 — JSON payload, env race condition yok) ──
-                 clinical_age=None, clinical_mgmt=None,
-                 clinical_idh=None, clinical_kps=None,
-                 imputation_mode="worst", lang="tr"):
+                 lang="tr"):
         self.spatial_dir    = Path(spatial_dir)
         self.scrna_path     = Path(scrna_path)
         self.output_dir     = Path(output_dir)
@@ -98,14 +88,6 @@ class PipelineRunner:
             ("visualization",  stages_info["visualization"]),
             ("report",         stages_info["report"]),
         ]
-
-        # Klinik veri imputation çözümü
-        defaults = WORST_CASE_DEFAULTS if (imputation_mode or "worst") == "worst" else MEDIAN_CASE_DEFAULTS
-        self.clinical_age   = clinical_age  if clinical_age  is not None else defaults["age"]
-        self.clinical_mgmt  = clinical_mgmt if clinical_mgmt is not None else defaults["mgmt"]
-        self.clinical_idh   = clinical_idh  if clinical_idh  is not None else defaults["idh"]
-        self.clinical_kps   = clinical_kps  if clinical_kps  is not None else defaults["kps"]
-        self.imputation_mode = imputation_mode or "worst"
 
         # Durum, __init__ içinde senkron olarak RUNNING'e ayarlanır (IDLE değil).
         # server.py bu constructor'ı `pipeline_lock` altında çağırıyor; eğer status
@@ -297,18 +279,7 @@ class PipelineRunner:
             "GLIO_RUN_OPTUNA":    "1" if self.run_optuna else "0",
             "GLIO_OPTUNA_TRIALS": str(self.optuna_trials),
         }
-        # Klinik metadata komut satırı argümanlarıyla iletilir (env isolation)
-        # Her paralel analiz kendi parametrelerini güvenle taşır
-        clinical_args = [
-            "--clinical-age",   str(self.clinical_age),
-            "--clinical-mgmt",  str(self.clinical_mgmt),
-            "--clinical-idh",   str(self.clinical_idh),
-            "--clinical-kps",   str(self.clinical_kps),
-            "--imputation-mode", self.imputation_mode,
-        ]
-        loc = RUNNER_LOCALE.get(self.lang, RUNNER_LOCALE["tr"])
-        self.log(loc["clinical_meta"].format(self.clinical_age, self.clinical_mgmt, self.clinical_idh, self.clinical_kps, self.imputation_mode))
-        await self._run_script(script, args=clinical_args, env_extra=env)
+        await self._run_script(script, env_extra=env)
 
     async def _run_visualization(self):
         script = Path(__file__).parent / "stages" / "stage4_visualization.py"
@@ -324,12 +295,4 @@ class PipelineRunner:
             "GLIO_OUTPUT_DIR": str(self.output_dir),
             "GLIO_PATIENT_ID": self.patient_id,
         }
-        # Rapor için de klinik metadata komut satırından iletilir
-        clinical_args = [
-            "--clinical-age",   str(self.clinical_age),
-            "--clinical-mgmt",  str(self.clinical_mgmt),
-            "--clinical-idh",   str(self.clinical_idh),
-            "--clinical-kps",   str(self.clinical_kps),
-            "--imputation-mode", self.imputation_mode,
-        ]
-        await self._run_script(script, args=clinical_args, env_extra=env)
+        await self._run_script(script, env_extra=env)

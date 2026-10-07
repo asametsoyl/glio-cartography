@@ -5,14 +5,13 @@ import torch.optim as optim
 
 class TestUncertaintyLoss(unittest.TestCase):
     def test_loss_convergence(self):
-        # Create a mock parameter for 6 tasks
-        log_vars = nn.Parameter(torch.zeros(6))
+        # Create a mock parameter for 5 tasks (ct, zone, dgi, smooth, attn_reg)
+        log_vars = nn.Parameter(torch.zeros(5))
         optimizer = optim.Adam([log_vars], lr=0.1)
 
         # Generate fake losses
         loss_ct = torch.tensor(2.5)
         loss_zone = torch.tensor(1.2)
-        loss_surv = torch.tensor(5.0)
         loss_dgi = torch.tensor(0.8)
         loss_smooth = torch.tensor(1.5)
         loss_attn_reg = torch.tensor(0.4)
@@ -25,10 +24,9 @@ class TestUncertaintyLoss(unittest.TestCase):
             s = log_vars
             total = (torch.exp(-s[0]) * loss_ct + s[0] +
                      torch.exp(-s[1]) * loss_zone + s[1] +
-                     torch.exp(-s[2]) * loss_surv + s[2] +
-                     torch.exp(-s[3]) * loss_dgi + s[3] +
-                     torch.exp(-s[4]) * loss_smooth + s[4] +
-                     torch.exp(-s[5]) * loss_attn_reg + s[5])
+                     torch.exp(-s[2]) * loss_dgi + s[2] +
+                     torch.exp(-s[3]) * loss_smooth + s[3] +
+                     torch.exp(-s[4]) * loss_attn_reg + s[4])
             total.backward()
             optimizer.step()
 

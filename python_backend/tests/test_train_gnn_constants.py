@@ -22,20 +22,18 @@ def train_gnn_module():
     return train_gnn
 
 
-def test_zone_risk_weight_covers_every_zone(train_gnn_module):
-    for zone in train_gnn_module.ZONE_NAMES:
-        assert zone in train_gnn_module.ZONE_RISK_WEIGHT, f"{zone} için ZONE_RISK_WEIGHT tanımlı değil"
-
-
-def test_zone_risk_weight_values_are_modest_modulation():
+def test_speculative_outputs_were_removed(train_gnn_module):
     """
-    ZONE_RISK_WEIGHT, hasta-seviyesi tahmini domine ETMEMELİ — yalnızca
-    gerçek zon kimliğine dayalı hafif bir mekansal doku eklemeli
-    (bkz. A-03 düzeltmesi notu: "±%15 ile sınırlıdır").
+    Risk skoru, ilaç hedefi ve in-silico müdahale (counterfactual) çıktıları
+    ürün kapsamından çıkarıldı (RUO: prognoz/tedavi/nedensellik iddiası yok).
+    Bu sabitlerin/fonksiyonların geri gelmediğini doğrular.
     """
-    import train_gnn
-    for zone, weight in train_gnn.ZONE_RISK_WEIGHT.items():
-        assert 0.7 <= weight <= 1.3, f"{zone}: ağırlık {weight} çok agresif, hasta-seviyesi tahmini domine edebilir"
+    for name in (
+        "ZONE_RISK_WEIGHT", "GBM_DRUG_DB", "rankcox_loss",
+        "counterfactual_knockout", "counterfactual_lr_blockade",
+        "counterfactual_gene_regulation",
+    ):
+        assert not hasattr(train_gnn_module, name), f"{name} kaldırılmış olmalıydı"
 
 
 def test_cdkn2a_not_used_as_positive_cellular_tumor_marker(train_gnn_module):

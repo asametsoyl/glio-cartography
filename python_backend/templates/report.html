@@ -22,22 +22,12 @@
 </div>
 
 <h2>{{ T_SUMMARY_TITLE }}</h2>
-<div class="grid-2" style="margin-bottom: 24px;">
+<div style="margin-bottom: 24px;">
   <div class="card" style="border-left: 4px solid var(--accent); display: flex; flex-direction: column; justify-content: center;">
     <h3 style="margin-top: 0; color: var(--text); font-size: 1.1rem; margin-bottom: 12px;">{{ T_EXEC_SUMMARY }}</h3>
     <p style="line-height: 1.6; font-size: 0.95rem; color: #e0e0e0;">
       {{ exec_summary }}
     </p>
-  </div>
-  <div class="card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px;">
-    <h3 style="margin-top: 0; color: var(--text); font-size: 0.95rem; margin-bottom: 8px; width: 100%; text-align: left;">{{ T_SVG_MAP_TITLE }}</h3>
-    <div style="width: 100%; max-width: 250px; aspect-ratio: 1/1;">
-      {{ svg_map_html }}
-    </div>
-    <div style="display: flex; gap: 16px; margin-top: 8px; font-size: 0.75rem; font-weight: bold;">
-      <span style="color: #2A9D8F;">{{ T_STABLE_LABEL }}</span>
-      <span style="color: #E63946;">{{ T_AGGRESSIVE_LABEL }}</span>
-    </div>
   </div>
 </div>
 
@@ -79,38 +69,21 @@
   </table>
 </div>
 
-<h2>{{ T_CLINICAL_DECISION }}</h2>
 <p style="font-size:0.78rem; color:#666; margin-bottom:12px; font-style:italic;">
   {{ T_RUO_WARNING }}
 </p>
-<div class="grid-2">
-  <div class="card" style="border-left: 4px solid var(--accent);">
-    <h3 style="margin-top:0; color:var(--text);">{{ T_MOLECULAR_PROFILE }}</h3>
-    <table style="margin-top: 12px; background: transparent;">
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_DIAGNOSIS_LBL }}</td><td style="border:none; font-weight:bold;">{{ diagnosis_safe }}</td></tr>
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_WHO_GRADE_LBL }}</td><td style="border:none; font-weight:bold; color:{{ who_grade_color_safe }};">{{ who_grade_safe }}</td></tr>
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_IDH_LBL }}</td><td style="border:none; font-weight:bold;">{{ idh_status_safe }} {{ idh_note_safe }}</td></tr>
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_MGMT_LBL }}</td><td style="border:none; font-weight:bold; color:{{ mgmt_color_safe }};">{{ mgmt_status_short_safe }}</td></tr>
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_TUMOR_LBL }}</td><td style="border:none;">{{ tumor_fraction_pct }}</td></tr>
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_MYELOID_LBL }}</td><td style="border:none;">{{ myeloid_fraction_pct }}</td></tr>
-      <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_TCELL_LBL }}</td><td style="border:none;">{{ tcell_fraction_pct }}</td></tr>
-    </table>
-  </div>
-  <div class="card" style="border-left: 4px solid var(--success);">
-    <h3 style="margin-top:0; color:var(--text);">{{ T_RECOMMENDED_PROTOCOL }}</h3>
-    <p style="font-size:0.8rem; color:#aaa; margin-top:6px; margin-bottom:10px;">{{ T_PROTOCOL_DESC }}</p>
-    {% for p in protocols %}
-      <div style='margin:8px 0; font-size:0.88rem; line-height:1.5;'>{{ p }}</div>
-    {% endfor %}
-    <hr style="border-color:#1e3a5f; margin:12px 0;">
-    <p style="font-size:0.75rem; color:#777;"><strong>{{ T_SOURCES }}:</strong> {{ rationale_safe }}</p>
-    <p style="font-size:0.72rem; color:#555; margin-top:6px;">* {{ mgmt_status_safe }}</p>
-  </div>
+<div class="card" style="border-left: 4px solid var(--accent); margin-bottom: 24px;">
+  <h3 style="margin-top:0; color:var(--text);">{{ T_COMPOSITION_TITLE }}</h3>
+  <table style="margin-top: 12px; background: transparent;">
+    <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_TUMOR_LBL }}</td><td style="border:none;">{{ tumor_fraction_pct }}</td></tr>
+    <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_MYELOID_LBL }}</td><td style="border:none;">{{ myeloid_fraction_pct }}</td></tr>
+    <tr><td style="color:#999; border:none; padding:5px 0;">{{ T_TCELL_LBL }}</td><td style="border:none;">{{ tcell_fraction_pct }}</td></tr>
+  </table>
 </div>
 
-<h2>{{ T_CLINICAL_SYNTHESIS_TITLE }}</h2>
+<h2>{{ T_SUMMARY_FINDINGS_TITLE }}</h2>
 <div class="card" style="border-left: 4px solid var(--warning); line-height: 1.6; font-size: 0.92rem; margin-bottom: 24px; padding: 20px;">
-  <p>{{ clinical_synthesis }}</p>
+  <p>{{ spatial_summary }}</p>
 </div>
 
 <h2>{{ T_DOWNSTREAM_PATHWAY_TITLE }}</h2>
@@ -153,25 +126,6 @@
     </thead>
     <tbody>
       {{ enrichment_rows | safe }}
-    </tbody>
-  </table>
-</div>
-
-<h2>{{ T_DRUGGABLE_TITLE }}</h2>
-<div class="card" style="margin-bottom: 24px;">
-  <p style="font-size:0.85rem; color:#aaa; margin-bottom:12px;">{{ T_DRUGGABLE_DESC }}</p>
-  <table>
-    <thead>
-      <tr>
-        <th>{{ T_TARGET_GENE }}</th>
-        <th>{{ T_INDUCED_PATHWAY }}</th>
-        <th>{{ T_ACTIVE_DRUG }}</th>
-        <th>{{ T_MECHANISM }}</th>
-        <th>{{ T_CLINICAL_STAGE }}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{ druggable_rows | safe }}
     </tbody>
   </table>
 </div>

@@ -1,6 +1,8 @@
 """
-stage5_report.py::compute_clinical_profile — hücre-tipi oran eşleştirme ve
-bilimsel iddia sınırı regresyon testi.
+stage5_report.py::compute_composition_summary — hücre-tipi oran eşleştirme
+regresyon testi. (Eski adı compute_clinical_profile; WHO/IDH/MGMT/tedavi
+çıktıları ürün kapsamından çıkarıldı, yalnızca tümör/miyeloid/T-hücre
+oranları kaldı.)
 
 2026-08-20'de ikinci bir sentetik hasta profiliyle (düşük tümör oranı,
 yüksek T-hücre infiltrasyonu) canlı pipeline testi sırasında bulundu:
@@ -10,7 +12,7 @@ duyarlıydı ve yalnızca sabit kodlanmış acil-durum fallback panelindeki
 panel küçük harfli olduğu için ("t_cell", "microglia", "gbm_stem_cell")
 tcell_frac HER ZAMAN 0 çıkıyor ve "tumor_associated_macrophage" (miyeloid,
 malign değil) yanlışlıkla tumor_frac'e dahil ediliyordu. IDH/WHO/MGMT ise
-bu oranlardan güvenilir biçimde çıkarılamayacağı için artık çağrılmıyor.
+bu oranlardan güvenilir biçimde çıkarılamayacağı için tamamen kaldırıldı.
 """
 import os
 import sys
@@ -48,16 +50,14 @@ CONFIG_DRIVEN_MEAN_PROPS = {
 def test_config_driven_cell_type_names_are_matched_case_and_name_correctly(monkeypatch, tmp_path):
     stage5 = _import_stage5(monkeypatch, tmp_path)
 
-    gnn_sum = {}
     deconv_sum = {
         "mean_proportions": CONFIG_DRIVEN_MEAN_PROPS,
         "avg_confidence": 0.57,
         "avg_entropy": 0.497,
         "cell_type_names": list(CONFIG_DRIVEN_MEAN_PROPS.keys()),
     }
-    prep_sum = {}
 
-    profile = stage5.compute_clinical_profile(gnn_sum, deconv_sum, prep_sum)
+    profile = stage5.compute_composition_summary(deconv_sum)
 
     assert profile["tcell_frac"] > 0, (
         "t_cell (config-driven, küçük harf) hiç sayılmadı — regresyon geri geldi"
@@ -76,18 +76,17 @@ def test_config_driven_cell_type_names_are_matched_case_and_name_correctly(monke
         "TAM payı tümör fraksiyonuna değil miyeloid fraksiyona ait olmalı"
     )
 
-    assert "Değerlendirilmedi" in profile["idh_status"] or "Not assessed" in profile["idh_status"]
-    assert "Değerlendirilmedi" in profile["who_grade"] or "Not assessed" in profile["who_grade"]
-    assert "Değerlendirilmedi" in profile["mgmt_status"] or "Not assessed" in profile["mgmt_status"]
-    assert profile["protocols"] == ["Hastaya özgü tedavi önerisi üretilmez."]
+    # WHO/IDH/MGMT/tedavi alanları artık üretilmiyor
+    for removed in ("who_grade", "idh_status", "mgmt_status", "protocols", "diagnosis"):
+        assert removed not in profile, f"{removed} kaldırılmış olmalıydı"
 
 
 def test_gbm_stem_cell_counts_as_tumor_not_ignored(monkeypatch, tmp_path):
     stage5 = _import_stage5(monkeypatch, tmp_path)
 
     mean_props = {"gbm_stem_cell": 0.5, "oligodendrocyte": 0.5}
-    profile = stage5.compute_clinical_profile(
-        {}, {"mean_proportions": mean_props, "avg_confidence": 0.6, "avg_entropy": 0.3, "cell_type_names": list(mean_props)}, {}
+    profile = stage5.compute_composition_summary(
+        {"mean_proportions": mean_props, "avg_confidence": 0.6, "avg_entropy": 0.3, "cell_type_names": list(mean_props)}
     )
     assert profile["tumor_frac"] >= 0.5, "gbm_stem_cell büyük/küçük harf uyuşmazlığı nedeniyle atlanmamalı"
 

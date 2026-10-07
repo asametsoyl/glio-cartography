@@ -156,11 +156,9 @@ def main():
     # ── Evaluate ─────────────────────────────────────────────────
     model.eval()
     with torch.no_grad():
-        ct_pred, zone_pred, surv_pred, drug_pred, emb, _ = model(data)
+        ct_pred, zone_pred, emb, _ = model(data)
 
     zone_np = F.softmax(zone_pred, dim=-1).cpu().numpy()
-    surv_np = surv_pred.cpu().numpy()
-    drug_np = drug_pred.cpu().numpy()
 
     # MC-Dropout belirsizlik tahmini [GELİŞTİRME] — spot detay panelinde
     # "modelin bu tahmine ne kadar güvendiğini" göstermek için. Maliyeti
@@ -201,17 +199,10 @@ def main():
         raise RuntimeError(f"Model kaydedilemedi: {e_save}")
 
     # ── JSON export ──────────────────────────────────────────────
-    # NOT: export_attention_to_json, `drug_np`/`surv_np` ham (eğitilmemiş
-    # drug_head çıktısı / hasta-seviyesi tek skaler survival_head çıktısı)
-    # değerleri kendi içinde gerçek veriden türetilmiş, mekansal olarak
-    # anlamlı (drug_scores_real, risk_arr_real) dizilere dönüştürür ve
-    # bunları döndürür — .npy dosyalarını da bu dönüş değerleriyle
-    # kaydediyoruz ki data.json ile survival_predictions.npy/drug_scores.npy
-    # arasında tutarsızlık olmasın (bkz. denetim raporu bulgusu A-01/A-03).
     try:
-        drug_scores_real, risk_arr_real = export_attention_to_json(
+        export_attention_to_json(
             model, data, adata, ct_names,
-            zone_preds=zone_np, drug_scores=drug_np, survival_preds=surv_np,
+            zone_preds=zone_np,
             out_path=str(gnn_out / "data.json"),
             ct_preds=ct_pred.cpu().numpy(),
             zone_uncertainty=zone_uncertainty_np,
@@ -219,17 +210,10 @@ def main():
     except Exception as e_json:
         raise RuntimeError(f"Attention verileri JSON'a aktarılamadı: {e_json}")
 
-    if drug_scores_real is None or risk_arr_real is None:
-        # Attention layer bulunamadıysa (ör. tek-katmanlı model), export
-        # fonksiyonu erken çıkar ve ham dizileri korumamız gerekir.
-        drug_scores_real, risk_arr_real = drug_np, surv_np
-
-    # ── numpy dizilerini kaydet (data.json ile aynı, düzeltilmiş değerler) ──
+    # ── numpy dizilerini kaydet ──
     try:
         np.save(gnn_out / "zone_predictions.npy",     zone_np)
         np.save(gnn_out / "celltype_predictions.npy", ct_pred.cpu().numpy())
-        np.save(gnn_out / "survival_predictions.npy", risk_arr_real)
-        np.save(gnn_out / "drug_scores.npy",           drug_scores_real)
         np.save(gnn_out / "spatial_embeddings.npy",   emb.cpu().numpy())
     except Exception as e_save:
         raise RuntimeError(f"Numpy dizileri kaydedilemedi: {e_save}")

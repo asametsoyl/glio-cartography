@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Data, HeteroData
-from torch_geometric.nn import GATv2Conv, SAGEConv, TransformerConv, BatchNorm, global_mean_pool
+from torch_geometric.nn import GATv2Conv, SAGEConv, TransformerConv, BatchNorm
 from scipy.spatial import cKDTree
 from scipy.stats import pearsonr, spearmanr
 from loguru import logger
@@ -38,32 +38,9 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
 
-# ── Klinik metadata: argparse + env fallback (FAZ 1 — race condition yok) ──
 _ap = argparse.ArgumentParser(add_help=False)
-_ap.add_argument('--clinical-age',  type=float, default=None)
-_ap.add_argument('--clinical-mgmt', type=float, default=None)
-_ap.add_argument('--clinical-idh',  type=float, default=None)
-_ap.add_argument('--clinical-kps',  type=float, default=None)
-_ap.add_argument('--imputation-mode', default='worst')
 _ap.add_argument('--optuna-trials', type=int, default=None)
 _args, _ = _ap.parse_known_args()
-
-CLINICAL_AGE  = _args.clinical_age
-CLINICAL_MGMT = _args.clinical_mgmt
-CLINICAL_IDH  = _args.clinical_idh
-CLINICAL_KPS  = _args.clinical_kps
-IMPUTATION_MODE = _args.imputation_mode or 'worst'
-
-# Imputation fallback
-_WORST  = {'age': 60, 'mgmt': 0.0,  'idh': 0.0,  'kps': 70}
-_MEDIAN = {'age': 55, 'mgmt': 0.45, 'idh': 0.08, 'kps': 80}
-_DEFAULTS = _WORST if IMPUTATION_MODE == 'worst' else _MEDIAN
-if CLINICAL_AGE  is None: CLINICAL_AGE  = float(_DEFAULTS['age'])
-if CLINICAL_MGMT is None: CLINICAL_MGMT = float(_DEFAULTS['mgmt'])
-if CLINICAL_IDH  is None: CLINICAL_IDH  = float(_DEFAULTS['idh'])
-if CLINICAL_KPS  is None: CLINICAL_KPS  = float(_DEFAULTS['kps'])
-
-logger.info(f"[Clinical] Age={CLINICAL_AGE}, MGMT={CLINICAL_MGMT}, IDH={CLINICAL_IDH}, KPS={CLINICAL_KPS} [{IMPUTATION_MODE}-case]")
 
 
 GLIO_OUTPUT_DIR = os.environ.get("GLIO_OUTPUT_DIR", "outputs")
@@ -336,35 +313,6 @@ ZONE_SIGNATURES = {
 }
 ZONE_NAMES = list(ZONE_SIGNATURES.keys())
 
-# ============================================================
-# ZON-TABANLI RİSK AĞIRLIKLARI
-# ============================================================
-# `survival_head` grafik-seviyesinde (tek hasta için tek skaler) tahmin
-# üretir — mekansal olarak çözümlenmiş gerçek bir "spot-bazlı sağkalım"
-# etiketi hiçbir zaman var olmadı ve olamaz (sağkalım hastaya ait bir
-# klinik olay, spot'a değil). Bu skaleri her spot'a olduğu gibi kopyalamak
-# (eski davranış) mekansal olarak sabit, yanıltıcı bir "risk haritası"
-# üretiyordu (bkz. denetim raporu bulgusu A-03).
-#
-# Burada, GNN'in kendi çıkardığı gerçek zon sınıflandırmasıyla (spot
-# başına gerçekten hesaplanan, IVY GAP'a dayalı) hastanın tek skaler
-# risk tahminini ölçekleyerek dokümante edilmiş, açıklanabilir bir
-# mekansal modülasyon uyguluyoruz. Ağırlıklar; nekroz ve mikrovasküler
-# proliferasyonun WHO Grade 4 / kötü prognozla ilişkilendirildiği
-# IVY GAP literatürüne dayanır (bkz. Ivy GAP Atlas belgeleri) ve ±%15
-# ile sınırlıdır — yani hasta-seviyesi tahminin baskın belirleyici
-# olmasını, zon ağırlığının yalnızca gerçek zon dağılımına göre makul
-# bir mekansal doku eklemesini sağlar. Bu bir öğrenilmiş tahmin DEĞİLDİR;
-# rapor ve UI'da "model tahmini + zon-ağırlıklı modülasyon" olarak
-# etiketlenmelidir.
-ZONE_RISK_WEIGHT = {
-    'Pseudopalisading Necrosis':   1.15,
-    'Microvascular Proliferation': 1.10,
-    'Cellular Tumor':              1.00,
-    'Leading Edge':                0.90,
-    'Infiltrating Tumor':          0.90,
-}
-
 # ── Pathway signatures: dinamik olarak pathway_db.json'dan yükle ───────────────
 # GNN, data.json'a her spot için pathway skoru yazar.
 # pathway_db.json bulunursa 42 KEGG/GO pathway yüklenir;
@@ -402,44 +350,6 @@ COARSE_COLS = ['Tumor', 'Myeloid', 'T_Cell', 'Stromal']
 
 # [BUG-1] CT_TO_COARSE_IDX — build_graph_data içinde dinamik doldurulacak
 CT_TO_COARSE_IDX: dict[str, int] = {}
-
-# Drug → L-R eşleşmesi (lokal DB, frontend ile senkron)
-GBM_DRUG_DB = {
-    # L-R Pairs
-    "CD274-PDCD1":   {"drug": "Pembrolizumab", "mechanism": "Anti-PD-1 Checkpoint İnhibitörü"},
-    "PDCD1LG2-PDCD1":{"drug": "Pembrolizumab", "mechanism": "Anti-PD-1 Checkpoint İnhibitörü"},
-    "SPP1-CD44":     {"drug": "RG7356",        "mechanism": "Anti-CD44 Monoklonal Antikor"},
-    "VEGFA-KDR":     {"drug": "Bevacizumab",   "mechanism": "Anti-VEGF Monoklonal Antikor"},
-    "VEGFA-FLT1":    {"drug": "Bevacizumab",   "mechanism": "Anti-VEGF Monoklonal Antikor"},
-    "MIF-CD74":      {"drug": "Ibudilast",     "mechanism": "MIF/CD74 Eksen İnhibitörü"},
-    "TGFB1-TGFBR1":  {"drug": "Galunisertib",  "mechanism": "TGFβRI Kinaz İnhibitörü"},
-    "TGFB1-TGFBR2":  {"drug": "Galunisertib",  "mechanism": "TGFβRI/II Kinaz İnhibitörü"},
-    "AREG-EGFR":     {"drug": "Erlotinib",     "mechanism": "EGFR TKI — Amphiregulin-driven"},
-    "EGF-EGFR":      {"drug": "Erlotinib",     "mechanism": "EGFR TKI"},
-    "NLGN3-EGFR":    {"drug": "Erlotinib",     "mechanism": "EGFR TKI — Nörogliomal Eksen"},
-    "HGF-MET":       {"drug": "Crizotinib",    "mechanism": "MET/ALK Reseptör İnhibitörü"},
-    "CXCL12-CXCR4":  {"drug": "AMD3100",       "mechanism": "CXCR4 Antagonisti (Plerixafor)"},
-    "CSF1-CSF1R":    {"drug": "Pexidartinib",  "mechanism": "CSF1R Kinaz İnhibitörü"},
-    "IL34-CSF1R":    {"drug": "Pexidartinib",  "mechanism": "CSF1R Kinaz İnhibitörü"},
-    "CCL2-CCR2":     {"drug": "Carlumab",      "mechanism": "Anti-CCL2 Kemokin Antikoru"},
-    "CCL5-CCR5":     {"drug": "Maraviroc",     "mechanism": "CCR5 Antagonisti"},
-    "CD47-SIRPA":    {"drug": "Magrolimab",    "mechanism": "Anti-CD47 'Beni Yeme' Sinyal İnhibitörü"},
-    "CD80-CTLA4":    {"drug": "Ipilimumab",    "mechanism": "Anti-CTLA-4 Checkpoint İnhibitörü"},
-    "CD86-CTLA4":    {"drug": "Ipilimumab",    "mechanism": "Anti-CTLA-4 Checkpoint İnhibitörü"},
-    "PDGFB-PDGFRB":  {"drug": "Imatinib",      "mechanism": "PDGFR/c-Kit Tirozin Kinaz İnhibitörü"},
-    "SPP1-ITGAV":    {"drug": "Cilengitide",   "mechanism": "Integrin αvβ3/αvβ5 İnhibitörü (ECM Remodeling)"},
-    "SPP1-ITGB1":    {"drug": "Cilengitide",   "mechanism": "Integrin β1 İnhibitörü (İnvazyon Bloke Edici)"},
-    "TNC-ITGAV":     {"drug": "Cilengitide",   "mechanism": "Integrin αv Sinyalleşme İnhibitörü"},
-    "FN1-ITGA5":     {"drug": "Volociximab",   "mechanism": "Anti-Integrin α5β1 Monoklonal Antikor"},
-    "CXCL8-CXCR2":   {"drug": "Reparixin",     "mechanism": "CXCR1/CXCR2 Alseptör İnhibitörü (Kemotaksi Bloke)"},
-    "IL6-IL6R":      {"drug": "Tocilizumab",   "mechanism": "Anti-IL-6R Monoklonal Antikor (Anti-Enflamatuar)"},
-    "TNF-TNFRSF1A":  {"drug": "Infliximab",    "mechanism": "Anti-TNFα Antikoru (NFkB Baskılayıcı)"},
-    # Single target fallback keys
-    "EGFR":          {"drug": "Erlotinib",     "mechanism": "EGFR Reseptör Tirozin Kinaz İnhibitörü"},
-    "MET":           {"drug": "Crizotinib",    "mechanism": "MET Reseptör Tirozin Kinaz İnhibitörü"},
-    "CSF1R":         {"drug": "Pexidartinib",  "mechanism": "CSF1R Reseptör Tirozin Kinaz İnhibitörü"},
-}
-
 
 # ============================================================
 # GRAPH VERİSİ OLUŞTURMA
@@ -499,7 +409,7 @@ def build_graph_data(adata, k_neighbors: int | None = None, gene_cache: GeneExpr
             v = adata.obs[col].values.astype(float)
             niche[:, i] = (v - v.mean()) / (v.std() + 1e-8)
 
-    # Node attributes (Klinik veriler burada broadcast edilmez, late fusion için clinical_x'e ayrılır)
+    # Node attributes
     x = np.hstack([pca, ct_prop, niche]).astype(np.float32)
     logger.info(f"   Node features: {x.shape} (PCA:{pca_dim} + CT:{ct_prop.shape[1]} + Niche:{niche.shape[1]})")
 
@@ -630,14 +540,6 @@ def build_graph_data(adata, k_neighbors: int | None = None, gene_cache: GeneExpr
     zone_exp  = np.exp(diff_scores)
     zone_probs = zone_exp / (zone_exp.sum(axis=1, keepdims=True) + 1e-8)
 
-    # Patient/Slide level survival labels
-    survival_val = 0.0
-    tcga_risk_val = 0.0
-    if 'survival_months' in adata.obs.columns:
-        survival_val = float(adata.obs['survival_months'].values[0])
-    if 'tcga_risk' in adata.obs.columns:
-        tcga_risk_val = float(adata.obs['tcga_risk'].values[0])
-
     # Pseudotime
     pseudotime = np.zeros(n_spots, dtype=np.float32)
     vec_x = np.zeros(n_spots, dtype=np.float32)
@@ -679,10 +581,6 @@ def build_graph_data(adata, k_neighbors: int | None = None, gene_cache: GeneExpr
     data['spot', 'contacts', 'spot'].edge_attr = torch.tensor(contact_edge_attr, dtype=torch.float32)
     data['spot', 'diffuses', 'spot'].edge_index = diffuse_edge_index
 
-    # Add patient/graph-level fields at the root
-    data.clinical_x = torch.tensor([[CLINICAL_AGE / 100.0, CLINICAL_MGMT, CLINICAL_IDH, CLINICAL_KPS / 100.0]], dtype=torch.float32)
-    data.survival_y = torch.tensor([survival_val], dtype=torch.float32)
-    data.tcga_risk_y = torch.tensor([tcga_risk_val], dtype=torch.float32)
     data.pseudotime = torch.tensor(pseudotime, dtype=torch.float32)
     data.vec_x = torch.tensor(vec_x, dtype=torch.float32)
     data.vec_y = torch.tensor(vec_y, dtype=torch.float32)
@@ -712,8 +610,6 @@ class GlioCartographyGNN(nn.Module):
     Multi-task HeteroGNN — FAZ 1 & 3:
       - Cell-type proportion prediction (Focal MSE)
       - Zone classification (KL-div + Focal)
-      - Patient-level survival regression (Late Fusion + RankCox)
-      - Drug score (L-R aktivite bazlı MLP)
       - Online EMA DGI contrastive
       - Biology-guided attention regularization
     """
@@ -769,21 +665,11 @@ class GlioCartographyGNN(nn.Module):
             nn.Linear(hidden, 64), nn.ELU(), nn.Dropout(drop),
             nn.Linear(64, n_zones))
 
-        # [FEAT-2] Survival regression head (g + X_clinical -> late fusion)
-        self.survival_head = nn.Sequential(
-            nn.Linear(hidden + 4, 32), nn.ELU(), nn.Dropout(drop),
-            nn.Linear(32, 1))
-
-        # [FEAT-1] Drug score head (0–1 çıktı için Sigmoid)
-        self.drug_head = nn.Sequential(
-            nn.Linear(hidden, 32), nn.ELU(), nn.Dropout(drop),
-            nn.Linear(32, 1), nn.Sigmoid())
-
         self.proj = nn.Linear(hidden, 32)   # Contrastive projection
 
-        # [FAZ1-Kendall] Learnable loss scale factors (6 tasks):
-        # 0: ct, 1: zone, 2: surv, 3: dgi, 4: smooth, 5: attn_reg
-        self.loss_scale_factors = nn.Parameter(torch.zeros(6))
+        # [FAZ1-Kendall] Learnable loss scale factors (5 tasks):
+        # 0: ct, 1: zone, 2: dgi, 3: smooth, 4: attn_reg
+        self.loss_scale_factors = nn.Parameter(torch.zeros(5))
 
     def forward(self, data: HeteroData, return_attention: bool = False):
         x       = self.node_enc(data['spot'].x)
@@ -830,25 +716,11 @@ class GlioCartographyGNN(nn.Module):
 
         ct       = F.softmax(self.ct_head(x), dim=-1)
         zone     = self.zone_head(x)
-        drug_sc  = self.drug_head(x).squeeze(-1)
         emb      = self.proj(x)
 
-        # Graph-level late fusion survival prediction
-        batch = getattr(data, 'batch', None)
-        if batch is None:
-            batch = torch.zeros(x.shape[0], dtype=torch.long, device=x.device)
-        g = global_mean_pool(x, batch)  # (num_graphs, hidden)
-        
-        clinical_x = getattr(data, 'clinical_x', None)
-        if clinical_x is None:
-            clinical_x = torch.zeros((g.shape[0], 4), dtype=torch.float32, device=x.device)
-            
-        fusion_emb = torch.cat([g, clinical_x], dim=-1)  # (num_graphs, hidden + 4)
-        survival = self.survival_head(fusion_emb).squeeze(-1)  # (num_graphs,)
-
         if return_attention:
-            return ct, zone, survival, drug_sc, emb, attn_weights_per_layer
-        return ct, zone, survival, drug_sc, emb, x  # x = node embeddings for DGI
+            return ct, zone, emb, attn_weights_per_layer
+        return ct, zone, emb, x  # x = node embeddings for DGI
 
     def dgi_loss(self, h: torch.Tensor) -> torch.Tensor:
         """
@@ -930,43 +802,6 @@ def adaptive_focal_ct_loss(pred: torch.Tensor, true: torch.Tensor,
     return (focal_weight * mse).mean()
 
 
-def rankcox_loss(risk_scores: torch.Tensor,
-                survival_times: torch.Tensor,
-                event_observed: torch.Tensor | None = None) -> torch.Tensor:
-    """
-    [FAZ1-RankCox] Pairwise ranking loss — mini-batch'te risk seti bozulmaz.
-    DeepSurv (Cox-PH) yerine: sadece pairwise i>j ordering mantığı.
-    risk_scores: (N,) — hayatta kalma riski tahminleri
-    survival_times: (N,) — hayatta kalma süresi
-    event_observed: (N,) bool/float — olay gerçekleştiyse 1, censored=0
-    """
-    if survival_times.abs().sum() < 1e-6:
-        return torch.tensor(0.0, device=risk_scores.device)
-
-    n = risk_scores.shape[0]
-    if n < 4:  # çok az örnek
-        return torch.tensor(0.0, device=risk_scores.device)
-
-    # Pairwise hazard: i > j ise (daha kısa sağkalım → daha yüksek risk) i skoru > j skoru olmalı
-    ri = risk_scores.unsqueeze(1).expand(n, n)   # (N, N)
-    rj = risk_scores.unsqueeze(0).expand(n, n)
-    ti = survival_times.unsqueeze(1).expand(n, n)
-    tj = survival_times.unsqueeze(0).expand(n, n)
-
-    # i'nin j'den daha kısa süreli olduğu çiftler (ti < tj)
-    concordant_pairs = (ti < tj).float()  # (N, N)
-
-    # Focal ağırlık: zor çiftlere (küçük fark) daha fazla ağırlık
-    time_diff = (tj - ti).abs().detach()
-    pair_weight = torch.exp(-time_diff / (time_diff.mean() + 1e-8))  # zor çift = ağır
-
-    # ri < rj olmalı iken (daha az risk) = hata  → sigmoid(rj - ri) = prob(doğru sıralama)
-    logit = rj - ri  # i kısa ömürlü ise ri > rj beklenir, tersi = hata
-    loss = -torch.log(torch.sigmoid(logit) + 1e-8) * concordant_pairs * pair_weight
-    n_pairs = concordant_pairs.sum().clamp(min=1)
-    return loss.sum() / n_pairs
-
-
 # ============================================================
 # LOSS v3.2 — PCGrad için task-ayrık kayıplar
 # [v3.2] gamma_ct / gamma_zone ayrıştırıldı (1.5 / 2.5)
@@ -975,17 +810,15 @@ def rankcox_loss(risk_scores: torch.Tensor,
 # ============================================================
 def compute_loss(ct_pred, ct_true,
                  zone_logits, zone_true,
-                 survival_pred, survival_true,
                  h, coarse_y, mask, edge_index,
                  model,
                  lam_ct: float = 1.0, lam_zone: float = 0.5,
                  lam_contr: float = 0.3, lam_smooth: float = 0.2,
-                 lam_surv: float = 0.3, lam_dgi: float = 0.1,
+                 lam_dgi: float = 0.1,
                  lam_attn_reg: float = 0.05,
                  focal_gamma: float = 2.0,
                  gamma_ct: float = 1.5,
                  gamma_zone: float = 2.5,
-                 survival_mean: float = 0.0, survival_std: float = 1.0,
                  lr_prior_weight: torch.Tensor | None = None,
                  class_weights: torch.Tensor | None = None):
     """
@@ -1010,9 +843,6 @@ def compute_loss(ct_pred, ct_true,
     focal_zone_w = (1.0 - pt_zone.detach()) ** gamma_zone
     loss_zone = (focal_zone_w * zone_kl).mean()
 
-    # L3: [FAZ1-RankCox] Patient-level pairwise survival loss (late fusion)
-    loss_surv = rankcox_loss(survival_pred, survival_true)
-
     # L4: [EMA-DGI] Online contrastive loss
     loss_dgi = model.dgi_loss(h[m]) if m.sum().item() > 10 else torch.tensor(0.0, device=ct_pred.device)
 
@@ -1035,22 +865,19 @@ def compute_loss(ct_pred, ct_true,
         s = model.loss_scale_factors
         total = (torch.exp(-s[0]) * loss_ct + s[0] +
                  torch.exp(-s[1]) * loss_zone + s[1] +
-                 torch.exp(-s[2]) * loss_surv + s[2] +
-                 torch.exp(-s[3]) * loss_dgi + s[3] +
-                 torch.exp(-s[4]) * loss_smooth + s[4] +
-                 torch.exp(-s[5]) * loss_attn_reg + s[5])
+                 torch.exp(-s[2]) * loss_dgi + s[2] +
+                 torch.exp(-s[3]) * loss_smooth + s[3] +
+                 torch.exp(-s[4]) * loss_attn_reg + s[4])
     else:
         total = (lam_ct    * loss_ct    +
                  lam_zone  * loss_zone  +
                  lam_smooth* loss_smooth+
-                 lam_surv  * loss_surv  +
                  lam_dgi   * loss_dgi   +
                  lam_attn_reg * loss_attn_reg)
 
     task_losses = {
         'ct':      loss_ct,
         'zone':    loss_zone,
-        'surv':    loss_surv,
         'dgi':     loss_dgi,
         'smooth':  loss_smooth,
         'attn_reg': loss_attn_reg,
@@ -1071,7 +898,7 @@ def pcgrad_step(model: nn.Module, opt: torch.optim.Optimizer,
     [FAZ1-PCGrad] Her görevin gradyanını hesapla, çakışan gradyanları yansıt,
     kalan kayıpları (DGI/smooth) ekle ve tek bir optimizer step() yap.
     """
-    pcgrad_tasks = ['ct', 'zone', 'surv']
+    pcgrad_tasks = ['ct', 'zone']
     params = [p for p in model.parameters() if p.requires_grad]
 
     # 1) Hangi kayıpların gradyan gerektirdiğini bul
@@ -1142,7 +969,7 @@ def pcgrad_step(model: nn.Module, opt: torch.optim.Optimizer,
 
 
 # ============================================================
-# TRAINING — FAZ 1 (PCGrad + RankCox + EMA DGI + Focal)
+# TRAINING — FAZ 1 (PCGrad + EMA DGI + Focal)
 # ============================================================
 def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_callback=None):
     """
@@ -1166,7 +993,6 @@ def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_cal
     lam_ct      = cfg.get('lam_ct', 1.0)
     lam_zone    = cfg.get('lam_zone', 0.5)
     lam_smooth  = cfg.get('lam_smooth', 0.2)
-    lam_surv    = cfg.get('lam_surv', 0.3)
     lam_dgi     = cfg.get('lam_dgi', cfg.get('lam_contr', 0.1))
     lam_attn_reg_max = cfg.get('lam_attn_reg', 0.05)  # warmup sonrası hedef değer
     # [v3.2] Per-task focal gamma
@@ -1188,11 +1014,6 @@ def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_cal
 
     n_ct   = data['spot'].y.shape[1]
     n_zones= data['spot'].zone_y.shape[1]
-
-    # Pre-calculate global survival mean/std (RankCox uses raw times, but keep dummy values)
-    train_surv = data.survival_y
-    survival_mean = float(train_surv.mean().item()) if train_surv.abs().sum() > 0 else 0.0
-    survival_std  = float(train_surv.std().item())  if train_surv.abs().sum() > 0 else 1.0
 
     model = GlioCartographyGNN(
         data['spot'].x.shape[1], data['spot', 'contacts', 'spot'].edge_attr.shape[1],
@@ -1253,14 +1074,14 @@ def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_cal
         # ────────────────────────────────────────────────────────────────────────
 
         # Forward pass
-        ct_p, zone_p, surv_p, _, emb, h = model(data)
+        ct_p, zone_p, emb, h = model(data)
 
         total, task_losses, comp = compute_loss(
-            ct_p, data['spot'].y, zone_p, data['spot'].zone_y, surv_p, data.survival_y,
+            ct_p, data['spot'].y, zone_p, data['spot'].zone_y,
             h, data['spot'].coarse_y, data['spot'].train_mask, data['spot', 'contacts', 'spot'].edge_index,
             model=model,
             lam_ct=lam_ct, lam_zone=lam_zone,
-            lam_smooth=lam_smooth, lam_surv=lam_surv,
+            lam_smooth=lam_smooth,
             lam_dgi=lam_dgi, lam_attn_reg=lam_attn_reg,
             gamma_ct=gamma_ct, gamma_zone=gamma_zone,
             lr_prior_weight=lr_prior,
@@ -1275,8 +1096,7 @@ def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_cal
             )
             pcgrad_step(model, opt,
                         {'ct':   lam_ct   * task_losses['ct'],
-                         'zone': lam_zone * task_losses['zone'],
-                         'surv': lam_surv * task_losses['surv']},
+                         'zone': lam_zone * task_losses['zone']},
                         remaining_loss=remaining)
         else:
             opt.zero_grad()
@@ -1288,13 +1108,13 @@ def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_cal
 
         model.eval()
         with torch.no_grad():
-            ct_v, zone_v, surv_v, _, emb_v, h_v = model(data)
+            ct_v, zone_v, emb_v, h_v = model(data)
             vtotal, _, vcomp = compute_loss(
-                ct_v, data['spot'].y, zone_v, data['spot'].zone_y, surv_v, data.survival_y,
+                ct_v, data['spot'].y, zone_v, data['spot'].zone_y,
                 h_v, data['spot'].coarse_y, data['spot'].val_mask, data['spot', 'contacts', 'spot'].edge_index,
                 model=model,
                 lam_ct=lam_ct, lam_zone=lam_zone,
-                lam_smooth=lam_smooth, lam_surv=lam_surv,
+                lam_smooth=lam_smooth,
                 lam_dgi=lam_dgi, lam_attn_reg=lam_attn_reg,
                 gamma_ct=gamma_ct, gamma_zone=gamma_zone,
                 lr_prior_weight=lr_prior,
@@ -1315,7 +1135,7 @@ def train_model(data: HeteroData, trial=None, cfg: dict | None = None, epoch_cal
             logger.info(
                 f"   Ep {ep:3d}/{epochs}: T={comp['total']:.4f} "
                 f"(CT={comp['ct']:.4f} Z={comp['zone']:.4f} "
-                f"Surv={comp['surv']:.4f} DGI={comp['dgi']:.4f} "
+                f"DGI={comp['dgi']:.4f} "
                 f"AttnReg={comp['attn_reg']:.4f} τ={tau:.3f}) | V={vcomp['total']:.4f}")
 
         if epoch_callback and (ep % 10 == 0 or ep == 1 or ep == epochs):
@@ -1359,7 +1179,6 @@ def objective(trial, data: HeteroData, epoch_callback=None) -> float:
         'lam_zone':       trial.suggest_float('lam_zone', 0.1, 1.0),
         'lam_contr':      trial.suggest_float('lam_contr', 0.1, 0.5),
         'lam_smooth':     trial.suggest_float('lam_smooth', 0.05, 0.5),
-        'lam_surv':       trial.suggest_float('lam_surv', 0.1, 0.5),
         'wd':             trial.suggest_float('wd', 1e-5, 1e-3, log=True),
         # [v3.2] Per-task focal gamma — görev bazlı sınıf dengesi
         'gamma_ct':       trial.suggest_float('gamma_ct', 0.5, 2.5),    # celltype: 1.5 default
@@ -1374,214 +1193,6 @@ def objective(trial, data: HeteroData, epoch_callback=None) -> float:
     return bv
 
 
-# ============================================================
-# COUNTERFACTUAL — [BUG-5] ct_start dinamik
-# ============================================================
-def counterfactual_knockout(model: nn.Module, data: HeteroData,
-                             ct_names: list[str], knockout_type: str) -> np.ndarray | None:
-    """
-    Belirli hücre tipini lokal olarak sıfırlayıp komşuluk ilişkileri (parakrin) boyunca yayılımını simüle et.
-    """
-    model.eval()
-    data_mod = data.clone()
-    n_spots = data['spot'].x.shape[0]
-
-    # Dinamik offset
-    ct_start = data.pca_dim
-    ko_indices = [i for i, n in enumerate(ct_names) if knockout_type.lower() in n.lower()]
-
-    if not ko_indices:
-        logger.warning(f"   '{knockout_type}' ct_names içinde bulunamadı")
-        return None
-
-    # Hedef hücrelerin yoğun olduğu spotları (lokal müdahale alanı) seç
-    ko_sum = data['spot'].x[:, [ct_start + idx for idx in ko_indices]].sum(dim=1)
-    min_spots = max(1, min(50, int(0.05 * n_spots)))
-    q_val = 1.0 - (min_spots / n_spots)
-    q_val = max(0.0, min(1.0, q_val))
-    threshold = torch.quantile(ko_sum, q_val)
-    mask_abundant = ko_sum >= threshold
-
-    target_spots = torch.where(mask_abundant)[0]
-    n_targets = len(target_spots)
-    logger.info(f"   Simulating localized intervention on {n_targets} spots for '{knockout_type}'...")
-
-    # Orijinal forward pass
-    with torch.no_grad():
-        _, zone_orig, _, _, _, _ = model(data)
-        zone_orig = F.softmax(zone_orig, dim=-1)
-
-    # Müdahale: Sadece hedef spotlarda hücre oranlarını sıfırla
-    data_mod['spot'].x = data_mod['spot'].x.clone()
-    for idx in ko_indices:
-        col = ct_start + idx
-        if col < data_mod['spot'].x.shape[1]:
-            data_mod['spot'].x[target_spots, col] = 0.0
-        else:
-            logger.warning(f"   Knockout index {col} feature dim {data_mod['spot'].x.shape[1]} dışında")
-
-    # Ko-müdahale forward pass (GNN message passing parakrin yayılımı yapar)
-    with torch.no_grad():
-        _, zone_ko, _, _, _, _ = model(data_mod)
-        zone_ko = F.softmax(zone_ko, dim=-1)
-
-    # Parakrin etki analizi (komşuluk analizi)
-    edge_index = data['spot', 'contacts', 'spot'].edge_index
-    src, dst = edge_index[0], edge_index[1]
-    
-    src_arr = src.cpu().numpy()
-    dst_arr = dst.cpu().numpy()
-    target_arr = target_spots.cpu().numpy()
-    
-    src_in_target = np.isin(src_arr, target_arr)
-    dst_in_target = np.isin(dst_arr, target_arr)
-    
-    # 1-hop komşular: target'tan çıkan ama target olmayan düğümler
-    one_hop_arr = np.unique(dst_arr[src_in_target & ~dst_in_target])
-    
-    # 2-hop komşular: 1-hop'tan çıkan ama target veya 1-hop olmayan düğümler
-    if len(one_hop_arr) > 0:
-        src_in_one_hop = np.isin(src_arr, one_hop_arr)
-        dst_in_one_hop = np.isin(dst_arr, one_hop_arr)
-        two_hop_arr = np.unique(dst_arr[src_in_one_hop & ~dst_in_target & ~dst_in_one_hop])
-    else:
-        two_hop_arr = np.array([], dtype=np.int64)
-
-    delta_zone = zone_ko - zone_orig
-    delta_np = delta_zone.cpu().numpy()
-    abs_delta = np.abs(delta_np)
-    
-    target_effect = abs_delta[target_arr].mean() if len(target_arr) > 0 else 0.0
-    one_hop_effect = abs_delta[one_hop_arr].mean() if len(one_hop_arr) > 0 else 0.0
-    two_hop_effect = abs_delta[two_hop_arr].mean() if len(two_hop_arr) > 0 else 0.0
-    
-    logger.info(f"   Paracrine propagation effect (Mean Absolute ΔZone):")
-    logger.info(f"     Target spots    : {target_effect:.6f} (Direct Intervention)")
-    logger.info(f"     1-hop Neighbors : {one_hop_effect:.6f} (Paracrine Hop 1)")
-    logger.info(f"     2-hop Neighbors : {two_hop_effect:.6f} (Paracrine Hop 2)")
-
-    return delta_np
-
-
-# ============================================================
-# L-R & GENE REGULATION COUNTERFACTUAL SIMULATORS
-# ============================================================
-def counterfactual_lr_blockade(model: nn.Module, data: HeteroData,
-                              lr_names: list[str], lr_target: str,
-                              inhibition_rate: float = 1.0) -> np.ndarray | None:
-    """
-    Simulate target L-R ligand-receptor pair blockade on the GNN graph.
-    Modifies edge_attr columns representing the target pair and evaluates predicted zone delta.
-    """
-    model.eval()
-    data_mod = data.clone()
-    
-    # 1. Find the index of the target L-R pair
-    lr_idx = -1
-    # Check both case-sensitive and case-insensitive
-    target_clean = lr_target.replace('-', '_').lower()
-    for i, name in enumerate(lr_names):
-        name_clean = name.replace('-', '_').lower()
-        if name_clean == target_clean:
-            lr_idx = i
-            break
-            
-    if lr_idx == -1:
-        logger.warning(f"   '{lr_target}' lr_names içinde bulunamadı")
-        return None
-            
-    # 2. Modify edge_attr column corresponding to this L-R pair
-    # In contacts edge_attr: [rbf_feats, lr_scores, cell_compat]
-    total_cols = data_mod['spot', 'contacts', 'spot'].edge_attr.shape[1]
-    K = total_cols - len(lr_names) - 1
-    col_idx = K + lr_idx
-    
-    if col_idx >= total_cols:
-        logger.warning(f"   L-R index {col_idx} edge_attr dim {total_cols} dışında")
-        return None
-        
-    # Original forward pass
-    with torch.no_grad():
-        _, zone_orig, _, _, _, _ = model(data)
-        zone_orig = F.softmax(zone_orig, dim=-1)
-        
-    # Perform blockade: set expression of target L-R pair to its minimum value across all edges
-    # (representing total block) or reduce it proportionally
-    current_col = data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx].clone()
-    min_val = float(torch.min(current_col))
-    
-    # Apply inhibition
-    data_mod['spot', 'contacts', 'spot'].edge_attr = data_mod['spot', 'contacts', 'spot'].edge_attr.clone()
-    data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx] = current_col * (1.0 - inhibition_rate) + min_val * inhibition_rate
-    
-    # Counterfactual forward pass
-    with torch.no_grad():
-        _, zone_ko, _, _, _, _ = model(data_mod)
-        zone_ko = F.softmax(zone_ko, dim=-1)
-        
-    delta_zone = zone_ko - zone_orig
-    return delta_zone.cpu().numpy()
-
-
-def counterfactual_gene_regulation(model: nn.Module, data: HeteroData,
-                                  lr_names: list[str], lr_pairs: list[tuple[str, str, str]],
-                                  gene_target: str, reg_type: str = 'knockdown',
-                                  rate: float = 1.0) -> np.ndarray | None:
-    """
-    Simulate target gene regulation (knockdown or overexpression) on the GNN graph.
-    Modifies edge_attr columns representing all L-R pairs containing the target gene.
-    """
-    model.eval()
-    data_mod = data.clone()
-    
-    # 1. Find all L-R pairs containing the target gene
-    affected_indices = []
-    gene_target_lower = gene_target.lower()
-    for i, (lig, rec, _) in enumerate(lr_pairs):
-        if lig.lower() == gene_target_lower or rec.lower() == gene_target_lower:
-            affected_indices.append(i)
-            
-    if not affected_indices:
-        logger.warning(f"   Gene '{gene_target}' L-R kataloğunda bulunamadı")
-        return None
-        
-    logger.info(f"   Simulating {reg_type} of '{gene_target}' on {len(affected_indices)} affected L-R axes...")
-        
-    # Original forward pass
-    with torch.no_grad():
-        _, zone_orig, _, _, _, _ = model(data)
-        zone_orig = F.softmax(zone_orig, dim=-1)
-        
-    # 2. Modify edge_attr columns for all affected L-R pairs
-    data_mod['spot', 'contacts', 'spot'].edge_attr = data_mod['spot', 'contacts', 'spot'].edge_attr.clone()
-    total_cols = data_mod['spot', 'contacts', 'spot'].edge_attr.shape[1]
-    K = total_cols - len(lr_names) - 1
-    
-    for lr_idx in affected_indices:
-        col_idx = K + lr_idx
-        if col_idx < total_cols:
-            current_col = data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx].clone()
-            if reg_type == 'knockdown':
-                min_val = float(torch.min(current_col))
-                # Push values toward the minimum representing suppression
-                data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx] = current_col * (1.0 - rate) + min_val * rate
-            else: # overexpression
-                max_val = float(torch.max(current_col))
-                # Push values toward the maximum representing activation
-                data_mod['spot', 'contacts', 'spot'].edge_attr[:, col_idx] = current_col * (1.0 - rate) + max_val * rate
-                
-    # Counterfactual forward pass
-    with torch.no_grad():
-        _, zone_ko, _, _, _, _ = model(data_mod)
-        zone_ko = F.softmax(zone_ko, dim=-1)
-        
-    delta_zone = zone_ko - zone_orig
-    return delta_zone.cpu().numpy()
-
-
-# ============================================================
-# MC-DROPOUT BELİRSİZLİK TAHMİNİ [GELİŞTİRME]
-# ============================================================
 def mc_dropout_zone_uncertainty(model: nn.Module, data: HeteroData, n_samples: int = 20) -> tuple[np.ndarray, np.ndarray]:
     """
     Zon tahmini için Monte Carlo Dropout ile belirsizlik tahmini.
@@ -1610,7 +1221,7 @@ def mc_dropout_zone_uncertainty(model: nn.Module, data: HeteroData, n_samples: i
     samples = []
     with torch.no_grad():
         for _ in range(n_samples):
-            _, zone_p, _, _, _, _ = model(data)
+            _, zone_p, _, _ = model(data)
             samples.append(F.softmax(zone_p, dim=-1).cpu().numpy())
 
     model.eval()  # dropout'u da tekrar kapat — sonraki çağrılar tam deterministik olsun
@@ -1641,23 +1252,14 @@ def compute_pathway_scores(adata, gene_cache: GeneExpressionCache | None = None)
 def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
                               ct_names: list[str],
                               zone_preds: np.ndarray,
-                              drug_scores: np.ndarray,
-                              survival_preds: np.ndarray,
                               out_path: str,
                               ct_preds: np.ndarray | None = None,
                               gene_cache: GeneExpressionCache | None = None,
                               zone_uncertainty: np.ndarray | None = None,
-                              ) -> tuple[np.ndarray, np.ndarray] | None:
+                              ) -> None:
     """
     [BUG-4] FIX: GATv2 attention weight'lerini hesapla, her spot için
     en yüksek 10 komşuyu JSON'a yaz.
-
-    `drug_scores`/`survival_preds` parametreleri model başına ham kafa
-    çıktılarıdır (survival_preds hasta-seviyesinde tek skaler). Fonksiyon
-    içeride bunları gerçek veriden türetilmiş, mekansal olarak anlamlı
-    (drug_scores_real, risk_arr_real) dizilerine dönüştürür ve
-    döndürür — çağıranlar .npy dosyalarını bu dönüş değerleriyle
-    kaydetmeli (bkz. A-01/A-03 düzeltmeleri).
     """
     logger.info("Attention weight'ler export ediliyor...")
     model.eval()
@@ -1666,11 +1268,11 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
         gene_cache = GeneExpressionCache(adata)
 
     with torch.no_grad():
-        _, _, _, _, _, attn_layers = model(data, return_attention=True)
+        _, _, _, attn_layers = model(data, return_attention=True)
 
     if not attn_layers:
         logger.warning("   Attention layer bulunamadı")
-        return None, None
+        return None
 
     # Average attention weights across all GATv2 layers to capture multi-layer hierarchy
     attn_mean_list = [aw.mean(dim=-1) for _, aw in attn_layers]
@@ -1698,10 +1300,10 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
                             key=lambda kv: kv[1], reverse=True)[:10])
         spot_edges[si] = top10
 
-    # Dominant zone, drug tahmini
+    # Dominant zone
     zone_argmax = zone_preds.argmax(axis=1)
 
-    # Drug → L-R eşleşmesi (en yüksek L-R bazlı)
+    # Spot başına L-R aktivitesi
     ea = data['spot', 'contacts', 'spot'].edge_attr.cpu().numpy()
     total_cols = ea.shape[1]
     K = total_cols - len(LR_PAIRS) - 1
@@ -1790,119 +1392,6 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
 
     coords = data['spot'].pos.cpu().numpy()
 
-    # ── Hasta-seviyesi risk skaleri ────────────────────────────────
-    # `survival_head` bir HeteroData grafiği başına TEK skaler üretir
-    # (bkz. ZONE_RISK_WEIGHT tanımının üstündeki not) — bu artık spot'lara
-    # olduğu gibi kopyalanmıyor, aşağıda zon-ağırlıklı olarak moduluyor.
-    # No time-to-event labels are supplied, so the survival head is untrained
-    # and must not contribute to output. This dimensionless spatial proxy is
-    # constructed only from zone probabilities and myeloid composition.
-    zone_weight_arr = np.array(
-        [ZONE_RISK_WEIGHT.get(zn, 1.0) for zn in ZONE_NAMES], dtype=np.float32
-    )
-
-    # [GELİŞTİRME] Myeloid (TAM/mikroglia) infiltrasyonu modülasyonu.
-    # GBM literatüründe tümör-ilişkili myeloid hücre (TAM/mikroglia)
-    # infiltrasyonunun yüksek olması, immünsüpresif TME ile ilişkili
-    # bağımsız bir kötü prognoz göstergesidir. Zon kimliğine ek olarak,
-    # dekonvolüsyondan GERÇEKTEN hesaplanan (rastgele değil) per-spot
-    # myeloid hücre oranını da hafif bir modülasyon terimi olarak
-    # ekliyoruz — katsayı küçük tutulur (±%25) ki hasta-seviyesi tahmin
-    # baskın belirleyici kalsın, myeloid oranı yalnızca gerçek veriye
-    # dayalı ek bir mekansal doku katsın.
-    MYELOID_RISK_COEF = 0.25
-    myeloid_frac_arr = np.zeros(n_spots, dtype=np.float32)
-    if y_np is not None and hasattr(data, 'ct_names'):
-        myeloid_cols = [
-            ci for ci, cn in enumerate(data.ct_names)
-            if any(k in cn.lower() for k in ('tam', 'macrophage', 'micro'))
-        ]
-        if myeloid_cols:
-            myeloid_frac_arr = np.clip(y_np[:, myeloid_cols].sum(axis=1), 0.0, 1.0).astype(np.float32)
-
-    myeloid_modulation = 1.0 + MYELOID_RISK_COEF * (myeloid_frac_arr - float(myeloid_frac_arr.mean()))
-    base_proxy = np.sum(zone_preds * zone_weight_arr[None, :], axis=1)
-    raw_proxy = base_proxy * myeloid_modulation
-    proxy_min, proxy_max = float(raw_proxy.min()), float(raw_proxy.max())
-    risk_arr_real = ((raw_proxy - proxy_min) / (proxy_max - proxy_min + 1e-8)).astype(np.float32)
-
-    # ── Gerçek veriden türetilmiş ilaç hedef skoru (A-01 düzeltmesi) ──
-    # `drug_head` mimari olarak var ama hiçbir kayıp fonksiyonuna
-    # bağlı değil (eğitilmiyor) — bu yüzden çıktısı rastgele başlatılmış
-    # bir ağırlık kümesinin sigmoid'i, öğrenilmiş bir tahmin değil.
-    # Onun yerine, spotun baskın (en yüksek aktiviteli) ligand-reseptör
-    # çiftinin GERÇEK hesaplanmış aktivitesini (spot_lr_avg — edge_attr'dan,
-    # yani gerçek ligand/reseptör gen ekspresyonundan türetilir) kullanıyoruz.
-    # Hasta içi min-max normalizasyonuyla [0,1] aralığına ölçeklenir.
-    dominant_lr_activity = np.clip(spot_lr_avg.max(axis=1), 0, None).astype(np.float32)
-    _lr_min, _lr_max = float(dominant_lr_activity.min()), float(dominant_lr_activity.max())
-    if _lr_max - _lr_min > 1e-8:
-        drug_scores_real = (dominant_lr_activity - _lr_min) / (_lr_max - _lr_min)
-    else:
-        drug_scores_real = np.zeros(n_spots, dtype=np.float32)
-
-    # ── Model-tabanlı ilaç müdahale etkisi (in silico perturbation) ────
-    # `drug_score` (yukarıda) hedefin GERÇEK spot'taki sinyal gücünü ölçer
-    # ("burada bu hedef ne kadar aktif?"). Bu ikinci skor ise farklı bir
-    # soruya cevap verir: "bu hedefi bloke edersek, GNN'in kendi öğrendiği
-    # mesaj-geçişi dinamiğine göre bu spot'taki agresif/malign zon sinyali
-    # ne kadar azalır?" — yani gerçek bir counterfactual (in silico
-    # knockdown) simülasyonu. Bu, zaten mevcut olan
-    # `counterfactual_gene_regulation()` fonksiyonunu (aynı fonksiyon
-    # Stage 3'ün "gen regülasyonu simülasyonu" özelliğinde de kullanılıyor)
-    # yeniden kullanır — rastgele/eğitilmemiş bir kafa değil, modelin
-    # kendi gerçek forward-pass davranışına dayanır. Maliyeti sınırlamak
-    # için yalnızca spot'lar arasında en sık "baskın" çıkan ve bilinen bir
-    # ilaç eşleşmesi olan L-R çiftleri için (en fazla 15 benzersiv hedef)
-    # simülasyon çalıştırılır.
-    top_lr_idx_all = spot_lr_avg.argmax(axis=1)
-    lr_key_all = np.array(
-        [f"{LR_PAIRS[i][0].upper()}-{LR_PAIRS[i][1].upper()}" for i in top_lr_idx_all]
-    )
-    AGGRESSIVE_ZONES = {'Pseudopalisading Necrosis', 'Microvascular Proliferation', 'Cellular Tumor'}
-    aggressive_zone_idx = [i for i, zn in enumerate(ZONE_NAMES) if zn in AGGRESSIVE_ZONES]
-
-    perturbation_raw = np.zeros(n_spots, dtype=np.float32)
-    perturbation_available = np.zeros(n_spots, dtype=bool)
-
-    if aggressive_zone_idx:
-        unique_keys, counts = np.unique(lr_key_all, return_counts=True)
-        # En sık görülen, bilinen ilaç eşleşmesi olan çiftleri önceliklendir
-        candidates = [
-            (key, cnt) for key, cnt in zip(unique_keys, counts) if key in GBM_DRUG_DB
-        ]
-        candidates.sort(key=lambda kv: kv[1], reverse=True)
-        candidates = candidates[:15]
-
-        lr_names_for_cf = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
-        for lr_key_c, _cnt in candidates:
-            ligand_gene = lr_key_c.split('-')[0]
-            try:
-                delta_zone = counterfactual_gene_regulation(
-                    model, data, lr_names_for_cf, LR_PAIRS, ligand_gene,
-                    reg_type='knockdown', rate=1.0
-                )
-            except Exception as e_cf:
-                logger.warning(f"   İlaç müdahale simülasyonu başarısız ({lr_key_c}): {e_cf}")
-                continue
-            if delta_zone is None:
-                continue
-            spot_mask = (lr_key_all == lr_key_c)
-            # Agresif zonlardaki olasılık azalması (pozitif = faydalı etki)
-            effect = -delta_zone[:, aggressive_zone_idx].sum(axis=1)
-            perturbation_raw[spot_mask] = effect[spot_mask]
-            perturbation_available[spot_mask] = True
-
-    if perturbation_available.any():
-        _p_vals = perturbation_raw[perturbation_available]
-        _p_min, _p_max = float(_p_vals.min()), float(_p_vals.max())
-        if _p_max - _p_min > 1e-8:
-            drug_perturbation_norm = (perturbation_raw - _p_min) / (_p_max - _p_min)
-        else:
-            drug_perturbation_norm = np.full(n_spots, 0.5, dtype=np.float32)
-    else:
-        drug_perturbation_norm = np.zeros(n_spots, dtype=np.float32)
-
     # ── Açıklanabilirlik: zon başına marker gen z-skorları ─────────────
     # Spot detay panelinde "neden bu zon?" sorusuna gerçek veriye dayalı
     # bir cevap vermek için — modelin kendi eğitim hedefini oluşturan
@@ -1927,11 +1416,6 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
         top_lr_idx  = int(spot_lr_avg[si].argmax())
         top_lr_pair = LR_PAIRS[top_lr_idx]
         lr_key      = f"{top_lr_pair[0].upper()}-{top_lr_pair[1].upper()}"
-
-        # Drug mapping
-        drug_entry = GBM_DRUG_DB.get(lr_key, None)
-        drug_name  = drug_entry['drug'] if drug_entry else "N/A"
-        drug_mech  = drug_entry['mechanism'] if drug_entry else "N/A"
 
         # L-R dict (üst 5)
         lr_dict = {}
@@ -1969,23 +1453,6 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
             "zones": zone_dict,
             "lr": lr_dict,
             "pathways": {path_name: float(pathway_scores[path_name][si]) for path_name in pathway_scores},
-            "drug": drug_name,
-            "drug_score": float(drug_scores_real[si]),
-            # Model-tabanlı in silico müdahale skoru — bu hedefi bloke
-            # etmenin GNN'in kendi öğrendiği dinamiğe göre agresif zon
-            # sinyalini ne kadar azalttığının tahmini (bkz. yukarıdaki not).
-            # Bilinen bir ilaç eşleşmesi/simülasyon yoksa null.
-            "drug_perturbation_score": (
-                float(drug_perturbation_norm[si]) if perturbation_available[si] else None
-            ),
-            "drug_target": lr_key,
-            "drug_lr_basis": lr_key,
-            "drug_status": "Klinik Aşama",
-            "tcga_risk": float(risk_arr_real[si]),
-            # Dimensionless exploratory score only. A spatial section has no
-            # patient-level time-to-event label; converting this to months
-            # would fabricate clinical precision.
-            "model_risk_index": float(risk_arr_real[si]),
             "pseudotime": float(data.pseudotime[si]) if hasattr(data, 'pseudotime') else 0.0,
             "vec_x": float(data.vec_x[si]) if hasattr(data, 'vec_x') else 0.0,
             "vec_y": float(data.vec_y[si]) if hasattr(data, 'vec_y') else 0.0,
@@ -2033,17 +1500,12 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
         lr_detailed = []
         for p_idx, (lig, rec, cat) in enumerate(LR_PAIRS):
             lr_key = f"{lig.upper()}-{rec.upper()}"
-            drug_entry = GBM_DRUG_DB.get(lr_key, None)
-            drug_name = drug_entry['drug'] if drug_entry else "Yok / Araştırma Safhası"
-            drug_mech = drug_entry['mechanism'] if drug_entry else "—"
             lr_detailed.append({
                 "pair": lr_key,
                 "ligand": lig.upper(),
                 "receptor": rec.upper(),
                 "category": cat.capitalize(),
                 "mean_intensity": float(np.clip(mean_intensities[p_idx], 0, None)),
-                "drug": drug_name,
-                "drug_mechanism": drug_mech
             })
         
         # Sort by mean_intensity descending
@@ -2055,11 +1517,6 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
         logger.info(f"   ✅ L-R detailed summary export: {lr_summary_path}")
     except Exception as e_lr_sum:
         logger.warning(f"   L-R detailed summary oluşturulamadı: {e_lr_sum}")
-
-    # Çağıranlara (stage3_gnn.py) gerçek/düzeltilmiş dizileri döndür — böylece
-    # survival_predictions.npy / drug_scores.npy dosyaları da data.json ile
-    # TUTARLI (eğitilmemiş ham kafa çıktısı değil) değerlerle kaydedilebilir.
-    return drug_scores_real, risk_arr_real
 
 
 def main() -> None:
@@ -2122,7 +1579,7 @@ def main() -> None:
     data = data.to(device)
     model.eval()
     with torch.no_grad():
-        ct_pred, zone_pred, surv_pred, drug_pred, emb, _ = model(data)
+        ct_pred, zone_pred, emb, _ = model(data)
 
     test_mask = data['spot'].test_mask
     test_mse = F.mse_loss(ct_pred[test_mask],
@@ -2155,34 +1612,9 @@ def main() -> None:
             logger.warning(f"     {ct:25s}: Korelasyon hatası ({e_corr})")
             corrs[ct] = {'pearson_r': 0.0, 'spearman_r': 0.0}
 
-    # ── Counterfactual ───────────────────────────────────────
-    logger.info("\n6. Counterfactual simülasyonlar...")
-    for ko_type in ['TAM', 'Tumor_MES', 'T_Cell']:
-        delta = counterfactual_knockout(model, data, ct_names, ko_type)
-        if delta is not None:
-            logger.info(f"   {ko_type} kaldırıldığında zone değişimleri:")
-            for z_idx, zn in enumerate(ZONE_NAMES):
-                logger.info(f"     {zn:35s}: Δ = {delta[:, z_idx].mean():+.4f}")
-
-    logger.info("\n6b. L-R blockade ve Gen Regülasyonu simülasyonları...")
-    lr_names = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
-    delta_lr = counterfactual_lr_blockade(model, data, lr_names, "VEGFA-KDR", inhibition_rate=1.0)
-    if delta_lr is not None:
-        logger.info("   VEGFA-KDR bloke edildiğinde ortalama zone değişimleri:")
-        for z_idx, zn in enumerate(ZONE_NAMES):
-            logger.info(f"     {zn:35s}: Δ = {delta_lr[:, z_idx].mean():+.4f}")
-            
-    delta_gene = counterfactual_gene_regulation(model, data, lr_names, LR_PAIRS, "EGFR", reg_type="knockdown", rate=1.0)
-    if delta_gene is not None:
-        logger.info("   EGFR susturulduğunda (knockdown) ortalama zone değişimleri:")
-        for z_idx, zn in enumerate(ZONE_NAMES):
-            logger.info(f"     {zn:35s}: Δ = {delta_gene[:, z_idx].mean():+.4f}")
-
     # ── Kayıt ───────────────────────────────────────────────
-    logger.info("\n7. Kayıt...")
+    logger.info("\n6. Kayıt...")
     zone_np  = F.softmax(zone_pred, dim=-1).cpu().numpy()
-    surv_np  = surv_pred.cpu().numpy()
-    drug_np  = drug_pred.cpu().numpy()
 
     try:
         from safetensors.torch import save_file
@@ -2195,23 +1627,13 @@ def main() -> None:
     np.save(f'{OUT_DIR}/zone_predictions.npy',    zone_np)
     np.save(f'{OUT_DIR}/celltype_predictions.npy',ct_pred.cpu().numpy())
 
-    # export_attention_to_json, ham (eğitilmemiş) drug_np/surv_np dizilerini
-    # gerçek veriden türetilmiş, mekansal olarak anlamlı dizilere dönüştürüp
-    # döndürür — .npy dosyalarını bunlarla kaydediyoruz (bkz. A-01/A-03).
-    drug_scores_real, risk_arr_real = export_attention_to_json(
+    export_attention_to_json(
         model, data, adata, ct_names,
         zone_preds      = zone_np,
-        drug_scores     = drug_np,
-        survival_preds  = surv_np,
         out_path        = f'{OUT_DIR}/data.json',
         ct_preds        = ct_pred.cpu().numpy(),
         gene_cache      = gene_cache
     )
-    if drug_scores_real is None or risk_arr_real is None:
-        drug_scores_real, risk_arr_real = drug_np, surv_np
-
-    np.save(f'{OUT_DIR}/survival_predictions.npy', risk_arr_real)
-    np.save(f'{OUT_DIR}/drug_scores.npy',          drug_scores_real)
 
     summary_info = {
         "best_params": bp,
@@ -2247,7 +1669,7 @@ def main() -> None:
     axes[0].tick_params(colors=text_color)
 
     comp_map = [('ct','#E63946'), ('zone','#2A9D8F'),
-                ('dgi','#F4A261'), ('smooth','#457B9D'), ('surv','#E9C46A')]
+                ('dgi','#F4A261'), ('smooth','#457B9D')]
     for key, clr in comp_map:
         axes[1].plot([c[key] for c in hist['comp']],
                      label=key.upper(), color=clr, alpha=0.8)

@@ -171,12 +171,6 @@ class PipelineStartRequest(BaseModel):
     optuna_trials: Optional[int] = Field(default=5, ge=1, le=100)
     gnn_epochs: Optional[int] = Field(default=100, ge=1, le=5000)
     deconv_method: Optional[Literal["tangram", "cell2location", "stereoscope"]] = "tangram"
-    # ── Klinik Metadata (FAZ 1 — Race Condition Önleme: env yerine JSON payload) ──
-    clinical_age: Optional[int] = Field(default=None, ge=0, le=120)
-    clinical_mgmt: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    clinical_idh: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    clinical_kps: Optional[int] = Field(default=None, ge=0, le=100)
-    imputation_mode: Optional[Literal["worst", "median"]] = "worst"
     lang: Optional[Literal["tr", "en"]] = "tr"
 
 
@@ -233,12 +227,6 @@ async def start_pipeline(req: PipelineStartRequest):
             optuna_trials=req.optuna_trials,
             gnn_epochs=req.gnn_epochs,
             deconv_method=req.deconv_method or "tangram",
-            # Klinik metadata — JSON payload ile güvenli iletim (env race condition yok)
-            clinical_age=req.clinical_age,
-            clinical_mgmt=req.clinical_mgmt,
-            clinical_idh=req.clinical_idh,
-            clinical_kps=req.clinical_kps,
-            imputation_mode=req.imputation_mode or "worst",
             lang=req.lang or "tr"
         )
 
@@ -286,7 +274,6 @@ async def get_results_summary(output_dir: str):
     tasks = {
         "gnn": out / "gnn" / "gnn_summary.json",
         "deconvolution": out / "deconvolution" / "deconvolution_summary.json",
-        "kaplan_meier": out / "gnn" / "kaplan_meier_summary.json",
     }
 
     for name, p in tasks.items():
@@ -340,16 +327,6 @@ async def get_lr_detailed(output_dir: str):
         for lr_key in lr_means:
             lr_means[lr_key] /= total_weight
             
-        # Load offline drug catalog
-        catalog_path = Path(__file__).parent / "drug_catalog" / "drug_catalog.json"
-        catalog_data = {}
-        if catalog_path.exists():
-            try:
-                with open(catalog_path, 'r', encoding='utf-8') as f:
-                    catalog_data = json.load(f).get("catalog", {})
-            except Exception:
-                pass
-                
         # Import LR_PAIRS to get biological categories
         backend_dir = str(Path(__file__).parent)
         if backend_dir not in sys.path:
@@ -371,18 +348,12 @@ async def get_lr_detailed(output_dir: str):
             
             cat = lr_categories.get(lr_key, "General").capitalize()
             
-            drug_entry = catalog_data.get(lr_key, None)
-            drug_name = drug_entry['drug'] if drug_entry else "Yok / Araştırma Safhası"
-            drug_mech = drug_entry['mechanism'] if drug_entry else "—"
-            
             lr_detailed.append({
                 "pair": lr_key,
                 "ligand": lig,
                 "receptor": rec,
                 "category": cat,
-                "mean_intensity": mean_val,
-                "drug": drug_name,
-                "drug_mechanism": drug_mech
+                "mean_intensity": mean_val
             })
             
         lr_detailed.sort(key=lambda x: x["mean_intensity"], reverse=True)
@@ -401,152 +372,6 @@ async def get_lr_detailed(output_dir: str):
             status_code=500,
             detail=f"Dinamik L-R kataloğu oluşturulamadı: {e}"
         )
-
-
-@app.get("/results/simulate-knockout")
-async def simulate_knockout(
-    output_dir: str,
-    knockout_type: str,
-    simulation_mode: str = "cell",
-    regulation_type: str = "knockdown",
-):
-    """
-    Sanal müdahale (counterfactual GNN simulation) modülü.
-    Hücre tipi susturma, hedefli L-R blokajı veya gen regülasyonunu GNN üzerinden tahmin eder.
-    """
-    try:
-        import torch
-        import numpy as np
-        import anndata as ad
-    except ImportError as exc:
-        raise HTTPException(status_code=500, detail=f"Bağımlılık eksik: {exc}") from exc
-
-    out = validate_output_dir(output_dir)
-    ko_type_safe = sanitize_str(knockout_type)
-
-    backend_dir = str(Path(__file__).parent)
-    if backend_dir not in sys.path:
-        sys.path.insert(0, backend_dir)
-
-    try:
-        from train_gnn import (
-            GlioCartographyGNN,
-            build_graph_data,
-            ZONE_NAMES,
-            LR_PAIRS,
-            counterfactual_knockout,
-            counterfactual_lr_blockade,
-            counterfactual_gene_regulation,
-        )
-    except ImportError as exc:
-        raise HTTPException(status_code=500, detail=f"GNN modülü yüklenemedi: {exc}") from exc
-
-    spatial_path = out / "preprocessing" / "spatial" / "spatial_deconvolved.h5ad"
-    model_path: Optional[Path] = None
-    for mp in [out / "models" / "glio_gnn_v3.pt", out / "gnn" / "glio_gnn_v3.pt", out / "glio_gnn_v3.pt"]:
-        if mp.exists():
-            model_path = mp
-            break
-
-    if not spatial_path.exists():
-        raise HTTPException(status_code=404, detail=f"Spatial deconvolved veri bulunamadı: {spatial_path}")
-    if model_path is None:
-        raise HTTPException(status_code=404, detail="Eğitilmiş GNN model ağırlıkları bulunamadı")
-
-    # Heavy I/O + compute off the event loop
-    def _run_simulation():
-        adata = ad.read_h5ad(spatial_path)
-        data = build_graph_data(adata, k_neighbors=6)
-        ct_names = data.ct_names
-
-        in_ch = data['spot'].x.shape[1]
-        edge_dim = data['spot', 'contacts', 'spot'].edge_attr.shape[1]
-        model = GlioCartographyGNN(in_ch=in_ch, edge_dim=edge_dim, n_ct=len(ct_names), n_zones=len(ZONE_NAMES))
-        # Try loading safetensors format first if package available and file exists
-        loaded_sf = False
-        try:
-            from safetensors.torch import load_file as sf_load_file
-            sf_path = model_path.with_suffix(".safetensors")
-            if sf_path.exists():
-                model.load_state_dict(sf_load_file(sf_path, device="cpu"))
-                logger.info(f"   GNN model loaded via safetensors from {sf_path}")
-                loaded_sf = True
-        except Exception as sf_err:
-            logger.warning(f"   Failed to load safetensors model: {sf_err}")
-            
-        if not loaded_sf:
-            model.load_state_dict(torch.load(model_path, map_location="cpu"))
-            logger.info(f"   GNN model loaded via torch.load from {model_path}")
-        model.eval()
-
-        if simulation_mode == "cell":
-            ko_query = ko_type_safe.lower()
-            # Map frontend options to deconvolution dataset terms
-            CT_FRONTEND_TO_BACKEND_MAP = {
-                "tam_macrophage": "macrophage",
-                "t_cells": "t_cell",
-                "b_cells": "nk_cell",
-                "oligodendrocytes": "oligodendrocyte",
-                "mural": "pericyte",
-                "astrocytes": "astrocyte",
-                "tumor_mes": "stem_cell",
-                "tumor_ac": "malignant",
-                "tumor_npc": "malignant",
-                "tumor_opc": "malignant",
-            }
-            if ko_query in CT_FRONTEND_TO_BACKEND_MAP:
-                ko_query = CT_FRONTEND_TO_BACKEND_MAP[ko_query]
-
-            matched_cts = [cn for cn in ct_names if ko_query in cn.lower()]
-            if matched_cts:
-                ko_query = matched_cts[0]
-            else:
-                found_fallback = False
-                for cn in ct_names:
-                    if any(part in cn.lower() for part in ko_query.replace('-', '_').split('_')):
-                        ko_query = cn
-                        found_fallback = True
-                        break
-                if not found_fallback:
-                    ko_query = ct_names[0]
-
-            delta = counterfactual_knockout(model, data, ct_names, ko_query)
-            if delta is None:
-                raise ValueError(f"Hücre tipi eşleşmedi: {ko_type_safe}")
-
-        elif simulation_mode == "lr":
-            lr_names = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
-            delta = counterfactual_lr_blockade(model, data, lr_names, ko_type_safe, inhibition_rate=1.0)
-            if delta is None:
-                raise ValueError(f"Ligand-reseptör ekseni bulunamadı: {ko_type_safe}")
-
-        elif simulation_mode == "gene":
-            lr_names = [f"{l}-{r}" for l, r, _ in LR_PAIRS]
-            delta = counterfactual_gene_regulation(model, data, lr_names, LR_PAIRS, ko_type_safe, reg_type=regulation_type, rate=1.0)
-            if delta is None:
-                raise ValueError(f"Gen L-R kütüphanesinde bulunamadı: {ko_type_safe}")
-
-        else:
-            raise ValueError(f"Bilinmeyen simülasyon modu: {simulation_mode}")
-
-        mean_shifts = {zn: float(delta[:, z_idx].mean()) for z_idx, zn in enumerate(ZONE_NAMES)}
-        magnitudes = [float(np.clip(val, 0.0, 1.0)) for val in np.abs(delta).sum(axis=1)]
-        return mean_shifts, magnitudes
-
-    try:
-        mean_shifts, magnitudes = await asyncio.to_thread(_run_simulation)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Knockout simülasyon hatası")
-        raise HTTPException(status_code=500, detail=f"Simülasyon hatası: {exc}") from exc
-
-    return {
-        "knockout_type": ko_type_safe,
-        "mean_shifts": mean_shifts,
-        "magnitudes": magnitudes,
-        "affected_spots": len(magnitudes),
-    }
 
 
 @app.get("/results/figures")
@@ -688,19 +513,17 @@ def _do_export_h5ad(out: Path, patient_id: str) -> Path:
         all_zones = list(spots[0].get("zones", {}).keys())
         ct_data   = {ct: [] for ct in all_cts}
         z_data    = {z: [] for z in all_zones}
-        dom_zones, tcga_risks = [], []
+        dom_zones = []
 
         for s in spots:
             z_dict = s.get("zones", {})
             dom_zones.append(max(z_dict, key=z_dict.get) if z_dict else "N/A")
-            tcga_risks.append(s.get("tcga_risk", 0.0))
             for ct in all_cts:
                 ct_data[ct].append(s.get("ct", {}).get(ct, 0.0))
             for z in all_zones:
                 z_data[z].append(z_dict.get(z, 0.0))
 
         adata.obs["dominant_zone"] = pd.Categorical(dom_zones)
-        adata.obs["tcga_risk"]     = np.array(tcga_risks, dtype=np.float32)
         for ct, vals in ct_data.items():
             adata.obs[f"ct_{ct}"] = np.array(vals, dtype=np.float32)
         for z, vals in z_data.items():
@@ -708,7 +531,7 @@ def _do_export_h5ad(out: Path, patient_id: str) -> Path:
 
     exports_dir = out / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
-    h5ad_out = exports_dir / f"Klinik_Rapor_{patient_id}_analiz.h5ad"
+    h5ad_out = exports_dir / f"Rapor_{patient_id}_analiz.h5ad"
     adata.write_h5ad(h5ad_out)
     return h5ad_out
 
@@ -732,7 +555,6 @@ def _do_export_csv(out: Path, patient_id: str) -> Path:
             "x_coord":         s.get("x", 0.0),
             "y_coord":         s.get("y", 0.0),
             "dominant_zone":   max(z_dict, key=z_dict.get) if z_dict else "N/A",
-            "tcga_risk_score": s.get("tcga_risk", 0.0),
         }
         for z_name, z_val in z_dict.items():
             row[f"zone_{z_name.replace(' ', '_')}_score"] = z_val
@@ -743,7 +565,7 @@ def _do_export_csv(out: Path, patient_id: str) -> Path:
     df = pd.DataFrame(rows)
     exports_dir = out / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
-    csv_out = exports_dir / f"Klinik_Rapor_{patient_id}_spot_koordinatlari.csv"
+    csv_out = exports_dir / f"Rapor_{patient_id}_spot_koordinatlari.csv"
     df.to_csv(csv_out, index=False)
     return csv_out
 
@@ -758,7 +580,7 @@ def _do_export_zip(out: Path, patient_id: str) -> Path:
     ]
     exports_dir = out / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
-    zip_out = exports_dir / f"Klinik_Rapor_{patient_id}_figur_paketi.zip"
+    zip_out = exports_dir / f"Rapor_{patient_id}_figur_paketi.zip"
 
     with zipfile.ZipFile(zip_out, "w", zipfile.ZIP_DEFLATED) as zf:
         added: set = set()
@@ -809,73 +631,6 @@ async def export_zip_endpoint(output_dir: str, patient_id: str = "Patient_A"):
     except Exception as exc:
         logger.exception("ZIP export hatası")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-# =============================================================
-# Drug Catalog Endpoints
-# =============================================================
-_drug_catalog_refresh_state = {
-    "current": 0,
-    "total": 0,
-    "message": "Idle",
-    "status": "idle"
-}
-
-
-@app.get("/drug-catalog")
-async def get_drug_catalog():
-    """Yerel drug_catalog.json döner (offline-safe)."""
-    catalog_path = Path(__file__).parent / "drug_catalog" / "drug_catalog.json"
-    return await _read_json_async(catalog_path)
-
-
-@app.get("/drug-catalog/refresh-status")
-async def get_drug_catalog_refresh_status():
-    """Katalog güncelleme durumunu döner."""
-    return _drug_catalog_refresh_state
-
-
-@app.post("/drug-catalog/refresh")
-async def refresh_drug_catalog_endpoint():
-    """
-    ChEMBL'den asenkron çekip JSON günceller.
-    Arka planda çalışır, durum /drug-catalog/refresh-status adresinden sorgulanır.
-    """
-    global _drug_catalog_refresh_state
-    if _drug_catalog_refresh_state["status"] == "running":
-        return {"status": "already_running", "message": "Güncelleme zaten devam ediyor."}
-
-    from drug_catalog.drug_catalog_builder import refresh_catalog
-
-    _drug_catalog_refresh_state["status"] = "running"
-    _drug_catalog_refresh_state["current"] = 0
-    _drug_catalog_refresh_state["total"] = 27
-    _drug_catalog_refresh_state["message"] = "Güncelleme başlatılıyor..."
-
-    def run_in_background():
-        global _drug_catalog_refresh_state
-        catalog_path = Path(__file__).parent / "drug_catalog" / "drug_catalog.json"
-
-        def progress_cb(current, total, msg):
-            _drug_catalog_refresh_state["current"] = current
-            _drug_catalog_refresh_state["total"] = total
-            _drug_catalog_refresh_state["message"] = msg
-
-        try:
-            success = refresh_catalog(catalog_path, progress_cb)
-            if success:
-                _drug_catalog_refresh_state["status"] = "success"
-                _drug_catalog_refresh_state["message"] = "Katalog başarıyla güncellendi."
-            else:
-                _drug_catalog_refresh_state["status"] = "error"
-                _drug_catalog_refresh_state["message"] = "Katalog güncellenirken hata oluştu."
-        except Exception as e:
-            logger.exception("Katalog güncelleme hatası")
-            _drug_catalog_refresh_state["status"] = "error"
-            _drug_catalog_refresh_state["message"] = f"Beklenmeyen hata: {e}"
-
-    asyncio.create_task(asyncio.to_thread(run_in_background))
-    return {"status": "started", "message": "Güncelleme arka planda başlatıldı."}
 
 
 # =============================================================
@@ -1001,13 +756,11 @@ async def get_cohort_features(output_dir: str):
 
     ct_matrix  = np.array([[s.get("ct", {}).get(k, 0) for k in ct_keys] for s in spots], dtype=float)
     zon_matrix = np.array([[s.get("zones", {}).get(k, 0) for k in zone_keys] for s in spots], dtype=float)
-    risks      = [s.get("tcga_risk", 0.0) for s in spots]
 
     features = {
         "patient_id":  out.name,
         "ct_means":    {k: float(ct_matrix[:, i].mean())  for i, k in enumerate(ct_keys)},
         "zone_means":  {k: float(zon_matrix[:, i].mean()) for i, k in enumerate(zone_keys)},
-        "risk_score":  float(np.mean(risks)),
         "n_spots":     len(spots),
     }
     return features
@@ -1060,7 +813,6 @@ async def compute_cohort(req: CohortRequest):
                             "patient_id": out.name,
                             "ct_means":   {k: float(ct_m[:, i].mean())  for i, k in enumerate(ct_keys)},
                             "zone_means": {k: float(zon_m[:, i].mean()) for i, k in enumerate(zon_keys)},
-                            "risk_score": float(np.mean([s.get("tcga_risk", 0.0) for s in spots])),
                             "n_spots":    len(spots),
                         }
                 except Exception:
@@ -1122,7 +874,6 @@ async def compute_cohort(req: CohortRequest):
                 "id":         rec.get("patient_id", f"Patient-{idx}"),
                 "x":          round(float(cx), 4),
                 "y":          round(float(cy), 4),
-                "risk":       round(rec.get("risk_score", 0.0), 4),
                 "n_spots":    rec.get("n_spots", 0),
             })
 
