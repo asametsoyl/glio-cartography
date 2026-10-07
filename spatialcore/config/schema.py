@@ -93,6 +93,10 @@ class PhantomConfig(_Frozen):
     geometry: VisiumGeometry = VisiumGeometry()
     deform: DeformConfig = DeformConfig()
     violations: ViolationConfig = ViolationConfig()
+    smooth_programs: int = Field(8, ge=0, description="within-domain smooth expression programs (0 = piecewise constant)")
+    smooth_amp: float = Field(0.7, ge=0, description="sd of the smooth log-field")
+    smooth_length_um: float = Field(400.0, gt=0)
+    smooth_length_z_um: float = Field(300.0, gt=0)
     quad_disk_rings: int = Field(2, ge=1, description="rings of the disk quadrature (1+3r(r+1) points)")
     quad_z: int = Field(3, ge=1)
 
@@ -132,3 +136,38 @@ class PhantomConfig(_Frozen):
             base["violations"] = ViolationConfig(batch_gene_sd=0.2)
         base.update(overrides)
         return cls(**base)
+
+
+class RegistrationConfig(_Frozen):
+    """Soft-correspondence (CPD-like, coordinate x expression) registration. All values are assumptions."""
+
+    model: Literal["rigid", "similarity", "affine"] = "rigid"
+    n_pcs: int = Field(20, ge=2)
+    n_hvg: int = Field(1000, ge=10)
+    expression_weight: float = Field(10.0, ge=0, description="lambda_e: weight of cosine similarity in the joint likelihood")
+    outlier_weight: float = Field(0.2, gt=0, lt=1, description="w: prior mass of 'no counterpart'")
+    n_starts: int = Field(24, ge=1, description="initial rotations, evenly spaced over 360 degrees")
+    allow_flip: bool = False
+    coarse_points: int = Field(600, ge=50)
+    refine_top: int = Field(3, ge=1)
+    coarse_iter: int = Field(40, ge=1)
+    max_iter: int = Field(150, ge=1)
+    tol: float = Field(1e-5, gt=0)
+    sigma_min_um: float = Field(20.0, gt=0, description="floor on the match scale (lattice quantisation)")
+    block: int = Field(1024, ge=16)
+    seed: int = 0
+
+
+class QCConfig(_Frozen):
+    """Pairwise registration QC thresholds (WARNING / FAIL). Starting values, to be calibrated on data."""
+
+    min_overlap_warn: float = 0.30
+    min_overlap_fail: float = 0.10
+    max_scale_dev_warn: float = 0.10
+    max_scale_dev_fail: float = 0.25
+    max_shear_warn: float = 0.15
+    max_shear_fail: float = 0.35
+    min_expr_gain_warn: float = 0.10
+    min_expr_gain_fail: float = 0.03
+    eval_sigma_um: float = Field(50.0, gt=0, description="floor on the match scale used for confidence/QC posteriors (~half a pitch)")
+    good_error_pitch: float = Field(0.5, gt=0, description="a spot counts as correctly registered below this error / pitch")

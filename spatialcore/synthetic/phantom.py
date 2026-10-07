@@ -75,6 +75,13 @@ class PhantomTruth:
             data.extend(w), ri.extend([i] * len(js)), ci.extend(js)
         return sp.csr_matrix((data, (ri, ci)), shape=(len(ra), len(rb)))
 
+    def reference_xy(self, ref_k: int | None = None) -> np.ndarray:
+        """Where each spot *should* land in the slide frame (um, same origin as ``x_raw``) of reference section ``ref_k``
+        (default: the first present section). Uses the reference section's affine part; its non-rigid field is ignored."""
+        k = int(self.section_index.min()) if ref_k is None else ref_k
+        th = self.transforms[k]
+        return self.tissue_xyz[:, :2] @ th["A"].T + th["t"] + np.array(self.config.extent_um) / 2.0
+
     def true_registration_error(self, k: int, est_slide_to_tissue_xy: np.ndarray) -> np.ndarray:
         """Per-spot error (um) of an estimated slide->tissue xy map evaluated at that section's spots."""
         return np.linalg.norm(est_slide_to_tissue_xy - self.tissue_xyz[self.rows(k), :2], axis=1)
@@ -183,6 +190,22 @@ def build_phantom(cfg: PhantomConfig) -> Phantom:
     pi = np.exp(logits - logits.max(1, keepdims=True))
     pi /= pi.sum(1, keepdims=True)
 
+    # smooth within-domain programs: slowly varying in x, y and (more slowly) z, shared by neighbouring sections
+    S = cfg.smooth_programs
+    smooth = None
+    if S > 0 and cfg.smooth_amp > 0:
+        m_rff = 32
+        smember = np.zeros((S, G))
+        for q in range(S):
+            smember[q, prng.choice(G, n_up, replace=False)] = 1.0
+        scale = np.array([cfg.smooth_length_um, cfg.smooth_length_um, cfg.smooth_length_z_um])
+        smooth = {
+            "w": prng.normal(0.0, 1.0, (m_rff, 3)) / scale,
+            "phi": prng.uniform(0, 2 * np.pi, m_rff),
+            "coef": prng.normal(0.0, cfg.smooth_amp * np.sqrt(2.0 / m_rff), (m_rff, S)),
+            "member": smember,
+        }
+
     z_pitch = cfg.thickness_um + cfg.gap_um
     z_true = (np.arange(K) - (K - 1) / 2.0) * z_pitch
     doms = _Domains(cfg, z_pitch, cfg.violations.boundary_slide_multiplier)
@@ -247,6 +270,11 @@ def build_phantom(cfg: PhantomConfig) -> Phantom:
         sec_depth = np.exp(srng.normal(-cfg.section_depth_sd ** 2 / 2, cfg.section_depth_sd))
         depth = cfg.mean_depth * sec_depth * np.exp(r_cnt.normal(-cfg.spot_depth_sd ** 2 / 2, cfg.spot_depth_sd, m))
         prof = frk @ pi
+        if smooth is not None:
+            f = np.cos(ctr3[idx] @ smooth["w"].T + smooth["phi"]) @ smooth["coef"]  # (m, S)
+            tot0 = prof.sum(1, keepdims=True)
+            prof = prof * np.exp(f @ smooth["member"])
+            prof *= tot0 / np.maximum(prof.sum(1, keepdims=True), 1e-300)
         if cfg.violations.batch_gene_sd > 0:
             prof = prof * np.exp(srng.normal(0, cfg.violations.batch_gene_sd, G))[None, :]
         mu = depth[:, None] * prof

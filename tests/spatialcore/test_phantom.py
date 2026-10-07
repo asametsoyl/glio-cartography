@@ -133,7 +133,7 @@ def test_tiers_get_harder():
 
 
 def test_counts_follow_nb_model():
-    cfg = _cfg("E", deform=DeformConfig(), section_depth_sd=0.0, spot_depth_sd=0.0, n_sections=2, finger_sections=(0, 1))
+    cfg = _cfg("E", deform=DeformConfig(), section_depth_sd=0.0, spot_depth_sd=0.0, n_sections=2, finger_sections=(0, 1), smooth_programs=0)
     p = build_phantom(cfg)
     t, v = p.truth, p.volume
     rows = np.flatnonzero((t.domain_fracs[:, 1] > 0.999) & (t.section_index == 0))
