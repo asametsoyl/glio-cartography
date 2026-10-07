@@ -3,6 +3,7 @@
 > Durum: **TASARIM / ONAY BEKLİYOR. Z-BRIDGE için henüz kod yazılmadı.**
 > Taban: `v3.2.12-gbm-legacy` + bu dalda yapılan temizlik (spekülatif çıktıların silinmesi,
 > doku paketi, CI). Bu belge `ROADMAP.md`'yi **3B bölümü için** günceller (bkz. §I).
+> **GÜNCEL:** yöntem bölümü (§E) için `ZBRIDGE_ALGORITHM.md` esas alınır (rakip çözümlemesi ve yeni algoritma).
 > Okuma notu: sayılar ve dosya adları depoyu bu dalda okuyarak çıkarıldı; "doğrulanmalı"
 > işaretli şeyler dış bilgidir ve kullanılmadan önce kaynağından teyit edilmelidir.
 
@@ -399,8 +400,10 @@ Girdi: komşu kesit çifti `(k, k+1)`: spot koordinatları, `X_pca` (kesit-baş�
    (koordinat + ifade ortak olabilirlik). Böylece registration'ın yan ürünü olarak **soft correspondence**
    elde edilir (E.2'nin tohumu).
    - Aşamalar: (i) merkez/ölçek ön-uyum, (ii) rigid (R,t), (iii) affine (ölçek, kayma).
-   - **Lisans notu:** PASTE (GPL-3, doğrulanmalı) bağımlılık olarak eklenmez; EM/OT'yi kendimiz yazarız
-     (OT için POT, MIT, isteğe bağlı bağımlılık). PASTE yalnız **kıyas** için ayrı süreçte çalıştırılabilir.
+   - **Lisans notu (DÜZELTİLDİ):** önceki taslakta PASTE için "GPL-3 olabilir" demiştim; PASTE ve PASTE2
+     depo sayfalarında **BSD-3-Clause** görünüyor. Kullanılabilirler (lisans metni korunur); yine de
+     kendi EM hizalamamızı yazma kararı lisanstan değil, **posterior/dönüşüm örnekleme** ihtiyacındandır
+     (bkz. `ZBRIDGE_ALGORITHM.md` §4.4).
 2. **Histoloji (opsiyonel, Faz 7+):** `registration/histology_align.py` arayüzü; ilk sürümde yok.
    Varsa kaba rigid için görüntü tabanlı başlangıç; sonuç yine EM ile ince ayar.
 3. **Zincirleme:** çiftlerden global poz; **belirsizlik birikir** (`chain.py`): `σ_reg(k)² = Σ σ_pair²`
@@ -675,7 +678,7 @@ Olasılık/etki: D=düşük, O=orta, Y=yüksek.
 | 11 | **GPU/RAM sınırı** (Visium HD, hücre çözünürlüğü) | O | Y | alt-graf örnekleme, bin'leme, CPU yolu; bütçe testi | bellek benchmark'ı |
 | 12 | **Doğrulama verisi yetersizliği** | Y | Y | fantom (kanıt değil) + halka açık çok-kesitli set(ler) + ablasyon; iddiaları buna göre sınırla | benchmark kapsamı |
 | 13 | **Aşırı mühendislik / kapsam şişmesi** | Y | Y | her modül için "hangi problemi çözüyor?" ablasyonu; fayda yoksa çıkar | ablasyon tablosu |
-| 14 | **Lisans** (PASTE GPL, KEGG, Ivy, görüntü kodlayıcı ağırlıkları) | O | Y | bağımlılık taraması; kendi EM; `needs_review` bayrağı manifestte | lisans tarama çıktısı |
+| 14 | **Lisans** (KEGG, Ivy, dış model ağırlıkları, SPACEL lisansı belirsiz; PASTE/PASTE2 BSD-3, STitch3D/GPSA MIT) | O | Y | bağımlılık taraması; kendi EM; `needs_review` bayrağı manifestte | lisans tarama çıktısı |
 | 15 | **Tek kişi kapasitesi** | Y | Y | MVP = Faz 1–9; 10–14 sonra; haftalık dilim | takvim sapması |
 | 16 | **Yoruma aşırı güven** (3B görsel "ikna edici") | O | Y | RUO; belirsizlik katmanı varsayılan açık; "aday etkileşim" dili | rapor incelemesi |
 
