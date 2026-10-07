@@ -257,7 +257,7 @@ mümkünse STitch3D/STAIR/SpaBatch çıktıları aynı verilerde (lisanslar uygu
 |---|---|---|---|---|
 | **M1** replika gürültü tabanı + lfdr sınır + üçgen testi | tıbbi görüntülemede *Neighboring Slice Noise2Noise* (denoising); ST'de `SpatialDE` (gürültü/uzamsal varyans ayrıştırma), `SpNeigh`, `trendsceek` (sınır/yerel bağlam testleri) | komşu kesitlerden **ampirik null** ile **sınır anlamlılığı + kayıt güveni** | bulunamadı | orta-yüksek |
 | **M2** footprint-çakışma çekirdeği + gözlenmeyen kütle | STitch3D/SpaBatch (sert yarıçap), STAIR (ifade benzerliği) | fiziksel paylaşılan-sütun modeli | bulunamadı | orta (mühendislik katkısı küçük, ama yöntemsel olarak temiz) |
-| **M3** dönüşüm-posterior marjinalizasyonu + MI ile belirsizlik ayrıştırma | tıpta *"From Registration Uncertainty to Segmentation Uncertainty"*; ST'de GPSA/stvgp (posterior, alan yok), SPOmiAlign (belirsizlik-farkında eşleme) | ST alan/sınır GNN'ine **yayılım** + ilişkili hata + ayrışma | bulunamadı | orta (aktarım + yeni bağlam) |
+| **M3** dönüşüm-posterior marjinalizasyonu + MI ile belirsizlik ayrıştırma | tıpta *"From Registration Uncertainty to Segmentation Uncertainty"*; ST'de GPSA/stvgp (posterior, alan yok), SPOmiAlign (belirsizlik-farkında eşleme) | ST alan/sınır GNN'ine **yayılım** + ilişkili hata + ayrışma | bulunamadı; GEASO kayıt posterior'u içerir (§8.2) | orta-düşük (yalnız yayılım + ayrıştırma yeni) |
 | **M4** replika-risk (kör nokta) ile kapı eğitimi | Noise2Self/Noise2Noise (görüntü), STAGATE (öğrenilmiş attention) | **kesitler arası bağımsızlık** ile kapıların held-out riskle etiketsiz öğrenilmesi | bulunamadı | orta |
 | Kapının hizalama güvenine bağlanması | STAIR (kesit-düzeyi attention), Lacuna hipotez sayfası | **tek başına yenilik değil** | VAR (yakın) | — |
 
@@ -293,6 +293,36 @@ Aşağıdaki sorgu aileleri çalıştırıldı; **doğrudan örtüşen bir çal�
 | M2 | Visium footprint / disk overlap ∧ adjacent sections ∧ 3D graph | yalnız visiumStitched (örtüşen *yakalama alanları*, farklı problem) |
 | M3 | registration uncertainty ∧ domain/clustering ∧ ST; MI/entropi ayrıştırma ∧ registration | tıpta registration→segmentation uncertainty; MI-tabanlı kayıt belirsizliği (tıp); GPSA/stvgp; TISSUE (ST'de tahmin belirsizliği) |
 | M4 | blind-spot/Noise2Self/J-invariant ∧ GNN ∧ ST ∧ adjacent section | görüntü denoising (Noise2Self, Noise2Same, blind-spot ağları); ST'de histolojiden tahmin (Hist2ST vb.) — **kesit-arası bağımsızlıkla kapı eğitimi bulunamadı** |
+
+### 8.2 Tam metin + E-utilities taraması (NCBI PMC/PubMed, 2026-10-07)
+
+Ağ erişimi açıldıktan sonra yapıldı. Yöntem: PMC tam metin XML (STAIR PMC12703894, JADE PMC12699533,
+SpaBatch PMC12667491, SPACEL PMC10663563, Graspot PMC11520409, GPSA PMC10482692, stVGP PMC13042375) metne
+çevrilip sınırlılık/belirsizlik/sınır cümleleri çıkarıldı; PMC "cited-by" ile 137 atıf yapan çalışma
+tarandı; CODA, STMSC, ST-GEARS, GEASO, sc3D, OT-knn, MaskGraphene, SpaOT, DeepGFT, GRASS, SpaCross için
+özet/anahtar-kelime düzeyi okuma; PubMed `[tiab]` sorguları.
+
+| PubMed sorgusu (özet) | Sonuç |
+|---|---|
+| belirsizlik ∧ hizalama ∧ kesit (uncertainty ∧ alignment ∧ slice) | 0 isabet |
+| leave-one-slice-out ∨ held-out ∨ masked slice | 0 isabet |
+| replicate ∧ adjacent section | 1, ilgisiz |
+| gating ∧ slice ∧ graph | yalnız TOGAR |
+| probabilistic/soft correspondence ∧ 3D ∧ domain | yalnız SPACEL |
+| boundary ∧ multi-slice/3D | 18, çoğu ilgisiz (+UniST) |
+
+**Sonuç ve daraltılmış iddialar:**
+- M1, M2: doğrudan örtüşen yayın bulunmadı. İddia aynı: "kesit=replika" null'ı + footprint kernel.
+- **M3:** GEASO bir kayıt posterior'u içerir; bu yüzden "ST'de ilk kayıt belirsizliği" iddiası YAPILMAZ.
+  Savunulabilir kısım: posterior'un **alan/sınır GNN'ine ilişkili (zincirli) örneklerle yayılması** ve
+  belirsizliğin kayıt vs biyolojik bileşene MI ile ayrıştırılması.
+- **M4:** maskeli öz-denetimli çoklu-kesit GNN'leri (MaskGraphene vb.) ve stVGP'nin leave-one-slice-out
+  doğrulaması yakın. "Kesite-bağımsız held-out riskten **kapı öğrenme**" kısmı yeni aday; "maskeli kesit
+  eğitimi" tek başına yeni değil.
+- Yeni rakipler §2'ye eklenmeli: GEASO, ST-GEARS, GRASS, MaskGraphene, SpaCross, CODA, OT-knn, sc3D, UniST.
+- **Doğrulanmadı:** STitch3D Nature MI tam metni, PASTE2 amaç fonksiyonu, Spateo, UniST metni (efetch
+  başarısız), bioRxiv (429). Bunlar yayın iddiasından önce elle okunmalı.
+- Bu tarama başlık/özet/anahtar-kelime ve 7 tam metin düzeyindedir; "literatürde yok" kanıtı DEĞİLDİR.
 
 Ek not: genel ST literatürü, **spotlar arası bağımlılığı** (pseudoreplication) vurguluyor; M1'de replika
 birimi **kesit çiftleri** olduğundan bu uyarıyla uyumlu, ama gürültü bağımsızlığı varsayımı (ambient RNA,
