@@ -709,3 +709,67 @@ Olasılık/etki: D=düşük, O=orta, Y=yüksek.
 4. Fantom için hedef sertlik (deformasyon büyüklüğü, doku kaybı oranı) — başlangıç değerlerini ben önereyim mi?
 5. Z-BRIDGE yayın hedefi var mı? (varsa benchmark/ablasyon protokolünü hakem gözüyle baştan sabitleriz)
 6. Faz 1'e (GBM ayırma + paket iskeleti) hemen başlayayım mı? (Z kodu yazmadan, sadece iskelet/veri modeli.)
+
+---
+
+## J. Ek: Önceden Eğitilmiş Gövde ve İlgili Çalışmalar
+
+> Kaynaklar bu bölümde arama sonuçlarından ve ilgili GitHub sayfalarından okundu; hakem düzeyinde
+> ilgili-çalışma taraması **yapılmadı** (aşağıdaki "yapılacak" listesine bakın).
+
+### J.1 Hazır ön-eğitimli modeller (tek kesit, Z bilgisi yok)
+
+| Model | Eğitim verisi | Dağıtım | Not |
+|---|---|---|---|
+| **stFormer** | ~4,1 M insan Visium spotu | ağırlıklar Zenodo; kod **MIT** | Visium'a en yakın; spot ve tek-hücre çözünürlüğü; niş bağlamlı gen temsilleri |
+| **Nicheformer** | SpatialCorpus-110M (insan+fare, dissosiye + uzamsal) | ağırlıklar Mendeley; kod **BSD-3** | çok teknolojili; büyük |
+| **scGPT-spatial** | SpatialHuman30M (Visium, Visium HD, Xenium, MERFISH) | lisans **doğrulanmadı** | protokole özgü uzman dekoderler |
+
+Hiçbiri **seri kesit / Z ekseni** için eğitilmedi. Kod lisansı ≠ ağırlık/eğitim verisi lisansı; ticari ürüne
+girmeden her ikisi ayrı doğrulanmalı (`needs_review` bayrağı manifestte).
+
+### J.2 Z-BRIDGE ile birleştirme (önerilen)
+
+Hazır model **gövde (düğüm özellik çıkarıcı)** olur, Z-BRIDGE üstte hafif eğitilir:
+
+```
+ham sayım ──► ExpressionEncoder (dondurulmuş) ──► h_i^0 ──► ZBridgeLayer × 2 ──► 3B gömme
+                 │  uygulamalar: "pca" (varsayılan) | "stformer" | "nicheformer" | "scgpt_spatial"
+```
+
+- `model/expression_encoder.py`: `HistologyEncoder` ile aynı kalıpta arayüz; `pca` uygulaması v0.1'in
+  taban çizgisidir. Dış model **isteğe bağlı bağımlılık** (kullanıcıya indirilir, paketle gelmez).
+- **Önbellek:** spot gömmeleri bir kez hesaplanıp `embeddings/` altında saklanır (CPU'da tekrar çalıştırılmaz).
+- Bu, önceki "tek önceden eğitilmiş GNN" isteğini karşılar **ve** seyrek veri / doku bağımsızlığı riskini azaltır.
+
+**Dikkat edilecekler**
+1. **Bağlam çift sayımı:** stFormer/Nicheformer gömmeleri zaten XY niş bağlamı içerebilir. Z-BRIDGE'in XY
+   mesajlaşmasıyla üst üste binerse katkıyı ayırt edemeyiz. → **bağlamsız (spot-yalnız) mod** kullan
+   veya ablasyona ayrı satır olarak ekle.
+2. **Ablasyonun temizliği:** Z-BRIDGE etkisini gövde etkisinden ayırmak için tablo **2 × 7** olur
+   (PCA ve FM özellikleriyle aynı yedi konfigürasyon). Önce PCA, sonra FM.
+3. **Doğrulama sızıntısı:** halka açık veri setleri (ör. DLPFC) bu modellerin ön-eğitim derlemlerinde
+   bulunuyor olabilir. Benchmark seçerken ön-eğitim derlemleriyle örtüşme **kontrol edilip raporlanmalı**.
+4. **Tür/gen sözlüğü:** insan Visium varsayımı; fare ve diğer platformlar için ayrı kontrol.
+5. **Maliyet:** büyük modeller GPU ister; masaüstü ürün için indirme boyutu ve CPU çıkarım süresi ölçülmeli.
+6. **Section sızıntısı:** FM gömmesi ham sayımdan hesaplansa da kesit-başı normalizasyon ve section-probe
+   (E.7) aynen geçerli.
+
+### J.3 3B için hazır ön-eğitimli model YOK; ama yakın çalışmalar var
+
+| Yöntem | Ne yapıyor | Z-BRIDGE ile ilişkisi |
+|---|---|---|
+| **STAIR** | heterojen graf dikkat ağı, spot ve **kesit** düzeyinde attention; kesitlerin Z konumunu veriden çıkarır | **en yakın**: kesit-arası attention; farkımız olasılıksal correspondence + registration belirsizliği + ayrı XY/Z parametreleri + sınır kapısı olmalı — kıyas şart |
+| **STitch3D** | çoklu kesiti 3B hücresel yapıya entegre eder (referansla) | kıyas |
+| **SPACEL (Scube)** | kesitler arası koordinat dönüşümü ve 3B yığma | registration kıyası |
+| **PASTE2** | kısmi örtüşmeli OT hizalama | registration kıyası (GPL bağımlılığı olarak eklenmez) |
+
+**Yapılacak (kod yazmadan önce):** bu dört yöntem (ve güncel 3B/seri-kesit literatürü) için gerçek bir
+ilgili-çalışma taraması; Z-BRIDGE'in **iddia edilen farkı** buna göre daraltılır. "Daha önce kimse
+yapmadı" demiyoruz; ablasyon + bu yöntemlerle kıyas sonucuna göre konumlanıyoruz.
+
+### J.4 Önerilen sıra (değişiklik)
+
+1. v0.1: `pca` gövdesi, 7'li ablasyon (E.8/G) — Z-BRIDGE'in kendi katkısı temiz ölçülür.
+2. v0.2: `ExpressionEncoder` arayüzüne **tek** dış gövde (öneri: stFormer — MIT, insan Visium); aynı ablasyon tekrar.
+3. Gövde faydalıysa varsayılan yapılır; değilse isteğe bağlı kalır.
