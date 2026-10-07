@@ -47,11 +47,21 @@ def test_importing_stage4_does_not_touch_global_ssl_default(monkeypatch, tmp_pat
         sys.modules.pop("stage4_visualization", None)
 
 
-def test_stage4_has_its_own_scoped_unverified_context(monkeypatch, tmp_path):
+def test_stage4_ssl_verification_is_on_by_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("GLIO_ALLOW_INSECURE_SSL", raising=False)
     mod = _import_stage4(monkeypatch, tmp_path)
     try:
-        assert hasattr(mod, "_UNVERIFIED_SSL_CONTEXT")
-        assert isinstance(mod._UNVERIFIED_SSL_CONTEXT, ssl.SSLContext)
-        assert mod._UNVERIFIED_SSL_CONTEXT.verify_mode == ssl.CERT_NONE
+        assert isinstance(mod._SSL_CONTEXT, ssl.SSLContext)
+        assert mod._SSL_CONTEXT.verify_mode == ssl.CERT_REQUIRED
+        assert mod._SSL_CONTEXT.check_hostname is True
+    finally:
+        sys.modules.pop("stage4_visualization", None)
+
+
+def test_stage4_insecure_ssl_is_explicit_opt_in(monkeypatch, tmp_path):
+    monkeypatch.setenv("GLIO_ALLOW_INSECURE_SSL", "1")
+    mod = _import_stage4(monkeypatch, tmp_path)
+    try:
+        assert mod._SSL_CONTEXT.verify_mode == ssl.CERT_NONE
     finally:
         sys.modules.pop("stage4_visualization", None)

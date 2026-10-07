@@ -3,13 +3,15 @@
 import os, sys, json, traceback, tempfile, urllib.request
 import ssl
 
-# OmniPath L-R indirmesi için bu MODÜLE özel, sertifika doğrulaması atlanan
-# bir SSL context. Önceki sürüm `ssl._create_default_https_context`'i
-# global değiştiriyordu — bu aynı süreçteki BAŞKA her HTTPS isteğini de
-# doğrulamasız bırakıyordu (bkz. denetim raporu bulgusu D-20, pathway_mapper.py
-# ile aynı anti-pattern). Artık yalnızca kendi urlopen() çağrısına
-# context=_UNVERIFIED_SSL_CONTEXT ile açıkça geçiriliyor.
-_UNVERIFIED_SSL_CONTEXT = ssl._create_unverified_context()
+# OmniPath L-R indirmesi için bu MODÜLE özel SSL context. Sertifika doğrulaması
+# varsayılan olarak AÇIKTIR; yalnızca kurumsal bir MITM proxy'si arkasında
+# GLIO_ALLOW_INSECURE_SSL=1 ile devre dışı bırakılabilir (pathway_mapper.py ile
+# aynı politika). Global `ssl._create_default_https_context` değiştirilmez —
+# context yalnızca kendi urlopen() çağrısına açıkça geçirilir.
+_ALLOW_INSECURE_SSL = os.environ.get("GLIO_ALLOW_INSECURE_SSL") == "1"
+_SSL_CONTEXT = (
+    ssl._create_unverified_context() if _ALLOW_INSECURE_SSL else ssl.create_default_context()
+)
 from pathlib import Path
 
 # ── Set up error handling first so import/initialization errors are cleanly caught as JSON ──
@@ -375,7 +377,7 @@ def fetch_dynamic_lr_pairs(adata_obj, max_pairs=10):
     try:
         logger.info("🌐 Dinamik L-R çiftleri OmniPath veritabanından indiriliyor...")
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=3.0, context=_UNVERIFIED_SSL_CONTEXT) as response:
+        with urllib.request.urlopen(req, timeout=3.0, context=_SSL_CONTEXT) as response:
             data = json.loads(response.read().decode('utf-8'))
             
         online_pairs = []

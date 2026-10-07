@@ -1,0 +1,22 @@
+# Minimal dependencies needed to run python_backend/tests (CI).
+# Torch is installed separately from the CPU index (see .github/workflows/test.yml).
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+seaborn
+loguru
+pyyaml
+jinja2
+fpdf2
+anndata
+scanpy
+torch-geometric
+optuna
+statsmodels
+networkx
+h5py
+fastapi
+httpx
+pytest

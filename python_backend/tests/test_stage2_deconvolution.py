@@ -43,7 +43,7 @@ def test_degenerate_spots_marked_undetermined_not_arbitrary_celltype():
 
     dom_ct = ct_prop_df.idxmax(axis=1).astype(object)
     if degenerate_mask.any():
-        dom_ct.values[degenerate_mask] = "Undetermined"
+        dom_ct = dom_ct.where(~degenerate_mask, "Undetermined")
 
     assert dom_ct["spot1"] == "TypeA"
     assert dom_ct["spot2_degenerate"] == "Undetermined"

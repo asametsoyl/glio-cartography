@@ -1005,7 +1005,7 @@ def main():
         n_deg = int(_degenerate_spot_mask.sum())
         logger.warning(f"   {n_deg} spot'ta dekonvolüsyon tüm hücre tiplerinde sıfır oran üretti "
                         f"— bu spot'lar keyfi bir baskın hücre tipi yerine 'Undetermined' olarak işaretlendi.")
-        dom_ct.values[_degenerate_spot_mask] = "Undetermined"
+        dom_ct = dom_ct.where(~_degenerate_spot_mask, "Undetermined")  # pandas 3: .values is read-only
     adata_sp.obs["dominant_celltype"] = dom_ct.values
 
     if "spatial" in adata_sp.obsm:
