@@ -38,7 +38,7 @@ async function loadFigures() {
   // İnsan okunabilir figür isimleri
   const FIGURE_LABELS = {
     'fig2_dominant_celltype_map':   window.i18n.t('figures.dominant_celltype_map'),
-    'fig2_volcano_necrosis_vs_edge':window.i18n.t('figures.volcano_necrosis_vs_edge'),
+    'fig2_volcano_region_contrast': window.i18n.t('figures.volcano_region_contrast'),
     'fig3_tme_composition':         window.i18n.t('figures.tme_composition'),
     'GNN_confusion_matrix':         window.i18n.t('figures.gnn_confusion_matrix'),
     'training_history_v3':          window.i18n.t('figures.gnn_training_history'),
@@ -50,7 +50,7 @@ async function loadFigures() {
 
   const FIGURE_ICONS = {
     'fig2_dominant_celltype_map':    '🧬',
-    'fig2_volcano_necrosis_vs_edge': '🌋',
+    'fig2_volcano_region_contrast':  '🌋',
     'fig3_tme_composition':          '🥧',
     'GNN_confusion_matrix':          '🤖',
     'training_history_v3':           '📈',

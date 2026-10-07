@@ -255,62 +255,15 @@ LR_PAIRS = [
 ]
 
 # ============================================================
-# ZONE SİGNATÜRLERİ
-# [BIO-4] Eksik GBM markerleri eklendi
-# [GERÇEK-IVY-GAP] Gerçek veriyle kanıtlanmış revizyon — aşağıya bakın.
+# BÖLGE İMZALARI — doku paketinden (tissue_packs/<id>/regions.yaml)
 # ============================================================
-# NOT (2026-08-20 revizyonu): Bu genler artık yalnızca literatür/sezgiye
-# değil, Allen Institute Ivy Glioblastoma Atlas Project'in GERÇEK ISH
-# ekspresyon verisine de dayanıyor (Puchalski ve ark. 2018, Science;
-# python_backend/reference_data/ivygap_real_reference.json). ~800 genlik
-# gerçek ISH panelinin tamamı (18.778 ölçüm, gerçek hasta örnekleri)
-# çekilip her gen için 5 anatomik yapı (LE/IT/CT/CTpan/CTmvp) arasındaki
-# z-skorlu özgüllüğe göre sıralandı; buradaki listeler bu sıralamanın
-# tepesinden, hâlâ tanınabilir/literatürde köklü genler seçilerek
-# oluşturuldu. Önceki (yalnızca elle seçilmiş) sürüm, gerçek Ivy GAP
-# referansına karşı zayıf doğrulanıyordu (Leading Edge/Infiltrating
-# Tumor/Cellular Tumor r<0.6, Microvascular Proliferation r≈0.16) —
-# bkz. denetim raporu, "real_ivy_gap_validation". Bu revizyon o zayıflığı
-# gidermeyi hedefler; MKI67/VIM/CXCR4 gibi Ivy GAP'in ~800 genlik ISH
-# panelinde bulunmayan (bu yüzden gerçek referansla doğrulanamayan) ama
-# GBM biyolojisinde vazgeçilmez kabul edilen birkaç kanonik gen, eğitim
-# hedefi için hâlâ korunuyor.
-ZONE_SIGNATURES = {
-    'Pseudopalisading Necrosis': [
-        'hif1a', 'ca9', 'vegfa', 'bnip3', 'ldha',
-        # Gerçek Ivy GAP verisinde CTpan için en yüksek özgüllüğe sahip
-        # genler (hipoksi/glikoliz/nekroz-ilişkili makrofaj kemotaksisi):
-        'hk2', 'serpine1', 'ccl2',
-    ],
-    'Microvascular Proliferation': [
-        # PLVAP ve ACVRL1 (ALK1), gerçek Ivy GAP verisinde CTmvp için en
-        # özgül genler — olgunlaşmamış/fenestre tümör damarlanmasının
-        # klasik belirteçleri. KDR (VEGFR2) tanınabilirlik için korundu.
-        'plvap', 'acvrl1', 'vegfa', 'kdr', 'tgfbr2', 'itga5',
-    ],
-    'Cellular Tumor': [
-        # PDGFRA gerçek veride en yüksek özgüllüğe sahip VE klasik bir GBM
-        # onkogeni (proneural alt tip). GJA1/NUSAP1 gerçek veriden;
-        # EGFR/OLIG2/SOX2/MKI67 tanınabilirlik ve eğitim hedefi
-        # tutarlılığı için korundu.
-        'pdgfra', 'egfr', 'olig2', 'sox2', 'gja1', 'nusap1', 'mki67',
-    ],
-    'Leading Edge': [
-        # IVY GAP'ta "Leading Edge" düşük tümör saflığı ve normal
-        # nöropil/nöron karışımıyla tanımlanır (Puchalski ve ark. 2018,
-        # Science). L1CAM/CCND2/AKT1/STAT3 gerçek veride CTpan/IT/CT'ye
-        # göre LE'de belirgin şekilde daha yüksek çıkan genler.
-        'l1cam', 'ccnd2', 'gfap', 'akt1', 'stat3',
-    ],
-    'Infiltrating Tumor': [
-        # BCAN (brevican) ve DDR1, gerçek Ivy GAP verisinde IT için en
-        # özgül genler — nöro-onkolojide iyi bilinen, invazyonla
-        # ilişkili ECM/reseptör molekülleri. VIM/CXCR4 Ivy GAP'in ISH
-        # panelinde yer almıyor ama kanonik EMT/invazyon biyolojisi için
-        # eğitim hedefinde korundu.
-        'bcan', 'snap25', 'ddr1', 'cd44', 'vim', 'cxcr4',
-    ],
-}
+# Bölge adları, imza genleri, renkler ve kaynak/atıf bilgisi motor kodunda
+# değil doku paketindedir (varsayılan: gbm; GLIO_TISSUE_PACK ile değişir).
+# Ivy GAP revizyon notları ve atıflar tissue_packs/gbm/ altındadır.
+from tissue_pack import load_tissue_pack
+
+TISSUE_PACK = load_tissue_pack()
+ZONE_SIGNATURES = TISSUE_PACK.signatures()
 ZONE_NAMES = list(ZONE_SIGNATURES.keys())
 
 # ── Pathway signatures: dinamik olarak pathway_db.json'dan yükle ───────────────
@@ -1481,6 +1434,10 @@ def export_attention_to_json(model: nn.Module, data: HeteroData, adata,
             "version": "3.0",
             "n_spots": n_spots,
             "zones": ZONE_NAMES,
+            "zone_colors": TISSUE_PACK.colors(),
+            "zone_labels": {"en": TISSUE_PACK.labels("en"), "tr": TISSUE_PACK.labels("tr")},
+            "comparisons": [list(c) for c in TISSUE_PACK.comparisons],
+            "tissue_pack": TISSUE_PACK.provenance(),
             "ct_names": ct_names,
             "lr_pairs": [f"{l}-{r}" for l, r, _ in LR_PAIRS],
         },

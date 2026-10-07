@@ -55,3 +55,34 @@ def test_pathway_mapper_allows_opt_in_insecure_ssl():
         os.environ.pop("GLIO_ALLOW_INSECURE_SSL", None)
         import pathway_mapper
         importlib.reload(pathway_mapper)
+
+
+def test_resolve_zone_key_accepts_id_style_and_display_names():
+    import pathway_mapper as pm
+    keys = ["Pseudopalisading Necrosis", "Leading Edge", "Cellular Tumor"]
+    assert pm.resolve_zone_key("Leading Edge", keys) == "Leading Edge"
+    assert pm.resolve_zone_key("Leading_Edge", keys) == "Leading Edge"
+    assert pm.resolve_zone_key("leading-edge", keys) == "Leading Edge"
+    assert pm.resolve_zone_key("pseudopalisading_necrosis", keys) == "Pseudopalisading Necrosis"
+    assert pm.resolve_zone_key("Unknown Zone", keys) is None
+
+
+def test_zonal_degs_do_not_silently_fall_back_to_global_for_id_style_zone(tmp_path, monkeypatch):
+    """UI sends 'Leading_Edge' while data.json keys are 'Leading Edge'."""
+    import json
+    import numpy as np
+    import pytest
+    anndata = pytest.importorskip("anndata")
+    import pathway_mapper as pm
+
+    n = 30
+    data = {"spots": [{"zones": {"Leading Edge": 1.0 if i < 15 else 0.0, "Cellular Tumor": 0.0 if i < 15 else 1.0}}
+                      for i in range(n)]}
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(data), encoding="utf-8")
+    adata = anndata.AnnData(X=np.random.default_rng(0).poisson(2.0, (n, 12)).astype(np.float32))
+
+    called = {}
+    monkeypatch.setattr(pm, "find_lr_degs", lambda *a, **k: called.setdefault("global", True) and [])
+    pm.find_lr_degs_zonal(adata, "A", "B", data_path, "Leading_Edge", zone_threshold=0.4)
+    assert "global" not in called, "id-style zone name fell back to the global analysis"

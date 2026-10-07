@@ -864,14 +864,7 @@ async function openPathwayEnrichmentModal(ligand, receptor) {
     const badge = document.getElementById('pathway-zone-badge');
     if (badge) {
       if (zoneParam) {
-        const zoneLabels = {
-          'Leading_Edge': '🔴 Leading Edge',
-          'Infiltrating_Tumor': '🟠 Infiltrating Tumor',
-          'Cellular_Tumor': '🟡 Cellular Tumor',
-          'Pseudopalisading_Necrosis': '⚫ PN Necrosis',
-          'Microvascular_Proliferation': '🔵 MVP'
-        };
-        badge.textContent = `✓ Zone-Stratified: ${zoneLabels[zoneParam] || zoneParam} | ${res.length} yolak`;
+        badge.textContent = `✓ Zone-Stratified: ${(state.zoneLabels && state.zoneLabels[zoneParam]) || zoneParam} | ${res.length} yolak`;
         badge.style.display = 'inline';
         badge.style.color = '#00d4ff';
       } else {

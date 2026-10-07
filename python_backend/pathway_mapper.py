@@ -346,6 +346,27 @@ def load_gnn_zone_masks(data_json_path: Path) -> dict[str, np.ndarray] | None:
         return None
 
 
+def _zone_slug(name) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+
+
+def resolve_zone_key(zone_name: str, keys) -> str | None:
+    """Match a requested zone to a data.json zone key.
+
+    The UI/API may send an id-style name ("Leading_Edge") while data.json keys
+    are display names ("Leading Edge"); previously that mismatch silently fell
+    back to a global (unstratified) analysis.
+    """
+    keys = list(keys)
+    if zone_name in keys:
+        return zone_name
+    wanted = _zone_slug(zone_name)
+    for k in keys:
+        if _zone_slug(k) == wanted:
+            return k
+    return None
+
+
 def find_lr_degs_zonal(
     adata,
     ligand: str,
@@ -362,7 +383,7 @@ def find_lr_degs_zonal(
         adata: Spatial AnnData nesnesi
         ligand, receptor: L-R çifti gen isimleri
         data_json_path: GNN çıktısı data.json dosyasının yolu
-        zone_name: IVY GAP zone adı (örn. 'Leading_Edge', 'PN_Necrosis')
+        zone_name: doku paketindeki bölge adı (örn. 'Leading Edge' veya 'Leading_Edge')
         zone_threshold: Minimum zone skoru (default 0.4)
         relax_info: Verilirse, zon eşiği gevşetildiyse bu dict içine
             {"relaxed": bool, "requested_threshold": float,
@@ -379,10 +400,12 @@ def find_lr_degs_zonal(
 
     # 1. Zone maskesi yükle
     masks = load_gnn_zone_masks(Path(data_json_path))
-    if masks is None or zone_name not in masks:
+    zone_key = resolve_zone_key(zone_name, masks) if masks else None
+    if masks is None or zone_key is None:
         logger.warning("Zone '%s' bulunamadı. Global analiz yapılıyor.", zone_name)
         return find_lr_degs(adata, ligand, receptor, data_json_path=data_json_path)
 
+    zone_name = zone_key
     zone_scores = masks[zone_name]
 
     # 2. AnnData spot sayısıyla eşleşiyor mu kontrol et

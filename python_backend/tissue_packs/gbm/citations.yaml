@@ -1,0 +1,16 @@
+# Every signature must be traceable. `license_status: needs_review` means the
+# commercial-use terms have not been verified yet and must be cleared before
+# the pack is distributed in a paid product.
+citations:
+  ivygap_2018:
+    title: An anatomic transcriptional atlas of human glioblastoma
+    authors: Puchalski RB, et al.
+    journal: Science
+    year: 2018
+    volume_pages: "360(6389):660-663"
+    doi: 10.1126/science.aaf2666
+    dataset: Ivy Glioblastoma Atlas Project (Allen Institute for Brain Science)
+    url: https://glioblastoma.alleninstitute.org/
+    license: Allen Institute Terms of Use
+    license_status: needs_review
+    local_reference: python_backend/reference_data/ivygap_real_reference.json

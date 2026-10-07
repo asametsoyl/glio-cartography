@@ -1,0 +1,17 @@
+# Tissue pack: Glioblastoma (reference pack)
+schema_version: 1
+id: gbm
+name: Glioblastoma
+version: 1.0.0
+species:
+  - human
+platforms:
+  - visium
+description: >-
+  Ivy GAP-inspired anatomic regions of glioblastoma. Region signatures were
+  derived from the Ivy Glioblastoma Atlas Project reference plus a few
+  canonical GBM genes retained for recognisability (see regions.yaml notes).
+status: reference
+# Independent reference used by stage 3 to sanity-check predicted regions
+# (path relative to python_backend/). Packs without a reference skip that check.
+reference_validation: reference_data/ivygap_real_reference.json

@@ -1,0 +1,5 @@
+# Report wording owned by the tissue pack (kept intentionally minimal; the
+# report engine falls back to generic wording for any missing key).
+subject_en: Glioblastoma spatial transcriptomics analysis
+subject_tr: Glioblastom uzamsal transkriptomik analizi
+keywords: [GBM, Spatial, GNN, Tangram, Pathways, Zonal Contrast]

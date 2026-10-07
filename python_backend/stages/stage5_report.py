@@ -81,7 +81,7 @@ def interpolate_color(color1, color2, t):
     b = int(b1 + (b2 - b1) * t)
     return f"#{r:02x}{g:02x}{b:02x}"
 
-def generate_pubmed_references(dominant_lr, pathways):
+def generate_pubmed_references(dominant_lr, pathways, tissue_term="spatial transcriptomics"):
     """
     ÖNEMLİ (bilimsel dürüstlük notu): Bu fonksiyon GERÇEK makale başlıkları
     döndürmez — `url` alanı her zaman bir PubMed ARAMA sorgusudur, belirli
@@ -95,14 +95,14 @@ def generate_pubmed_references(dominant_lr, pathways):
     if dominant_lr and dominant_lr != "N/A":
         refs.append({
             "topic": f"L-R Axis: {dominant_lr}" if is_english else f"L-R Ekseni: {dominant_lr}",
-            "search_query": f"{dominant_lr} glioblastoma signaling",
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={dominant_lr.replace('-', '+')}+glioblastoma"
+            "search_query": f"{dominant_lr} {tissue_term} signaling",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={dominant_lr.replace('-', '+')}+{tissue_term.replace(' ', '+')}"
         })
     for p in pathways:
         refs.append({
             "topic": f"Pathway: {p}" if is_english else f"Yolak: {p}",
-            "search_query": f"{p} signaling pathway glioblastoma",
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={p.replace('_', '+')}+glioblastoma"
+            "search_query": f"{p} signaling pathway {tissue_term}",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/?term={p.replace('_', '+')}+{tissue_term.replace(' ', '+')}"
         })
     return refs
 
@@ -491,7 +491,8 @@ def main() -> None:
         )
 
     # PubMed References
-    pubmed_refs = generate_pubmed_references(dominant_lr_val, pathways)
+    tissue_term = (gnn_summary.get("tissue_pack") or {}).get("name", "").lower() or "spatial transcriptomics"
+    pubmed_refs = generate_pubmed_references(dominant_lr_val, pathways, tissue_term)
     half = len(pubmed_refs) // 2
     
     show_in_pubmed_text = "🔍 Search PubMed &rarr;" if is_english else "🔍 PubMed'de Ara &rarr;"

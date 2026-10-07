@@ -71,8 +71,8 @@ MAIN_LOCALE = {
         "spot_count": "   Spot sayısı   : {:,}",
         "pdf_title": "Glio-Cartography Araştırma Raporu v3.0",
         "pdf_author": "Glio-Cartography GNN v3.0",
-        "pdf_subject": "GBM Spatial Transcriptomics Analizi — RUO",
-        "pdf_keywords": "GBM, Spatial, GNN, Tangram, Pathways, Zonal Contrast"
+        "pdf_subject": "Uzamsal Transkriptomik Analizi — RUO",
+        "pdf_keywords": "Spatial, GNN, Tangram, Pathways, Zonal Contrast"
     },
     "en": {
         "title": "RESEARCH PDF REPORT GENERATOR v3.0",
@@ -93,8 +93,8 @@ MAIN_LOCALE = {
         "spot_count": "   Spot count   : {:,}",
         "pdf_title": "Glio-Cartography Research Report v3.0",
         "pdf_author": "Glio-Cartography GNN v3.0",
-        "pdf_subject": "GBM Spatial Transcriptomics Analysis — RUO",
-        "pdf_keywords": "GBM, Spatial, GNN, Tangram, Pathways, Zonal Contrast"
+        "pdf_subject": "Spatial Transcriptomics Analysis — RUO",
+        "pdf_keywords": "Spatial, GNN, Tangram, Pathways, Zonal Contrast"
     }
 }
 
@@ -249,7 +249,7 @@ def draw_page1(fig, stats, zone_names, patient_label="HASTA A"):
 
     analysis_lbl = f"Analysis: {stats['n_spots']:,} Visium Spots" if is_english else f"Analiz: {stats['n_spots']:,} Visium Spotu"
     fig.text(0.5, 0.915,
-             f"{patient_label}  |  Presumed GBM research cohort (diagnosis not inferred)  |  "
+             f"{patient_label}  |  {stats['tissue_name']} research sample (diagnosis not inferred)  |  "
              f"{analysis_lbl}",
              ha='center', va='top', fontsize=10,
              color='#cccccc')
@@ -560,6 +560,7 @@ def main():
     logger.info(main_loc["aggregating"].format(len(spots)))
     try:
         stats = aggregate_data(spots, zone_names, zonal_contrast_data)
+        stats['tissue_name'] = (data.get('metadata', {}).get('tissue_pack') or {}).get('name', 'Tissue')
     except ValueError as e:
         logger.error(main_loc["agg_error"].format(e))
         return False

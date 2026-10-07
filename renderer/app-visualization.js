@@ -173,6 +173,35 @@ async function reloadBackground() {
 // Eşzamanlılık kilidi (Örtüşen loadResults() çağrılarında eski yanıtın yeni yanıtı ezmesini önler)
 let _isLoadResultsLoading = false;
 
+/**
+ * Applies tissue-pack information shipped in data.json metadata: region
+ * colours/labels and the zone selector for pathway analysis. Falls back to the
+ * built-in defaults when the metadata predates tissue packs.
+ */
+function applyTissuePackMetadata(meta) {
+  if (!meta) return;
+  const lang = (window.i18n && window.i18n.lang) || 'tr';
+  if (meta.zone_colors && Object.keys(meta.zone_colors).length) {
+    Object.keys(ZONE_COLORS).forEach(k => delete ZONE_COLORS[k]);
+    Object.assign(ZONE_COLORS, meta.zone_colors);
+  }
+  const labels = meta.zone_labels || {};
+  state.zoneLabels = labels[lang] || labels.en || {};
+
+  const sel = document.getElementById('pathway-zone-select');
+  if (sel && Array.isArray(meta.zones)) {
+    const current = sel.value;
+    while (sel.options.length > 1) sel.remove(1); // keep the "global" option
+    meta.zones.forEach(z => {
+      const opt = document.createElement('option');
+      opt.value = z;
+      opt.textContent = state.zoneLabels[z] || z;
+      sel.appendChild(opt);
+    });
+    if (Array.from(sel.options).some(o => o.value === current)) sel.value = current;
+  }
+}
+
 async function loadResults() {
   if (_isLoadResultsLoading) return;
   _isLoadResultsLoading = true;
@@ -203,6 +232,7 @@ async function loadResults() {
       loadedData = await api.readJsonFile(dataPath);
     }
     state.gnnData = loadedData;
+    applyTissuePackMetadata(loadedData && loadedData.metadata);
 
     // Reset derived caches so stale values from a previous dataset don't leak through
     state._lrMax = 1;

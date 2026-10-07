@@ -37,6 +37,7 @@ const rawState = {
   compareProfileLeft: null,
   compareProfileRight: null,
   viewTransform: { x: 0, y: 0, k: 1 },
+  zoneLabels: {},
 };
 
 // Global state change handler for reactive side effects

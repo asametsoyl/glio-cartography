@@ -89,13 +89,9 @@ if is_english:
         "lr_comm_xlabel": "Ligand → Receptor Pair (Cell Types)",
         "lr_comm_ylabel": "GNN Zone",
         "spots_count": "Spot Count",
-        "volcano_title": "Volcano Plot: Necrosis vs Edge ({de_method})\n[Warning: Spatial dependency not corrected]",
+        "volcano_title": "Volcano Plot: {group_a} vs {group_b} ({de_method})\n[Warning: Spatial dependency not corrected]",
+        "up_in": "Up in {group}",
         "bipartite_title": "Bipartite Graph: GNN Zones vs Top Downstream Target Genes",
-        "Pseudopalisading Necrosis": "Pseudopalisading Necrosis",
-        "Microvascular Proliferation": "Microvascular Proliferation",
-        "Cellular Tumor": "Cellular Tumor",
-        "Leading Edge": "Leading Edge",
-        "Infiltrating Tumor": "Infiltrating Tumor",
         "lr_cbar": "Z-score (Normalized per L-R pair)",
         "month_suffix": "mo",
         "gnn_uncertainty_title": "GNN Learned Multi-Task Loss Weights (Kendall et al.)",
@@ -117,13 +113,9 @@ else:
         "lr_comm_xlabel": "Ligand → Reseptör Çifti (Hücre Tipleri)",
         "lr_comm_ylabel": "GNN Zonu",
         "spots_count": "Spot Sayısı",
-        "volcano_title": "Volcano Plot: Nekroz vs Sınır ({de_method})\n[Uyarı: Spatial bağımlılık düzeltilmedi]",
+        "volcano_title": "Volcano Plot: {group_a} vs {group_b} ({de_method})\n[Uyarı: Spatial bağımlılık düzeltilmedi]",
+        "up_in": "{group} bölgesinde yüksek",
         "bipartite_title": "İki Kümeli Grafik: GNN Zonları vs Downstream Hedef Genleri",
-        "Pseudopalisading Necrosis": "Yalancı Palisadlı Nekroz",
-        "Microvascular Proliferation": "Mikrovasküler Proliferasyon",
-        "Cellular Tumor": "Hücresel Tümör",
-        "Leading Edge": "Tümör Sınırı",
-        "Infiltrating Tumor": "İnfiltratif Tümör",
         "lr_cbar": "Z-score (L-R çifti başına normalizasyon)",
         "month_suffix": "ay",
         "gnn_uncertainty_title": "GNN Öğrenilmiş Çoklu Görev Kayıp Ağırlıkları (Kendall et al.)",
@@ -520,13 +512,16 @@ def main():
     coords    = np.array([[s["x"], s["y"]] for s in spots])
     zone_pred = np.array([[s["zones"][z] for z in ZONE_NAMES] for s in spots])
 
-    ZONE_COLORS = {
-        "Pseudopalisading Necrosis": "#E63946",
-        "Microvascular Proliferation": "#F4A261",
-        "Cellular Tumor": "#2A9D8F",
-        "Leading Edge": "#457B9D",
-        "Infiltrating Tumor": "#9B5DE5",
-    }
+    # Region colours / labels come from the tissue pack via data.json metadata.
+    _fallback_palette = ["#E63946", "#F4A261", "#2A9D8F", "#457B9D", "#9B5DE5", "#E9C46A", "#264653", "#C77DFF"]
+    ZONE_COLORS = dict(meta.get("zone_colors") or {})
+    for _i, _z in enumerate(ZONE_NAMES):
+        ZONE_COLORS.setdefault(_z, _fallback_palette[_i % len(_fallback_palette)])
+    ZONE_COLORS = {z: ZONE_COLORS[z] for z in ZONE_NAMES}
+    _zone_labels = (meta.get("zone_labels") or {}).get("en" if is_english else "tr", {})
+
+    def zone_label(z):
+        return _zone_labels.get(z, z)
 
     # ── Load adata_sp early ───────────────────────────────────────
     adata_sp = None
@@ -574,8 +569,8 @@ def main():
     dom_zone_idx = zone_pred.argmax(axis=1)
     for zi, zone in enumerate(ZONE_NAMES):
         mask = dom_zone_idx == zi
-        color = list(ZONE_COLORS.values())[zi % len(ZONE_COLORS)]
-        ax.scatter(plot_coords[mask, 0], plot_coords[mask, 1], c=color, label=labels.get(zone, zone), s=15, alpha=0.85)
+        color = ZONE_COLORS[zone]
+        ax.scatter(plot_coords[mask, 0], plot_coords[mask, 1], c=color, label=zone_label(zone), s=15, alpha=0.85)
     ax.set_facecolor('#0d1117')
     ax.set_title(labels["spatial_zone_title"].format(patient_id=PATIENT_ID), color='white', fontsize=14, fontweight='bold')
     ax.tick_params(colors='white')
@@ -595,7 +590,7 @@ def main():
     colors_list = list(ZONE_COLORS.values())[:len(ZONE_NAMES)]
     ax.bar(range(len(ZONE_NAMES)), zone_means, color=colors_list, edgecolor='#0d1117', width=0.7)
     ax.set_xticks(range(len(ZONE_NAMES)))
-    ax.set_xticklabels([labels.get(z, z).replace(' ', '\n') for z in ZONE_NAMES], color='white', fontsize=9)
+    ax.set_xticklabels([zone_label(z).replace(' ', '\n') for z in ZONE_NAMES], color='white', fontsize=9)
     ax.set_ylabel(labels["mean_prob"], color='white')
     ax.set_title(labels["zone_dist_title"].format(patient_id=PATIENT_ID), color='white', fontsize=13, fontweight='bold')
     ax.set_facecolor('#1a1a2e')
@@ -657,7 +652,7 @@ def main():
                         logger.debug(f"   Zon {ZONE_NAMES[z_idx]} / {ligand}-{receptor} iletişim skoru hesaplanamadı: {e_zone_lr}")
 
             lr_labels    = [p[2] for p in GBM_LR_PAIRS]
-            zone_labels  = [labels.get(z, z).replace(' ', '\n') for z in ZONE_NAMES]
+            zone_labels  = [zone_label(z).replace(' ', '\n') for z in ZONE_NAMES]
             
             # Normalizasyon (Z-score)
             lr_matrix_norm = (lr_matrix - lr_matrix.mean(axis=0)) / (lr_matrix.std(axis=0) + 1e-9)
@@ -732,14 +727,18 @@ def main():
     adata_work = None
     group1_mask = None
     group2_mask = None
+    contrast_a = contrast_b = None
 
     if adata_sp is not None:
         try:
             adata_work = adata_sp.copy()
             sc.pp.filter_genes(adata_work, min_cells=10)
             gnn_zone = np.array([ZONE_NAMES[i] for i in np.argmax(zone_pred, axis=1)])
-            group1_mask = gnn_zone == 'Pseudopalisading Necrosis'
-            group2_mask = gnn_zone == 'Leading Edge'
+            _pairs = [c for c in (meta.get("comparisons") or []) if len(c) == 2 and c[0] in ZONE_NAMES and c[1] in ZONE_NAMES]
+            if _pairs:
+                contrast_a, contrast_b = _pairs[0]
+                group1_mask = gnn_zone == contrast_a
+                group2_mask = gnn_zone == contrast_b
         except Exception as e:
             logger.warning(f"Volcano / Bipartite plots için veri kopyalanamadı: {e}")
             group1_mask = np.zeros(len(zone_pred), dtype=bool)
@@ -781,15 +780,12 @@ def main():
             res_df['padj'] = np.clip(padj_vals, 0, 1)
             res_df['log10_padj'] = -np.log10(res_df['padj'].clip(lower=1e-300))
             res_df['Significant'] = 'NS'
-            if is_english:
-                res_df.loc[(res_df['logFC'] > 0.5) & (res_df['padj'] < 0.05), 'Significant'] = 'Up in Necrosis'
-                res_df.loc[(res_df['logFC'] < -0.5) & (res_df['padj'] < 0.05), 'Significant'] = 'Up in Leading Edge'
-                palette_map = {'NS': 'grey', 'Up in Necrosis': '#E63946', 'Up in Leading Edge': '#457B9D'}
-            else:
-                res_df.loc[(res_df['logFC'] > 0.5) & (res_df['padj'] < 0.05), 'Significant'] = 'Nekrozda Yüksek'
-                res_df.loc[(res_df['logFC'] < -0.5) & (res_df['padj'] < 0.05), 'Significant'] = 'Tümör Sınırında Yüksek'
-                palette_map = {'NS': 'grey', 'Nekrozda Yüksek': '#E63946', 'Tümör Sınırında Yüksek': '#457B9D'}
-            
+            up_a = labels["up_in"].format(group=zone_label(contrast_a))
+            up_b = labels["up_in"].format(group=zone_label(contrast_b))
+            res_df.loc[(res_df['logFC'] > 0.5) & (res_df['padj'] < 0.05), 'Significant'] = up_a
+            res_df.loc[(res_df['logFC'] < -0.5) & (res_df['padj'] < 0.05), 'Significant'] = up_b
+            palette_map = {'NS': 'grey', up_a: ZONE_COLORS[contrast_a], up_b: ZONE_COLORS[contrast_b]}
+
             fig, ax = plt.subplots(figsize=(7, 7), facecolor='#0d1117')
             sns.scatterplot(data=res_df, x='logFC', y='log10_padj', hue='Significant', 
                             palette=palette_map,
@@ -799,7 +795,7 @@ def main():
             ax.axvline(-0.5, color='white', linestyle='--', lw=1)
             
             # Scientific caution: add spatial correlation warning in title
-            ax.set_title(labels["volcano_title"].format(de_method=de_method.upper()), color='white', fontsize=11)
+            ax.set_title(labels["volcano_title"].format(group_a=zone_label(contrast_a), group_b=zone_label(contrast_b), de_method=de_method.upper()), color='white', fontsize=11)
             ax.tick_params(colors='white')
             ax.xaxis.label.set_color('white')
             ax.yaxis.label.set_color('white')
@@ -807,7 +803,7 @@ def main():
             fig.patch.set_facecolor('#0d1117')
             ax.set_facecolor('#0d1117')
             plt.tight_layout()
-            fig.savefig(pub_out / "fig2_volcano_necrosis_vs_edge.png", dpi=plot_dpi, facecolor='#0d1117')
+            fig.savefig(pub_out / "fig2_volcano_region_contrast.png", dpi=plot_dpi, facecolor='#0d1117')
             plt.close()
             logger.info("   ✅ Volcano plot çizildi.")
         except Exception as e_volc:

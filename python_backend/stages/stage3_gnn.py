@@ -47,7 +47,7 @@ import seaborn as sns
 from train_gnn import (
     build_graph_data, GlioCartographyGNN, train_model,
     export_attention_to_json, mc_dropout_zone_uncertainty,
-    ZONE_NAMES, LR_PAIRS
+    ZONE_NAMES, LR_PAIRS, TISSUE_PACK
 )
 
 def exit_with_error(message):
@@ -245,6 +245,7 @@ def main():
         "best_val_loss": float(best_val),
         "correlations": corrs,
         "zones": ZONE_NAMES,
+        "tissue_pack": TISSUE_PACK.provenance(),
         "ct_names": ct_names,
         "n_spots": int(data['spot'].x.shape[0]),
         "n_epochs_trained": len(hist.get("train", [])),
@@ -302,10 +303,7 @@ def main():
     # (`is_independent_validation`, `disclaimer`) açıkça belirtilir.
     logger.info("GNN Tahmini vs IVY GAP Marker Tabanlı Eğitim Hedefi (iç tutarlılık kontrolü, bağımsız doğrulama DEĞİLDİR)...")
 
-    # NOT: Bu sözlük train_gnn.py::ZONE_SIGNATURES ile TAM AYNI olmalı —
-    # aksi halde bu "tutarlılık kontrolü" kendi eğitim hedefinden bile
-    # sapar. Import yerine burada kopya tutulmasının nedeni tarihseldir;
-    # değiştirirken iki dosyayı birlikte güncelleyin (bkz. B-10 düzeltmesi).
+    # Eğitim hedefiyle AYNI imzalar (doku paketinden, train_gnn.ZONE_SIGNATURES).
     from train_gnn import ZONE_SIGNATURES
 
     # Verify signature keys match ZONE_NAMES
@@ -423,14 +421,7 @@ def main():
             row_sums_cm = cm.sum(axis=1, keepdims=True).astype(float)
             cm_perc = np.divide(cm.astype(float) * 100, row_sums_cm, out=np.zeros_like(cm, dtype=float), where=row_sums_cm > 0)
 
-            zone_label_mapping = {
-                "Pseudopalisading Necrosis": "Pseudopalisading Necrosis" if is_english else "Yalancı Palisadlı Nekroz",
-                "Microvascular Proliferation": "Microvascular Proliferation" if is_english else "Mikrovasküler Proliferasyon",
-                "Cellular Tumor": "Cellular Tumor" if is_english else "Hücresel Tümör",
-                "Leading Edge": "Leading Edge" if is_english else "Tümör Sınırı",
-                "Infiltrating Tumor": "Infiltrating Tumor" if is_english else "İnfiltratif Tümör"
-            }
-            mapped_zones = [zone_label_mapping.get(z, z) for z in ZONE_NAMES]
+            mapped_zones = [TISSUE_PACK.label(z, 'en' if is_english else 'tr') for z in ZONE_NAMES]
             
             try:
                 fig, axes = plt.subplots(1, 2, figsize=(20, 8), facecolor='#0d1117')
@@ -465,14 +456,17 @@ def main():
     # Referans dosyası (python_backend/reference_data/ivygap_real_reference.json)
     # önceden indirilip repoya gömüldü — çalışma zamanında internet
     # gerektirmez (offline çalışma ilkesiyle tutarlı).
-    logger.info("Gerçek Ivy GAP ISH referans verisiyle BAĞIMSIZ doğrulama...")
+    if not TISSUE_PACK.reference_validation:
+        logger.info(f"Doku paketi '{TISSUE_PACK.id}' bağımsız bir doğrulama referansı tanımlamıyor; gerçek referans doğrulaması atlandı.")
     try:
-        ref_path = BACKEND_DIR / "reference_data" / "ivygap_real_reference.json"
-        if not ref_path.exists():
-            ref_path = PROJECT_ROOT / "desktop_app" / "python_backend" / "reference_data" / "ivygap_real_reference.json"
+        ref_path = BACKEND_DIR / TISSUE_PACK.reference_validation if TISSUE_PACK.reference_validation else None
+        if ref_path is not None and not ref_path.exists():
+            ref_path = PROJECT_ROOT / "desktop_app" / "python_backend" / TISSUE_PACK.reference_validation
 
-        if not ref_path.exists():
-            logger.warning("   ivygap_real_reference.json bulunamadı, gerçek doğrulama atlandı.")
+        if ref_path is None:
+            pass
+        elif not ref_path.exists():
+            logger.warning(f"   {TISSUE_PACK.reference_validation} bulunamadı, gerçek doğrulama atlandı.")
         else:
             with open(ref_path, encoding='utf-8') as f:
                 ivygap_ref = json.load(f)

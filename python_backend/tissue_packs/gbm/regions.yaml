@@ -1,0 +1,66 @@
+# Anatomic regions used as the GNN zone head. `name` is the canonical key that
+# appears in data.json, so renaming a region changes the output schema.
+regions:
+  - name: Pseudopalisading Necrosis
+    id: pseudopalisading_necrosis
+    label_en: Pseudopalisading Necrosis
+    label_tr: Yalancı Palisadlı Nekroz
+    color: "#E63946"
+    citation: ivygap_2018
+    genes: [hif1a, ca9, vegfa, bnip3, ldha, hk2, serpine1, ccl2]
+    notes: >-
+      HK2, SERPINE1 and CCL2 were the highest-specificity genes for the
+      Ivy GAP CTpan (pseudopalisading cells around necrosis) region
+      (hypoxia, glycolysis, necrosis-associated macrophage chemotaxis).
+  - name: Microvascular Proliferation
+    id: microvascular_proliferation
+    label_en: Microvascular Proliferation
+    label_tr: Mikrovasküler Proliferasyon
+    color: "#F4A261"
+    citation: ivygap_2018
+    genes: [plvap, acvrl1, vegfa, kdr, tgfbr2, itga5]
+    notes: >-
+      PLVAP and ACVRL1 (ALK1) were the most specific Ivy GAP CTmvp genes
+      (classic markers of immature fenestrated tumour vasculature). KDR
+      (VEGFR2) is retained for recognisability.
+  - name: Cellular Tumor
+    id: cellular_tumor
+    label_en: Cellular Tumor
+    label_tr: Hücresel Tümör
+    color: "#2A9D8F"
+    citation: ivygap_2018
+    genes: [pdgfra, egfr, olig2, sox2, gja1, nusap1, mki67]
+    notes: >-
+      PDGFRA was the most specific gene in the real data and a classic GBM
+      oncogene; GJA1/NUSAP1 come from the real data; EGFR/OLIG2/SOX2/MKI67
+      are retained for recognisability and training-target consistency.
+      CDKN2A is deliberately excluded (frequently homozygously deleted in
+      GBM, so it would score in the opposite direction).
+  - name: Leading Edge
+    id: leading_edge
+    label_en: Leading Edge
+    label_tr: Tümör Sınırı
+    color: "#457B9D"
+    citation: ivygap_2018
+    genes: [l1cam, ccnd2, gfap, akt1, stat3]
+    notes: >-
+      In Ivy GAP the Leading Edge is defined by low tumour purity and a mix
+      of normal neuropil/neurons. L1CAM/CCND2/AKT1/STAT3 were clearly higher
+      in LE than in CTpan/IT/CT in the real data.
+  - name: Infiltrating Tumor
+    id: infiltrating_tumor
+    label_en: Infiltrating Tumor
+    label_tr: İnfiltratif Tümör
+    color: "#9B5DE5"
+    citation: ivygap_2018
+    genes: [bcan, snap25, ddr1, cd44, vim, cxcr4]
+    notes: >-
+      BCAN (brevican) and DDR1 were the most specific Ivy GAP IT genes. VIM
+      and CXCR4 are not on the Ivy GAP ISH panel but are retained for
+      canonical EMT/invasion biology (so they cannot be validated against
+      the real reference).
+
+# Region pairs for differential-expression (volcano) figures. The first pair
+# is used by the report; both names must exist in `regions`.
+comparisons:
+  - [Pseudopalisading Necrosis, Leading Edge]
