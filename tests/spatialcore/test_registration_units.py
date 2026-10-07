@@ -132,7 +132,7 @@ def test_chain_composes_and_accumulates_variance():
         pass
 
     def pair(u, l, T, s):
-        return PairResult(u, l, T, _EM(), None, s, None, None, None, None)
+        return PairResult(u, l, T, _EM(), None, s, 0.0, None, None, None, None)
 
     T1, T2 = Transform.rotation(10), Transform(np.eye(2), np.array([5.0, 0.0]))
     poses, sig = chain_poses([pair("a", "b", T1, 3.0), pair("b", "c", T2, 4.0)], ["a", "b", "c"])

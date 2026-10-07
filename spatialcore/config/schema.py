@@ -143,18 +143,21 @@ class RegistrationConfig(_Frozen):
 
     model: Literal["rigid", "similarity", "affine"] = "rigid"
     n_pcs: int = Field(20, ge=2)
-    n_hvg: int = Field(1000, ge=10)
+    n_hvg: int = Field(300, ge=10)
     expression_weight: float = Field(10.0, ge=0, description="lambda_e: weight of cosine similarity in the joint likelihood")
     outlier_weight: float = Field(0.2, gt=0, lt=1, description="w: prior mass of 'no counterpart'")
     n_starts: int = Field(24, ge=1, description="initial rotations, evenly spaced over 360 degrees")
     allow_flip: bool = False
     coarse_points: int = Field(600, ge=50)
-    refine_top: int = Field(3, ge=1)
+    refine_top: int = Field(2, ge=1)
+    refine_points: int = Field(1500, ge=100, description="subsample size for the rigid refinement; the final fit polishes on all points")
+    polish_iter: int = Field(30, ge=1)
     coarse_iter: int = Field(40, ge=1)
     max_iter: int = Field(150, ge=1)
     tol: float = Field(1e-5, gt=0)
-    sigma_min_um: float = Field(20.0, gt=0, description="floor on the match scale (lattice quantisation)")
+    sigma_min_um: float = Field(60.0, gt=0, description="floor on the match scale; below ~0.4 pitch the fit snaps to the lattice (phantom sweep: 20 um -> 9-14 um error, 60 um -> 4 um)")
     block: int = Field(1024, ge=16)
+    deformation_kappa: float = Field(0.8, ge=0, description="per-coordinate position sd added per um of rigid-vs-affine disagreement; set so the phantom M-tier median error ratio is ~1 (seeds 5-8); validated on seeds 9-12; E is over-covered; validate on real data")
     seed: int = 0
 
 
@@ -167,7 +170,12 @@ class QCConfig(_Frozen):
     max_scale_dev_fail: float = 0.25
     max_shear_warn: float = 0.15
     max_shear_fail: float = 0.35
-    min_expr_gain_warn: float = 0.10
-    min_expr_gain_fail: float = 0.03
-    eval_sigma_um: float = Field(50.0, gt=0, description="floor on the match scale used for confidence/QC posteriors (~half a pitch)")
+    min_expr_gain_warn: float = 0.02
+    min_expr_gain_fail: float = 0.012
+    min_coherence_warn: float = 0.10
+    min_coherence_fail: float = 0.05
+    coherence_k: int = Field(6, ge=1)
+    max_deformation_warn_um: float = 70.0
+    max_deformation_fail_um: float = 150.0
+    eval_sigma_um: float = Field(60.0, gt=0, description="floor on the match scale used for confidence/QC posteriors (~half a pitch)")
     good_error_pitch: float = Field(0.5, gt=0, description="a spot counts as correctly registered below this error / pitch")

@@ -575,7 +575,7 @@ sentetik GNN smoke testi, CI, TLS/pandas düzeltmeleri.
    `synthetic/sectioning.py` (Visium benzeri örgü, kalınlık/boşluk, kesit eksikliği).
    *Test:* ground truth (dönüşüm, kesit-spot yazışması, domain/sınır etiketi) tam çıkar.
 
-**Faz 3 — Rigid + affine registration**
+**Faz 3 — Rigid + affine registration** *(uygulandı; sonuçlar ve çalışmayanlar: `docs/REGISTRATION_RESULTS.md`)*
 9. `registration/soft_correspondence.py`, `rigid.py`, `affine.py`, `confidence.py`, `chain.py`.
 10. `qc/pairwise.py` (PASS/WARNING/FAIL).
     *Test:* fantomda dönme <1°, öteleme <0,25×spot aralığı, ölçek hatası <%2 (eşikler config);

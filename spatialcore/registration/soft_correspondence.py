@@ -158,16 +158,21 @@ def register_points(X, Y, FX, FY, cfg: RegistrationConfig) -> EMResult:
             r = em_register(Xf[sx], Y[sy], FX[sx], FY[sy], T0, cfg, "rigid", cfg.coarse_iter)
             best.append((r.loglik, r.transform, flip))
     best.sort(key=lambda b: -b[0])
+    sx = rng.choice(len(X), min(cfg.refine_points, len(X)), replace=False)
+    sy = rng.choice(len(Y), min(cfg.refine_points, len(Y)), replace=False)
     finals = []
-    for _, T0, flip in best[: cfg.refine_top]:
+    for _, T0, flip in best[: cfg.refine_top]:  # refine on a subsample, compare on the same subsample
         Xf = X * np.array([-1.0, 1.0]) if flip else X
-        r = em_register(Xf, Y, FX, FY, T0, cfg, "rigid")
-        r.flipped = flip
-        finals.append((r, Xf))
-    r, Xf = max(finals, key=lambda p: p[0].loglik)
+        r = em_register(Xf[sx], Y[sy], FX[sx], FY[sy], T0, cfg, "rigid")
+        finals.append((r, flip))
+    r0, flip = max(finals, key=lambda p: p[0].loglik)
+    Xf = X * np.array([-1.0, 1.0]) if flip else X
+    # polish on all points (a few EM steps from the converged subsample solution; sigma restarts from a tight value)
+    r = em_register(Xf, Y, FX, FY, r0.transform, cfg, "rigid", cfg.polish_iter, sigma_init_um=float(np.sqrt(r0.sigma2)))
+    r.flipped = flip
     if cfg.model != "rigid":
-        ra = em_register(Xf, Y, FX, FY, r.transform, cfg, cfg.model)
-        ra.flipped = r.flipped
+        ra = em_register(Xf, Y, FX, FY, r.transform, cfg, cfg.model, cfg.polish_iter, sigma_init_um=float(np.sqrt(r.sigma2)))
+        ra.flipped = flip
         r = ra
     if r.flipped:  # fold the reflection into A so callers see one transform on the *original* coordinates
         F = Transform(np.diag([-1.0, 1.0]), np.zeros(2))

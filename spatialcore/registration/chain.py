@@ -14,9 +14,9 @@ import numpy as np
 from spatialcore.config import QCConfig, RegistrationConfig
 from spatialcore.data.volume import VolumeSet
 from spatialcore.preprocessing import joint_pca_features
-from spatialcore.qc import PairQC, pairwise_qc
+from spatialcore.qc import PairQC, pairwise_qc, spatial_coherence
 from .confidence import raw_confidence
-from .soft_correspondence import EMResult, register_points, row_posterior
+from .soft_correspondence import EMResult, em_register, register_points, row_posterior
 from .transform import Transform
 
 _STATUS_RANK = {"PASS": 0, "WARNING": 1, "FAIL": 2}
@@ -29,7 +29,8 @@ class PairResult:
     transform: Transform              # lower -> upper frame
     em: EMResult
     qc: PairQC
-    sigma_pos_um: float               # rms position uncertainty (per coordinate) over the lower section's spots
+    sigma_pos_um: float               # rms position uncertainty (per coordinate): statistical + deformation term
+    deformation_um: float             # rms displacement between the rigid and the affine fit (model-misfit diagnostic)
     conf_lower: np.ndarray            # raw confidence per lower-section spot
     conf_upper: np.ndarray            # raw confidence per upper-section spot
     p_null_lower: np.ndarray
@@ -38,6 +39,7 @@ class PairResult:
     def to_dict(self) -> dict:
         return {"upper": self.upper, "lower": self.lower, "transform": self.transform.to_dict(),
                 "sigma_match_um": float(np.sqrt(self.em.sigma2)), "sigma_pos_um": self.sigma_pos_um,
+                "deformation_um": self.deformation_um,
                 "n_eff": self.em.n_eff, "converged": self.em.converged, "n_iter": self.em.n_iter,
                 "model": self.em.model, "qc": self.qc.to_dict()}
 
@@ -60,9 +62,14 @@ def register_pair(Xu, Xl, xy_u, xy_l, cfg: RegistrationConfig, qc_cfg: QCConfig,
     pn_l, ag_l = row_posterior(reg_l, xy_u, Fl, Fu, s2, cfg)
     _, ag0_l = row_posterior(reg_l, xy_u, Fl, Fu, s2, cfg, lam=0.0)
     pn_u, ag_u = row_posterior(xy_u, reg_l, Fu, Fl, s2, cfg)
-    qc = pairwise_qc(T, pn_l, ag_l, ag0_l, qc_cfg)
-    sig = float(np.sqrt(np.mean(position_variance(em, xy_l))))
-    return PairResult(names[0], names[1], T, em, qc, sig, raw_confidence(pn_l, ag_l), raw_confidence(pn_u, ag_u), pn_l, pn_u)
+    coh = min(spatial_coherence(xy_u, Fu, qc_cfg.coherence_k), spatial_coherence(xy_l, Fl, qc_cfg.coherence_k))
+    # statistical (Laplace-style) variance is only valid if the transform model holds; the rigid-vs-affine
+    # disagreement measures how far it does not (phantom: Spearman 0.83 with the true error), so it is added
+    aff = em_register(xy_l, xy_u, Fl, Fu, T, cfg, "affine", cfg.polish_iter) if em.model != "affine" else em
+    deform = float(np.sqrt(((T.apply(xy_l) - aff.transform.apply(xy_l)) ** 2).sum(1).mean()))
+    qc = pairwise_qc(T, pn_l, ag_l, ag0_l, qc_cfg, coh, deform)
+    sig = float(np.sqrt(np.mean(position_variance(em, xy_l)) + (cfg.deformation_kappa * deform) ** 2))
+    return PairResult(names[0], names[1], T, em, qc, sig, deform, raw_confidence(pn_l, ag_l), raw_confidence(pn_u, ag_u), pn_l, pn_u)
 
 
 @dataclass
