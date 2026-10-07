@@ -659,7 +659,7 @@ async function openLrCatalogModal() {
   
   // Show loading state in table
   const tbody = document.getElementById('lr-catalog-tbody');
-  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:var(--text-muted);">${window.i18n.t('signaling.lr_catalog_loading')}</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:32px; color:var(--text-muted);">${window.i18n.t('signaling.lr_catalog_loading')}</td></tr>`;
   modal.classList.remove('hidden');
   
   try {
@@ -669,7 +669,7 @@ async function openLrCatalogModal() {
     
     populateLrCatalogTable(state.lrCatalogData);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:32px; color:var(--danger);">❌ ${window.i18n.t('signaling.catalog_load_failed')}: ${escapeHtml(e.message || e)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:32px; color:var(--danger);">❌ ${window.i18n.t('signaling.catalog_load_failed')}: ${escapeHtml(e.message || e)}</td></tr>`;
   }
 }
 
@@ -744,30 +744,7 @@ function populateLrCatalogTable(data) {
     tdIntensity.textContent = (item.mean_intensity || 0).toFixed(4);
     tr.appendChild(tdIntensity);
     
-    // 4. Drug
-    const tdDrug = document.createElement('td');
-    tdDrug.style.cssText = 'padding:14px 16px; line-height:1.3;';
-    
-    const isTargeted = item.drug && item.drug !== window.i18n.t('signaling.no_treatment_research');
-    if (isTargeted) {
-      const drugSpan = document.createElement('span');
-      drugSpan.style.cssText = 'color:#00d4ff; font-weight:700;';
-      drugSpan.textContent = `💊 ${item.drug}`;
-      tdDrug.appendChild(drugSpan);
-      
-      const mechSpan = document.createElement('span');
-      mechSpan.style.cssText = 'font-size:0.75rem; color:var(--text-muted); display:block;';
-      mechSpan.textContent = `(${item.drug_mechanism || ''})`;
-      tdDrug.appendChild(mechSpan);
-    } else {
-      const emptySpan = document.createElement('span');
-      emptySpan.style.cssText = 'color:var(--text-muted); font-size:0.8rem;';
-      emptySpan.textContent = '—';
-      tdDrug.appendChild(emptySpan);
-    }
-    tr.appendChild(tdDrug);
-    
-    // 5. Action
+    // 4. Action
     const tdAction = document.createElement('td');
     tdAction.style.cssText = 'padding:14px 16px; text-align:center; display:flex; gap:6px; justify-content:center;';
     
@@ -823,8 +800,7 @@ function filterLrCatalog() {
       const inLigand = (item.ligand || '').toLowerCase().includes(query);
       const inReceptor = (item.receptor || '').toLowerCase().includes(query);
       const inCategory = (item.category || '').toLowerCase().includes(query);
-      const inDrug = (item.drug || '').toLowerCase().includes(query);
-      if (!inLigand && !inReceptor && !inCategory && !inDrug) return false;
+      if (!inLigand && !inReceptor && !inCategory) return false;
     }
     
     return true;
@@ -883,7 +859,6 @@ async function openPathwayEnrichmentModal(ligand, receptor) {
     const res = await api.backendRequest(url, 'GET', {});
     state.pathwayData = res;
     renderPathwayTable(res, ligand, receptor);
-    populatePathwayDrugs(res);
 
     // Zone badge güncelle
     const badge = document.getElementById('pathway-zone-badge');
@@ -1260,77 +1235,6 @@ function initPathwayMapZoomPan() {
     wrapper.scrollLeft = scrollLeft - walkX;
     wrapper.scrollTop = scrollTop - walkY;
   };
-}
-
-function populatePathwayDrugs(results) {
-  const tbody = document.getElementById('pathway-drugs-tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  if (!results || results.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">${window.i18n.t('signaling.no_druggable_genes_found')}</td></tr>`;
-    return;
-  }
-
-  // Predefined list of druggable genes in glioblastoma pathways
-  const DRUGGABLE_DOWNSTREAM_CATALOG = {
-    "AKT1": { "drug": "Ipatasertib", "mechanism": window.i18n.t("drugs.akt_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
-    "AKT2": { "drug": "Ipatasertib", "mechanism": window.i18n.t("drugs.akt_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
-    "MTOR": { "drug": "Everolimus / Temsirolimus", "mechanism": window.i18n.t("drugs.mtor_blockade"), "status": window.i18n.t("drugs.phase_2_3") },
-    "EGFR": { "drug": "Erlotinib / Lapatinib", "mechanism": window.i18n.t("drugs.rtk_inhibitor"), "status": window.i18n.t("drugs.fda_approved_various") },
-    "MET": { "drug": "Crizotinib / Cabozantinib", "mechanism": window.i18n.t("drugs.hgfr_blockade"), "status": window.i18n.t("drugs.phase_2") },
-    "KDR": { "drug": "Cabozantinib / Regorafenib", "mechanism": window.i18n.t("drugs.vegfr2_inhibition"), "status": window.i18n.t("drugs.phase_3") },
-    "FLT1": { "drug": "Regorafenib", "mechanism": window.i18n.t("drugs.multikinase_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
-    "JAK1": { "drug": "Ruxolitinib", "mechanism": window.i18n.t("drugs.jak_inhibitor"), "status": window.i18n.t("drugs.phase_1_2") },
-    "JAK2": { "drug": "Ruxolitinib", "mechanism": window.i18n.t("drugs.jak_inhibitor"), "status": window.i18n.t("drugs.phase_1_2") },
-    "STAT3": { "drug": "Napabucasin", "mechanism": window.i18n.t("drugs.stat3_inhibitor"), "status": window.i18n.t("drugs.phase_2") },
-    "PTEN": { "drug": "VO-Ohpic", "mechanism": window.i18n.t("drugs.pten_activator"), "status": window.i18n.t("drugs.research_stage") },
-    "PDCD1": { "drug": "Pembrolizumab", "mechanism": window.i18n.t("drugs.anti_pd1"), "status": window.i18n.t("drugs.fda_approved") },
-    "CD274": { "drug": "Atezolizumab", "mechanism": "Anti-PD-L1 Checkpoint Blokajı", "status": window.i18n.t("drugs.fda_approved") },
-    "CD44": { "drug": "RG7356", "mechanism": "Anti-CD44 Monoklonal Antikor", "status": "Klinik Deneme (Faz I)" },
-    "MMP2": { "drug": "Marimastat", "mechanism": window.i18n.t("drugs.broad_spectrum_mmp_inhibitor"), "status": "Tarihsel Referans" },
-    "MMP9": { "drug": "Marimastat", "mechanism": window.i18n.t("drugs.broad_spectrum_mmp_inhibitor"), "status": "Tarihsel Referans" }
-  };
-
-  const matchedTargets = [];
-
-  results.forEach(path => {
-    path.overlap_genes.forEach(gene => {
-      const gUpper = gene.toUpperCase();
-      if (DRUGGABLE_DOWNSTREAM_CATALOG[gUpper]) {
-        // Avoid duplicate listings of the same gene-drug pair
-        const isListed = matchedTargets.some(m => m.gene === gUpper);
-        if (!isListed) {
-          const match = DRUGGABLE_DOWNSTREAM_CATALOG[gUpper];
-          matchedTargets.push({
-            gene: gUpper,
-            pathway: path.name,
-            drug: match.drug,
-            mechanism: match.mechanism,
-            status: match.status
-          });
-        }
-      }
-    });
-  });
-
-  if (matchedTargets.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">${window.i18n.t("signaling.no_druggable_downstream_match")}</td></tr>`;
-    return;
-  }
-
-  matchedTargets.forEach(target => {
-    const tr = document.createElement('tr');
-    tr.style.cssText = 'border-bottom:1px solid rgba(255,255,255,0.03);';
-    tr.innerHTML = `
-      <td style="padding:12px 16px; font-weight:700; color:#00d4ff;">🎯 ${escapeHtml(target.gene)}</td>
-      <td style="padding:12px 16px; color:var(--text-muted); font-size:0.85rem;">${escapeHtml(target.pathway)}</td>
-      <td style="padding:12px 16px; font-weight:700; color:var(--text);">💊 ${escapeHtml(target.drug)}</td>
-      <td style="padding:12px 16px; font-size:0.8rem; color:var(--text-dim);">${escapeHtml(target.mechanism)}</td>
-      <td style="padding:12px 16px;"><span style="background:rgba(255,255,255,0.05); color:var(--accent); padding:2px 8px; border-radius:100px; font-size:0.7rem; font-weight:bold; border:1px solid rgba(0,212,255,0.2);">${escapeHtml(target.status)}</span></td>
-    `;
-    tbody.appendChild(tr);
-  });
 }
 
 // ── NEW PROFESSIONAL CELL-CELL SIGNALING FUNCTIONS ──

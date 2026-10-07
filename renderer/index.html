@@ -297,7 +297,7 @@
             <div class="settings-form">
               <div class="setting-row">
                 <label data-i18n="settings.language">Arayüz Dili</label>
-                <select id="settings-language" class="imputation-select">
+                <select id="settings-language" class="lang-select">
                   <option value="tr" data-i18n="settings.language_tr">Türkçe</option>
                   <option value="en" data-i18n="settings.language_en">İngilizce</option>
                 </select>
@@ -331,7 +331,7 @@
             <p class="card-desc" data-i18n="settings.param_guide_desc">En iyi analiz sonuçları için önerilen parametre değerleri:</p>
             <ul
               style="font-size: 0.78rem; color: var(--text-muted); padding-left: 20px; line-height: 1.6; display: flex; flex-direction: column; gap: 8px;">
-              <li data-i18n="settings.param_guide_patient_id"><strong>Hasta ID:</strong> Sonuç dosyalarında ve klinik raporda hasta adı olarak gösterilecek benzersiz tanımlayıcı.</li>
+              <li data-i18n="settings.param_guide_patient_id"><strong>Hasta ID:</strong> Sonuç dosyalarında ve raporda hasta adı olarak gösterilecek benzersiz tanımlayıcı.</li>
               <li data-i18n="settings.param_guide_epochs"><strong>GNN Epoch:</strong> GNN modelinin eğitim döngü sayısı. Kararlı ve olgun tahminler için 100 önerilir.</li>
               <li data-i18n="settings.param_guide_optuna"><strong>Optuna Optimizasyon:</strong> GNN hiperparametrelerini otomatik optimize eder. Doğruluğu artırır ama analiz süresini uzatır.</li>
             </ul>
@@ -364,85 +364,6 @@
                 <div class="method-desc" data-i18n="settings.stereoscope_desc">Olasılık temelli, hızlı ve düşük kaynak tüketen ayrıştırma. (Not: Python ortamında 'scvi-tools' paketi kurulu olmalıdır; aksi takdirde otomatik fallback yöntemine döner)</div>
               </div>
             </div>
-          </div>
-
-          <!-- ⚕️ Klinik Bilgi Formu (FAZ 1 — GNN Survival Füzyon Modeli) -->
-          <div class="setup-card u-grid-span-2 clinical-card">
-            <div class="card-icon">⚕️</div>
-            <h3><span data-i18n="clinical.title">Klinik Hasta Bilgileri</span> <span class="optional-badge" data-i18n="clinical.optional">İsteğe Bağlı</span></h3>
-            <p class="card-desc" data-i18n="clinical.desc">GNN'nin sağkalım tahminini iyileştirmek için hasta klinik verilerini girin. Boş bırakılan alanlar seçilen imputation stratejisine göre otomatik atanır.</p>
-
-            <!-- Imputation Modu Seçici -->
-            <div class="imputation-selector">
-              <span class="imputation-label" data-i18n="clinical.imputation_strategy">Eksik Veri Stratejisi:</span>
-              <select id="imputation-mode" class="imputation-select">
-                <option value="worst" selected data-i18n="clinical.imputation_worst">⚠️ En Kötü Senaryo (Muhafazakâr)</option>
-                <option value="median" data-i18n="clinical.imputation_median">📊 Medyan Değer (Dengeli)</option>
-              </select>
-              <div class="imputation-hint" id="imputation-hint" data-i18n="clinical.imputation_hint_worst">
-                Yaş: 60 · MGMT: 0.0 (unmethylated) · IDH: 0.0 (wildtype) · KPS: 70%
-              </div>
-            </div>
-
-            <div class="clinical-form-grid">
-              <!-- Hasta Yaşı -->
-              <div class="clinical-field">
-                <label class="clinical-label" for="clinical-age">
-                  <span data-i18n="clinical.age">Hasta Yaşı</span> <span class="clinical-unit" data-i18n="clinical.unit_years">yıl</span>
-                </label>
-                <div class="clinical-input-wrap">
-                  <input type="number" id="clinical-age" class="clinical-input"
-                         min="0" max="120" placeholder="ör. 55"
-                         title="Hastanın tanı anındaki yaşı">
-                  <div class="clinical-bar" id="bar-age"></div>
-                </div>
-                <span class="clinical-fallback" id="fb-age" data-i18n="clinical.fallback_age_worst">Boş → 60</span>
-              </div>
-
-              <!-- MGMT Metilasyon -->
-              <div class="clinical-field">
-                <label class="clinical-label" for="clinical-mgmt">
-                  <span data-i18n="clinical.mgmt">MGMT Metilasyonu</span> <span class="clinical-unit">0.0–1.0</span>
-                </label>
-                <div class="clinical-input-wrap">
-                  <input type="number" id="clinical-mgmt" class="clinical-input"
-                         min="0" max="1" step="0.01" placeholder="ör. 0.42"
-                         title="MGMT promoter metilasyon skoru (0=unmethylated, 1=fully methylated)">
-                  <div class="clinical-bar" id="bar-mgmt"></div>
-                </div>
-                <span class="clinical-fallback" id="fb-mgmt" data-i18n="clinical.fallback_mgmt_worst">Boş → 0.0 (unmethylated)</span>
-              </div>
-
-              <!-- IDH Mutasyon -->
-              <div class="clinical-field">
-                <label class="clinical-label" for="clinical-idh">
-                  <span data-i18n="clinical.idh">IDH Mutasyon Skoru</span> <span class="clinical-unit">0.0–1.0</span>
-                </label>
-                <div class="clinical-input-wrap">
-                  <input type="number" id="clinical-idh" class="clinical-input"
-                         min="0" max="1" step="0.01" placeholder="ör. 0.08"
-                         title="IDH mutasyon olasılık skoru (0=wildtype, 1=mutant)">
-                  <div class="clinical-bar" id="bar-idh"></div>
-                </div>
-                <span class="clinical-fallback" id="fb-idh" data-i18n="clinical.fallback_idh_worst">Boş → 0.0 (wildtype)</span>
-              </div>
-
-              <!-- KPS Performans Skoru -->
-              <div class="clinical-field">
-                <label class="clinical-label" for="clinical-kps">
-                  <span data-i18n="clinical.kps">Karnofsky (KPS)</span> <span class="clinical-unit">%</span>
-                </label>
-                <div class="clinical-input-wrap">
-                  <input type="number" id="clinical-kps" class="clinical-input"
-                         min="0" max="100" step="10" placeholder="ör. 80"
-                         title="Karnofsky Performance Score (0=ölüm, 100=tam sağlıklı)">
-                  <div class="clinical-bar" id="bar-kps"></div>
-                </div>
-                <span class="clinical-fallback" id="fb-kps" data-i18n="clinical.fallback_kps_worst">Boş → 70%</span>
-              </div>
-            </div>
-
-            <div class="clinical-disclaimer" data-i18n="clinical.disclaimer">🔒 Klinik veriler yalnızca GNN sağkalım modelinin tahmin kalitesini artırmak amacıyla kullanılır. Hiçbir veri sunuculara iletilmez.</div>
           </div>
 
         </div>
@@ -545,55 +466,15 @@
           <div class="viewer-controls">
             <select id="view-mode">
               <option value="zone" data-i18n="results.view_zone">Zone Haritası</option>
-              <option value="drug" data-i18n="results.view_drug">İlaç Skoru</option>
-              <option value="risk" data-i18n="results.view_risk">TCGA Risk</option>
               <option value="celltype" data-i18n="results.view_celltype">Hücre Tipi</option>
               <option value="lr" data-i18n="results.view_lr">Ligand-Reseptör</option>
               <option value="pathway" data-i18n="results.view_pathway">Yolak Aktivitesi</option>
-              <option value="knockout" data-i18n="results.view_knockout">Knockout Simülatörü</option>
             </select>
             <select id="filter-pathway" class="hidden filter-select-style u-ml-8">
               <option value="PI3K_AKT_mTOR" data-i18n="results.pathway_pi3k">PI3K/AKT/mTOR</option>
               <option value="MAPK_ERK" data-i18n="results.pathway_mapk">MAPK/ERK</option>
               <option value="JAK_STAT" data-i18n="results.pathway_jak">JAK/STAT</option>
               <option value="NFkB" data-i18n="results.pathway_nfkb">NFkB</option>
-            </select>
-            <select id="filter-risk" class="hidden filter-select-style u-ml-8">
-              <option value="all" data-i18n="results.risk_all">Tüm Riskler (Hepsi)</option>
-              <option value="high" data-i18n="results.risk_high">Sadece Yüksek Risk (≥ Medyan)</option>
-              <option value="low" data-i18n="results.risk_low">Sadece Düşük Risk (< Medyan)</option>
-            </select>
-            <!-- Knockout Simulator Controls -->
-            <select id="filter-ko-type" class="hidden filter-select-style u-ml-8">
-              <option value="" data-i18n="knockout.select_type">Nakavt Tipi Seçin</option>
-              <option value="cell" data-i18n="knockout.cell_type">Hücre Tipi</option>
-              <option value="lr" data-i18n="knockout.lr_pair">Ligand-Reseptör</option>
-              <option value="gene" data-i18n="knockout.gene">Gen</option>
-            </select>
-            <select id="filter-ko-cell" class="hidden filter-select-style u-ml-8">
-              <option value="" data-i18n="knockout.select_cell">Hücre Tipi Seçin</option>
-              <option value="TAM_Macrophage">TAM Macrophage</option>
-              <option value="T_Cells">T Cells</option>
-              <option value="B_Cells">B Cells</option>
-              <option value="Oligodendrocytes">Oligodendrocytes</option>
-              <option value="Mural">Mural</option>
-              <option value="Endothelial">Endothelial</option>
-              <option value="Astrocytes">Astrocytes</option>
-              <option value="Tumor_MES">Tumor MES</option>
-              <option value="Tumor_AC">Tumor AC</option>
-              <option value="Tumor_NPC">Tumor NPC</option>
-              <option value="Tumor_OPC">Tumor OPC</option>
-            </select>
-            <select id="filter-ko-lr" class="hidden filter-select-style u-ml-8">
-              <option value="" data-i18n="knockout.select_lr">L-R Çifti Seçin</option>
-              <option value="SPP1-CD44">SPP1 - CD44</option>
-              <option value="VEGFA-KDR">VEGFA - KDR</option>
-              <option value="MIF-CD74">MIF - CD74</option>
-            </select>
-            <input type="text" id="filter-ko-gene" class="hidden imputation-input u-ml-8" placeholder="EGFR" style="width: 80px; height: 32px; background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 4px; color: #fff; padding: 0 8px; font-size: 11px; vertical-align: middle;">
-            <select id="filter-ko-gene-type" class="hidden filter-select-style u-ml-8">
-              <option value="knockdown" data-i18n="knockout.knockdown">Sustur (Knockdown)</option>
-              <option value="overexpress" data-i18n="knockout.overexpress">Artır (Overexpress)</option>
             </select>
             <!-- 2D / 3D Dimension Selector -->
             <div class="view-dimension-selector u-ml-8" style="display: inline-flex; border: 1px solid #1f2937; border-radius: 4px; overflow: hidden; background: #111827; height: 32px; align-items: center; vertical-align: middle;">
@@ -611,16 +492,6 @@
           <div class="u-flex-1-overflow" style="position: relative;">
             <div id="single-map-wrapper" class="map-wrapper-full" style="width: 100%; height: 100%; position: relative;">
               <canvas id="spatial-canvas" class="u-pos-absolute-canvas"></canvas>
-            </div>
-            <div id="split-map-wrapper" class="map-wrapper-split hidden" style="display: flex; width: 100%; height: 100%; gap: 10px; position: relative;">
-              <div class="split-pane split-left" style="flex: 1; position: relative; border: 1px solid #1f2937; border-radius: 6px; background-color: #0b1120; overflow: hidden;">
-                <div class="split-pane-header" style="position: absolute; top: 10px; left: 10px; background: rgba(10, 15, 30, 0.85); padding: 4px 8px; font-size: 11px; border-radius: 4px; color: #9ca3af; z-index: 10; border: 1px solid #1f2937; font-weight: 600;"><span data-i18n="results.split_original">Orijinal (Öncesi)</span></div>
-                <canvas id="spatial-canvas-before" class="u-pos-absolute-canvas"></canvas>
-              </div>
-              <div class="split-pane split-right" style="flex: 1; position: relative; border: 1px solid #1f2937; border-radius: 6px; background-color: #0b1120; overflow: hidden;">
-                <div class="split-pane-header" style="position: absolute; top: 10px; left: 10px; background: rgba(10, 15, 30, 0.85); padding: 4px 8px; font-size: 11px; border-radius: 4px; color: #9ca3af; z-index: 10; border: 1px solid #1f2937; font-weight: 600;"><span data-i18n="results.split_knockout">Simülasyon (Sonrası)</span></div>
-                <canvas id="spatial-canvas-after" class="u-pos-absolute-canvas"></canvas>
-              </div>
             </div>
             <div id="spatial-3d-container" class="map-wrapper-3d hidden" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
               <div id="spatial-3d-canvas-container" style="width: 100%; height: 100%;"></div>
@@ -723,8 +594,6 @@
                 <h4>🔗 <span data-i18n="results.lr_interactions">Ligand-Reseptör Etkileşimleri</span></h4>
                 <ul id="sd-lr" class="sd-list"></ul>
 
-                <h4>💊 <span data-i18n="results.pharmacological_target">Farmakolojik Hedef</span></h4>
-                <div id="sd-drug" class="sd-box"></div>
               </div>
             </div>
           </div>
@@ -834,27 +703,6 @@
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <!-- Terapötik Öneri Tablosu -->
-          <div class="tm-recs">
-            <div class="tm-recs__title" data-i18n="tumor_map.recs_title">💊 Terapötik Molekül Önerileri</div>
-            <div class="tm-recs-table-wrap">
-              <table class="tm-recs-table">
-                <thead>
-                  <tr>
-                    <th data-i18n="tumor_map.col_target">Hedef</th>
-                    <th data-i18n="tumor_map.col_drug">İlaç / Molekül</th>
-                    <th data-i18n="tumor_map.col_class">Sınıf</th>
-                    <th data-i18n="tumor_map.col_evidence">Kanıt Düzeyi</th>
-                    <th data-i18n="tumor_map.col_status">Durum</th>
-                  </tr>
-                </thead>
-                <tbody id="tm-recs-body">
-                  <!-- Dinamik olarak app-tumor-map.js tarafından doldurulur -->
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
@@ -1004,7 +852,7 @@
       <!-- ── REPORT PANEL ──────────────────────────────────── -->
       <div id="panel-report" class="panel">
         <div class="panel-header">
-          <h2>📄 <span data-i18n="report.title">Klinik Rapor</span></h2>
+          <h2>📄 <span data-i18n="report.title">Araştırma Raporu</span></h2>
           <div class="report-actions">
             <button class="btn-secondary btn-load-report">🔄 <span data-i18n="common.load">Yükle</span></button>
             <button class="btn-primary" id="btn-open-report">📥 <span data-i18n="report.open_pdf">PDF Aç</span></button>
@@ -1014,8 +862,8 @@
         
         <!-- Editable notes section -->
         <div class="report-notes-editor" style="margin: 0 24px 16px 24px; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 6px; border: 1px solid #1f2937;">
-          <label style="display: block; margin-bottom: 6px; color: #a5b4fc; font-weight: 600; font-size: 12px;" data-i18n="report.physician_notes">Hekim Klinik Notları</label>
-          <textarea id="report-physician-notes" rows="3" style="width: 100%; background: #070b18; border: 1px solid #1f2937; border-radius: 4px; color: #fff; padding: 8px; font-family: inherit; font-size: 13px; resize: vertical;" data-i18n-placeholder="report.physician_notes_placeholder" placeholder="Rapor için ek klinik notlar, tedavi planı veya gözlemler ekleyin..."></textarea>
+          <label style="display: block; margin-bottom: 6px; color: #a5b4fc; font-weight: 600; font-size: 12px;" data-i18n="report.physician_notes">Araştırmacı Notları</label>
+          <textarea id="report-physician-notes" rows="3" style="width: 100%; background: #070b18; border: 1px solid #1f2937; border-radius: 4px; color: #fff; padding: 8px; font-family: inherit; font-size: 13px; resize: vertical;" data-i18n-placeholder="report.physician_notes_placeholder" placeholder="Rapor için ek notlar veya gözlemler ekleyin..."></textarea>
         </div>
 
         <div id="report-frame-wrapper" class="report-frame-wrapper">
@@ -1230,12 +1078,6 @@
                     <td><strong data-i18n="results.view_zone">Zone Haritası</strong></td><td><span data-i18n="guide.zone_desc">IVY GAP tümör zon sınıflandırması (Pseudopalisading, Leading Edge vb.)</span></td><td><span data-i18n="guide.zone_color">Her zone için farklı renk</span></td>
                   </tr>
                   <tr>
-                    <td><strong data-i18n="results.view_drug">İlaç Skoru</strong></td><td><span data-i18n="guide.drug_desc">Her spotta GNN'nin hesapladığı tedavi yanıt skoru</span></td><td><span data-i18n="guide.drug_color">Koyu mavi → Kırmızı</span></td>
-                  </tr>
-                  <tr>
-                    <td><strong data-i18n="results.view_risk">TCGA Risk</strong></td><td><span data-i18n="guide.risk_desc">TCGA survi verisiyle hesaplanan rölatif risk skoru</span></td><td><span data-i18n="guide.risk_color">Yeşil → Kırmızı</span></td>
-                  </tr>
-                  <tr>
                     <td><strong data-i18n="results.view_celltype">Hücre Tipi</strong></td><td><span data-i18n="guide.celltype_desc">Her spottaki dominant hücre tipi (Tangram dekonvolüsyonu)</span></td><td><span data-i18n="guide.celltype_color">Her hücre tipi için benzersiz HSL rengi</span></td>
                   </tr>
                   <tr>
@@ -1397,7 +1239,6 @@
                 <th data-i18n="signaling.lr_pair_col">L-R Etkileşim Çifti</th>
                 <th data-i18n="signaling.bio_category_col">Biyolojik Kategori</th>
                 <th style="text-align:right;" data-i18n="signaling.avg_signal_col">Ortalama Sinyal Gücü</th>
-                <th data-i18n="signaling.treatment_col">Önerilen Tedavi & Mekanizma</th>
                 <th style="text-align:center;" data-i18n="signaling.action_col">Aksiyon</th>
               </tr>
             </thead>
@@ -1450,7 +1291,6 @@
           <button class="pathway-tab btn-tab active" data-tab="pathway-table-tab" data-i18n="signaling.enriched_pathways">📊 Zenginleştirilmiş Yolaklar</button>
           <button class="pathway-tab btn-tab" data-tab="pathway-network-tab" data-i18n="signaling.interactive_network">🕸️ Etkileşimli Network</button>
           <button class="pathway-tab btn-tab" data-tab="pathway-map-tab" data-i18n="signaling.kegg_map">🗺️ KEGG Haritası</button>
-          <button class="pathway-tab btn-tab" data-tab="pathway-drugs-tab" data-i18n="signaling.drug_targets">💊 İlaç Hedefleri</button>
         </div>
 
         <div class="pathway-tab-content" id="pathway-table-tab">
@@ -1515,27 +1355,6 @@
           </div>
         </div>
 
-        <div class="pathway-tab-content hidden" id="pathway-drugs-tab">
-          <div class="table-actions" style="margin-bottom: 12px; font-size: 0.85rem; color: var(--text-muted);">
-            <span data-i18n="signaling.druggable_desc">Uyarılmış yolaklarda yer alan ve ilaçla hedeflenebilir (druggable) durumdaki downstream proteinler listelenmektedir.</span>
-          </div>
-          <div class="catalog-table-wrapper" style="max-height: 400px; overflow-y: auto;">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th data-i18n="signaling.target_gene">Hedef Gen</th>
-                  <th data-i18n="signaling.pathway">Yolak</th>
-                  <th data-i18n="signaling.active_drug">Etkin İlaç</th>
-                  <th data-i18n="signaling.mechanism">Etki Mekanizması</th>
-                  <th data-i18n="signaling.clinical_stage">Klinik Aşama</th>
-                </tr>
-              </thead>
-              <tbody id="pathway-drugs-tbody">
-                <!-- Dynamic drug matches -->
-              </tbody>
-            </table>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -1565,7 +1384,6 @@
   <script src="cytoscape.min.js"></script>
   <script src="i18n.js"></script>
   <script src="app-state.js"></script>
-  <script src="drug-catalog.js"></script>
   <script src="app-startup.js"></script>
   <script src="app-visualization.js"></script>
   <script src="app-signaling.js"></script>

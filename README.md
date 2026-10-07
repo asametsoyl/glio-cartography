@@ -16,8 +16,7 @@ Glio-Cartography is a desktop application that analyzes 10x Visium spatial trans
 
 - 🔬 **Tangram Deconvolution** — Cell-type composition at single-spot resolution  
 - 🧠 **GNN-based Zone Mapping** — IVY GAP classification (Pseudopalisading Necrosis, Microvascular Proliferation, Leading Edge, etc.)  
-- 💊 **Drug Target Scoring** — Spatially resolved pharmacological target alignment  
-- 📊 **Interactive Spatial Map** — Zoom/pan canvas with Zone, Drug Score, TCGA Risk, Cell Type, and Ligand-Receptor views  
+- 📊 **Interactive Spatial Map** — Zoom/pan canvas with Zone, Cell Type, Pathway, Gene, and Ligand-Receptor views  
 - 📄 **Automated Research Report** — Spatial evidence, quality and uncertainty findings
 - 👥 **Multi-patient Comparison** — Side-by-side analysis of two patients  
 

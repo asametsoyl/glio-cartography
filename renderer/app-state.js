@@ -36,14 +36,7 @@ const rawState = {
   compareTransform: { x: 0, y: 0, k: 1 },
   compareProfileLeft: null,
   compareProfileRight: null,
-  koMagnitudes: null,
-  koShifts: null,
-  koText: null,
-  paracrineActive: false,
-  paracrineSpot: null,
-  paracrineAffected: new Map(),
   viewTransform: { x: 0, y: 0, k: 1 },
-  _medianRisk: null,
 };
 
 // Global state change handler for reactive side effects

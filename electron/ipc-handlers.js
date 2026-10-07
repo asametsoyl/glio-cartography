@@ -703,7 +703,7 @@ function registerIpcHandlers() {
     const path = require('path');
 
     const { filePath, canceled } = await dialog.showSaveDialog(_mainWindow, {
-      title: 'Klinik Raporu PDF Olarak Kaydet / Save Clinical Report as PDF',
+      title: 'Raporu PDF Olarak Kaydet / Save Report as PDF',
       defaultPath: path.join(app.getPath('downloads'), 'glio_cartography_report.pdf'),
       filters: [{ name: 'PDF Files', extensions: ['pdf'] }]
     });

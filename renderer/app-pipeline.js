@@ -28,33 +28,6 @@ async function startPipeline() {
   const optunaT    = parseInt(document.getElementById('optuna-trials')?.value) || 10;
   const deconvMethod = document.getElementById('deconv-method')?.value || 'tangram';
 
-  // ── Klinik Metadata (FAZ 1 — JSON payload, env race condition yok) ──
-  const clinicalAgeRaw  = document.getElementById('clinical-age')?.value?.trim();
-  const clinicalMgmtRaw = document.getElementById('clinical-mgmt')?.value?.trim();
-  const clinicalIdhRaw  = document.getElementById('clinical-idh')?.value?.trim();
-  const clinicalKpsRaw  = document.getElementById('clinical-kps')?.value?.trim();
-  const imputationMode  = document.getElementById('imputation-mode')?.value || 'worst';
-
-  // Boş alanlar null iletilir → backend imputation stratejisine devredilir
-  const clinicalAge  = clinicalAgeRaw  ? parseInt(clinicalAgeRaw)   : null;
-  const clinicalMgmt = clinicalMgmtRaw ? parseFloat(clinicalMgmtRaw) : null;
-  const clinicalIdh  = clinicalIdhRaw  ? parseFloat(clinicalIdhRaw)  : null;
-  const clinicalKps  = clinicalKpsRaw  ? parseInt(clinicalKpsRaw)   : null;
-
-  // Validasyon: klinik alanlar girilmişse geçerlilik kontrolü
-  if (clinicalAge !== null && (clinicalAge < 0 || clinicalAge > 120)) {
-    showWarningToast(window.i18n.t('pipeline.warn_age')); return;
-  }
-  if (clinicalMgmt !== null && (clinicalMgmt < 0 || clinicalMgmt > 1)) {
-    showWarningToast(window.i18n.t('pipeline.warn_mgmt')); return;
-  }
-  if (clinicalIdh !== null && (clinicalIdh < 0 || clinicalIdh > 1)) {
-    showWarningToast(window.i18n.t('pipeline.warn_idh')); return;
-  }
-  if (clinicalKps !== null && (clinicalKps < 0 || clinicalKps > 100)) {
-    showWarningToast(window.i18n.t('pipeline.warn_kps')); return;
-  }
-
   if (!spatialDir) { showWarningToast(window.i18n.t('pipeline.warn_spatial')); return; }
   if (!scrnaPath)  { showWarningToast(window.i18n.t('pipeline.warn_scrna')); return; }
   if (!outputDir)  { showWarningToast(window.i18n.t('pipeline.warn_output')); return; }
@@ -88,12 +61,6 @@ async function startPipeline() {
       runOptuna:      runOptuna,
       optunaTrials:   optunaT,
       deconvMethod:   deconvMethod,
-      // Klinik verileri de kaydet (null → boş bırakılmış demek)
-      clinicalAge:    clinicalAge,
-      clinicalMgmt:   clinicalMgmt,
-      clinicalIdh:    clinicalIdh,
-      clinicalKps:    clinicalKps,
-      imputationMode: imputationMode,
     });
   } catch (_) { /* kayıt hatası kritik değil */ }
 
@@ -104,13 +71,6 @@ async function startPipeline() {
   resetStages();
   clearLog();
   appendLog(window.i18n.t('pipeline.log_starting'));
-
-  // Klinik meta log
-  if (clinicalAge || clinicalMgmt || clinicalIdh || clinicalKps) {
-    appendLog(window.i18n.t('pipeline.log_clinical_data', { age: clinicalAge ?? 'auto', mgmt: clinicalMgmt ?? 'auto', idh: clinicalIdh ?? 'auto', kps: clinicalKps ?? 'auto', mode: imputationMode }));
-  } else {
-    appendLog(window.i18n.t('pipeline.log_clinical_imputation', { strategy: imputationMode === 'median' ? window.i18n.t('clinical.imputation_median') : window.i18n.t('clinical.imputation_worst') }));
-  }
 
   state.pipelineRunning = true;
   state.startTime = Date.now();
@@ -148,12 +108,6 @@ async function startPipeline() {
       optuna_trials:   optunaT,
       gnn_epochs:      epochs,
       deconv_method:   deconvMethod,
-      // Klinik metadata JSON payload (env yerine — FAZ 1 güvenlik gereksinimi)
-      clinical_age:    clinicalAge,
-      clinical_mgmt:   clinicalMgmt,
-      clinical_idh:    clinicalIdh,
-      clinical_kps:    clinicalKps,
-      imputation_mode: imputationMode,
       lang:            (window.i18n && window.i18n.lang) || 'tr',
     });
     appendLog(`ℹ️ ${res.message || window.i18n.t('pipeline.log_started_status')}`);

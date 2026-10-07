@@ -68,31 +68,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // ── Klinik form: imputation modu değişince hint güncelle ──
-  const imputationSelect = document.getElementById('imputation-mode');
-  const imputationHint   = document.getElementById('imputation-hint');
-  function updateImputationHints() {
-    if (!imputationSelect || !imputationHint) return;
-    const mode = imputationSelect.value;
-    imputationHint.textContent = window.i18n.t(`clinical.imputation_hint_${mode}`) || '';
-    const fallbacks = {
-      'fb-age':  `clinical.fallback_age_${mode}`,
-      'fb-mgmt': `clinical.fallback_mgmt_${mode}`,
-      'fb-idh':  `clinical.fallback_idh_${mode}`,
-      'fb-kps':  `clinical.fallback_kps_${mode}`,
-    };
-    Object.entries(fallbacks).forEach(([id, key]) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = window.i18n.t(key);
-    });
-  }
-  if (imputationSelect && imputationHint) {
-    imputationSelect.addEventListener('change', updateImputationHints);
-    updateImputationHints();
-    window.i18n.onLangChange(updateImputationHints);
-  }
-
-
   // Backend events — listen before polling so we don't miss it
   api.onBackendReady((ready) => setBackendStatus(ready));
   api.onBackendLog((msg) => handleBackendLog(msg));
@@ -428,9 +403,6 @@ function initEventListeners() {
     { selector: '#btn-close-spot-details', handler: () => {
       if (typeof closeSpotDetails === 'function') closeSpotDetails();
     }},
-    { selector: '#btn-para-sim', handler: () => {
-      if (typeof toggleParacrineSimulation === 'function') toggleParacrineSimulation();
-    }},
     { selector: '#btn-open-lr-catalog', handler: () => {
       if (typeof openLrCatalogModal === 'function') openLrCatalogModal();
     }},
@@ -439,18 +411,6 @@ function initEventListeners() {
     }},
     { selector: '#btn-tab-lr', handler: () => {
       if (typeof switchContrastTab === 'function') switchContrastTab('lr');
-    }},
-    { selector: '#btn-cohort-tcga', handler: () => {
-      if (typeof setKmCohort === 'function') setKmCohort('tcga');
-    }},
-    { selector: '#btn-cohort-cgga', handler: () => {
-      if (typeof setKmCohort === 'function') setKmCohort('cgga');
-    }},
-    { selector: '#btn-cohort-combined', handler: () => {
-      if (typeof setKmCohort === 'function') setKmCohort('combined');
-    }},
-    { selector: '#km-plot-img', handler: () => {
-      if (typeof zoomKmPlot === 'function') zoomKmPlot();
     }},
     { selector: '.btn-load-figures', handler: () => {
       if (typeof loadFigures === 'function') loadFigures();
@@ -498,56 +458,10 @@ function initEventListeners() {
   });
 
   // ── Specific Change/Input Event Listeners ────────────────────
-  const paraDepthSlider = document.getElementById('para-depth-slider');
-  if (paraDepthSlider) {
-    paraDepthSlider.addEventListener('input', () => {
-      const valEl = document.getElementById('para-depth-val');
-      if (valEl) valEl.textContent = window.i18n.t('settings.neighbors_count', { count: paraDepthSlider.value });
-      if (state.paracrineActive && typeof updateParacrineSimulation === 'function') {
-        updateParacrineSimulation();
-      }
-    });
-  }
-
   const viewModeSelect = document.getElementById('view-mode');
   if (viewModeSelect) {
     viewModeSelect.addEventListener('change', () => {
       if (typeof updateViewMode === 'function') updateViewMode();
-    });
-  }
-
-  const koTypeSelect = document.getElementById('filter-ko-type');
-  if (koTypeSelect) {
-    koTypeSelect.addEventListener('change', () => {
-      if (typeof onKoTypeChange === 'function') onKoTypeChange();
-    });
-  }
-
-  const koCellSelect = document.getElementById('filter-ko-cell');
-  if (koCellSelect) {
-    koCellSelect.addEventListener('change', () => {
-      if (typeof runSimulationKnockout === 'function') runSimulationKnockout();
-    });
-  }
-
-  const koLrSelect = document.getElementById('filter-ko-lr');
-  if (koLrSelect) {
-    koLrSelect.addEventListener('change', () => {
-      if (typeof runSimulationKnockout === 'function') runSimulationKnockout();
-    });
-  }
-
-  const koGeneSelect = document.getElementById('filter-ko-gene');
-  if (koGeneSelect) {
-    koGeneSelect.addEventListener('change', () => {
-      if (typeof runSimulationKnockout === 'function') runSimulationKnockout();
-    });
-  }
-
-  const koGeneTypeSelect = document.getElementById('filter-ko-gene-type');
-  if (koGeneTypeSelect) {
-    koGeneTypeSelect.addEventListener('change', () => {
-      if (typeof runSimulationKnockout === 'function') runSimulationKnockout();
     });
   }
 
@@ -561,13 +475,6 @@ function initEventListeners() {
   const pathwayFilterSelect = document.getElementById('filter-pathway');
   if (pathwayFilterSelect) {
     pathwayFilterSelect.addEventListener('change', () => {
-      if (typeof updateViewMode === 'function') updateViewMode();
-    });
-  }
-
-  const riskFilterSelect = document.getElementById('filter-risk');
-  if (riskFilterSelect) {
-    riskFilterSelect.addEventListener('change', () => {
       if (typeof updateViewMode === 'function') updateViewMode();
     });
   }
@@ -637,8 +544,7 @@ function initEventListeners() {
 
   // Save settings immediately on change
   const persistElements = [
-    'patient-id', 'gnn-epochs', 'run-optuna', 'optuna-trials',
-    'clinical-age', 'clinical-mgmt', 'clinical-idh', 'clinical-kps', 'imputation-mode'
+    'patient-id', 'gnn-epochs', 'run-optuna', 'optuna-trials'
   ];
   persistElements.forEach(id => {
     const el = document.getElementById(id);

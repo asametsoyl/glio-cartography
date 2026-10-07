@@ -15,144 +15,8 @@ function isPathSafeLocal(p) {
   return true;
 }
 
-// ══════════════════════════════════════════════════════════════
-// 4.2 — COHORT SURVIVAL INTERACTION (TCGA / CGGA / COMBINED)
-// ══════════════════════════════════════════════════════════════
-async function setKmCohort(cohort) {
-  // Update button classes
-  document.querySelectorAll('.btn-cohort').forEach(btn => btn.classList.remove('active'));
-  const activeBtn = document.getElementById(`btn-cohort-${cohort}`);
-  if (activeBtn) activeBtn.classList.add('active');
-  
-  if (!state.kmData) return;
-  let cData = null;
-  if (state.kmData[cohort]) {
-    cData = state.kmData[cohort];
-  } else if (state.kmData.estimated_median_os_high_months !== undefined) {
-    cData = state.kmData;
-  } else {
-    return;
-  }
-  
-  // Transition fade effect on elements
-  const elementsToFade = ['km-plot-img', 'km-stat-high-os', 'km-stat-low-os', 'km-stat-delta', 'km-stat-ref', 'km-stat-high-spots', 'km-stat-low-spots'];
-  elementsToFade.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.style.transition = 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)';
-      el.style.opacity = '0.3';
-      el.style.transform = 'translateY(2px)';
-    }
-  });
-
-  setTimeout(async () => {
-    // Update texts safely
-    const kmHighOs = document.getElementById('km-stat-high-os');
-    if (kmHighOs) {
-      kmHighOs.textContent = cData.estimated_median_os_high_months !== undefined
-        ? `${cData.estimated_median_os_high_months.toFixed(1)} ay`
-        : 'N/A';
-    }
-    
-    const kmLowOs = document.getElementById('km-stat-low-os');
-    if (kmLowOs) {
-      kmLowOs.textContent = cData.estimated_median_os_low_months !== undefined
-        ? `${cData.estimated_median_os_low_months.toFixed(1)} ay`
-        : 'N/A';
-    }
-    
-    const kmDelta = document.getElementById('km-stat-delta');
-    if (kmDelta) {
-      if (cData.estimated_median_os_low_months !== undefined && cData.estimated_median_os_high_months !== undefined) {
-        const delta = cData.estimated_median_os_low_months - cData.estimated_median_os_high_months;
-        kmDelta.textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} ay`;
-      } else {
-        kmDelta.textContent = 'N/A';
-      }
-    }
-    
-    const kmRef = document.getElementById('km-stat-ref');
-    if (kmRef) {
-      kmRef.textContent = cData.reference || '—';
-    }
-    
-    const kmHighSpots = document.getElementById('km-stat-high-spots');
-    if (kmHighSpots) {
-      kmHighSpots.textContent = window.i18n.t('results.high_risk_spots_summary', { count: cData.n_high_risk_spots ?? 0, avg: (cData.mean_risk_score_high ?? 0).toFixed(2) });
-    }
-    
-    const kmLowSpots = document.getElementById('km-stat-low-spots');
-    if (kmLowSpots) {
-      kmLowSpots.textContent = window.i18n.t('results.low_risk_spots_summary', { count: cData.n_low_risk_spots ?? 0, avg: (cData.mean_risk_score_low ?? 0).toFixed(2) });
-    }
-    
-    let imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier_${cohort}.png`;
-    if (isPathSafeLocal(imgPath)) {
-      let exists = await api.fileExists(imgPath);
-      if (!exists) {
-        imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier.png`;
-        exists = await api.fileExists(imgPath);
-      }
-      
-      const imgEl = document.getElementById('km-plot-img');
-      if (imgEl) {
-        if (exists && isPathSafeLocal(imgPath)) {
-          imgEl.src = `${api.toLocalUrl(imgPath)}?t=${Date.now()}`;
-        } else {
-          imgEl.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-        }
-      }
-    }
-
-    elementsToFade.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        el.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-        el.style.opacity = '1';
-        el.style.transform = 'translateY(0)';
-      }
-    });
-  }, 150);
-}
-
-async function zoomKmPlot() {
-  if (!state.outputDir) return;
-  const activeBtn = document.querySelector('.btn-cohort.active');
-  const cohort = activeBtn ? activeBtn.id.replace('btn-cohort-', '') : 'combined';
-  let imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier_${cohort}.png`;
-  
-  if (!isPathSafeLocal(imgPath)) {
-    showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
-    return;
-  }
-  
-  const hasSpecific = await api.fileExists(imgPath);
-  if (!hasSpecific) {
-    imgPath = `${state.outputDir}/publication_figures/fig_kaplan_meier.png`;
-    if (!isPathSafeLocal(imgPath)) {
-      showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
-      return;
-    }
-  }
-  
-  api.openOutputFolder(imgPath);
-}
-
 async function loadFigures() {
   if (!state.outputDir) { showWarningToast(window.i18n.t('results.warn_run_analysis_first')); return; }
-
-  // Load KM summary and set default view
-  try {
-    const summary = await api.backendRequest(`/results/summary?output_dir=${encodeURIComponent(state.outputDir)}`, 'GET', {});
-    if (summary && summary.kaplan_meier) {
-      state.kmData = summary.kaplan_meier;
-      const card = document.getElementById('km-calibration-card');
-      if (card) card.classList.remove('hidden');
-      await setKmCohort('combined');
-    }
-  } catch (e) {
-    console.error("Kaplan-Meier özeti yüklenemedi:", e);
-  }
 
   // Load figures gallery
   try {
@@ -180,10 +44,7 @@ async function loadFigures() {
     'training_history_v3':          window.i18n.t('figures.gnn_training_history'),
     'fig1_zone_stacked_bars':       window.i18n.t('figures.zone_stacked_bars'),
     'fig3_bipartite_network':       window.i18n.t('figures.bipartite_network'),
-    'fig_drug_score_map':           window.i18n.t('figures.drug_score_map'),
-    'fig_kaplan_meier':             window.i18n.t('figures.kaplan_meier'),
     'fig_lr_communication':         window.i18n.t('figures.lr_communication'),
-    'fig_risk_map':                 window.i18n.t('figures.risk_map'),
     'fig_spatial_zone_map':         window.i18n.t('figures.spatial_zone_map')
   };
 
@@ -195,10 +56,7 @@ async function loadFigures() {
     'training_history_v3':           '📈',
     'fig1_zone_stacked_bars':        '📊',
     'fig3_bipartite_network':        '🕸️',
-    'fig_drug_score_map':            '💊',
-    'fig_kaplan_meier':              '⏳',
     'fig_lr_communication':          '📡',
-    'fig_risk_map':                  '⚠️',
     'fig_spatial_zone_map':          '🗺️',
   };
 
@@ -214,7 +72,6 @@ async function loadFigures() {
     const fragment = document.createDocumentFragment();
     res.figures.forEach(fig => {
       // Hide cohort-specific figures from listing in the general gallery
-      if (fig.name.startsWith('fig_kaplan_meier_')) return;
       
       const item = document.createElement('div');
       item.className = 'fig-item';
@@ -270,7 +127,7 @@ async function loadReport() {
   const patientId = patientIdInput ? patientIdInput.value.trim() : 'Patient_A';
   const safePatientId = patientId.replace(/[^a-zA-Z0-9_\-]/g, '_');
   
-  const htmlPath = `${state.outputDir}/reports/Klinik_Rapor_${safePatientId}.html`;
+  const htmlPath = `${state.outputDir}/reports/Rapor_${safePatientId}.html`;
   
   if (!isPathSafeLocal(htmlPath)) {
     showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
@@ -295,7 +152,7 @@ async function loadReport() {
   wrapper.innerHTML = '';
   const iframe = document.createElement('iframe');
   iframe.src = `${api.toLocalUrl(htmlPath)}?t=${Date.now()}`;
-  iframe.title = 'Klinik Rapor';
+  iframe.title = 'Araştırma Raporu';
   iframe.sandbox = 'allow-same-origin allow-scripts';
   wrapper.appendChild(iframe);
 }
@@ -307,8 +164,8 @@ async function openReport() {
   const patientId = patientIdInput ? patientIdInput.value.trim() : 'Patient_A';
   const safePatientId = patientId.replace(/[^a-zA-Z0-9_\-]/g, '_');
 
-  const pdfPath  = `${state.outputDir}/reports/Klinik_Rapor_${safePatientId}.pdf`;
-  const htmlPath = `${state.outputDir}/reports/Klinik_Rapor_${safePatientId}.html`;
+  const pdfPath  = `${state.outputDir}/reports/Rapor_${safePatientId}.pdf`;
+  const htmlPath = `${state.outputDir}/reports/Rapor_${safePatientId}.html`;
 
   if (!isPathSafeLocal(pdfPath) || !isPathSafeLocal(htmlPath)) {
     showWarningToast(window.i18n.t('pipeline.warn_unsafe_paths'));
@@ -358,7 +215,7 @@ async function exportReportPDF() {
       
       const title = iframeDoc.createElement('h3');
       title.setAttribute('style', 'margin-top: 0; color: #a5b4fc; font-size: 16px; border-bottom: 1px solid #1f2937; padding-bottom: 6px;');
-      title.textContent = window.i18n.t('report.physician_notes') || 'Hekim Klinik Notları';
+      title.textContent = window.i18n.t('report.physician_notes') || 'Araştırmacı Notları';
       
       const body = iframeDoc.createElement('p');
       body.setAttribute('style', 'white-space: pre-wrap; font-size: 13px; color: #f3f4f6; margin-bottom: 0; line-height: 1.5;');

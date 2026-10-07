@@ -182,12 +182,6 @@ async function saveCurrentSettings() {
     const runOptuna      = document.getElementById('run-optuna')?.checked || false;
     const optunaT        = parseInt(document.getElementById('optuna-trials')?.value) || 10;
     const deconvMethod   = document.getElementById('deconv-method')?.value || 'tangram';
-    
-    const clinicalAge    = document.getElementById('clinical-age')?.value ? parseInt(document.getElementById('clinical-age').value) : null;
-    const clinicalMgmt   = document.getElementById('clinical-mgmt')?.value ? parseFloat(document.getElementById('clinical-mgmt').value) : null;
-    const clinicalIdh    = document.getElementById('clinical-idh')?.value ? parseFloat(document.getElementById('clinical-idh').value) : null;
-    const clinicalKps    = document.getElementById('clinical-kps')?.value ? parseInt(document.getElementById('clinical-kps').value) : null;
-    const imputationMode = document.getElementById('imputation-mode')?.value || 'worst';
 
     await api.saveLastPaths({
       spatial:        spatialDir,
@@ -198,11 +192,6 @@ async function saveCurrentSettings() {
       runOptuna:      runOptuna,
       optunaTrials:   optunaT,
       deconvMethod:   deconvMethod,
-      clinicalAge:    clinicalAge,
-      clinicalMgmt:   clinicalMgmt,
-      clinicalIdh:    clinicalIdh,
-      clinicalKps:    clinicalKps,
-      imputationMode: imputationMode,
     });
   } catch (e) {
     console.warn('[Profiles] saveCurrentSettings failed:', e);
@@ -275,40 +264,6 @@ async function restoreLastPaths() {
     if (last.deconvMethod) {
       if (typeof selectDeconvMethod === 'function') {
         selectDeconvMethod(last.deconvMethod);
-      }
-    }
-
-    // ── Klinik metadata alanlarını son oturumdan geri yükle ──
-    const clinicalFields = [
-      { key: 'clinicalAge',  id: 'clinical-age'  },
-      { key: 'clinicalMgmt', id: 'clinical-mgmt' },
-      { key: 'clinicalIdh',  id: 'clinical-idh'  },
-      { key: 'clinicalKps',  id: 'clinical-kps'  },
-    ];
-    clinicalFields.forEach(({ key, id }) => {
-      if (last[key] !== null && last[key] !== undefined) {
-        const el = document.getElementById(id);
-        if (el) el.value = last[key];
-      }
-    });
-
-    if (last.imputationMode) {
-      const el = document.getElementById('imputation-mode');
-      if (el) {
-        el.value = last.imputationMode;
-        // Hint metnini güncelle
-        const hintEl = document.getElementById('imputation-hint');
-        if (hintEl) hintEl.textContent = window.i18n.t(`clinical.imputation_hint_${last.imputationMode}`) || '';
-        const fallbacks = {
-          'fb-age':  `clinical.fallback_age_${last.imputationMode}`,
-          'fb-mgmt': `clinical.fallback_mgmt_${last.imputationMode}`,
-          'fb-idh':  `clinical.fallback_idh_${last.imputationMode}`,
-          'fb-kps':  `clinical.fallback_kps_${last.imputationMode}`,
-        };
-        Object.entries(fallbacks).forEach(([id, key]) => {
-          const el = document.getElementById(id);
-          if (el) el.textContent = window.i18n.t(key);
-        });
       }
     }
 
