@@ -282,6 +282,22 @@ değişimi ayırır; ve bunu H1–H4 ile **ölçeriz**.
 4. Bu belgenin §2'deki rakip ayrıntıları **tam metinden** teyit edilir (Springer/Nature/PMC erişimi olan
    ortamda).
 
+### 8.1 Bu tarafta yapılan tarama kaydı (web arama düzeyi, 2026-10-07)
+
+Aşağıdaki sorgu aileleri çalıştırıldı; **doğrudan örtüşen bir çalışma bulunamadı**, ama arama motoru
+özetleri tam metin taraması değildir:
+
+| Mekanizma | Çalıştırılan sorgular (özet) | Bulunan en yakın şeyler |
+|---|---|---|
+| M1 | serial section ∧ replicate/noise floor/empirical null ∧ ST; boundary significance test ST | SpatialDE/SPARK (gürültü vs uzamsal varyans), SpNeigh, trendsceek; görüntülemede Neighboring-Slice Noise2Noise; Lacuna hipotez sayfası |
+| M2 | Visium footprint / disk overlap ∧ adjacent sections ∧ 3D graph | yalnız visiumStitched (örtüşen *yakalama alanları*, farklı problem) |
+| M3 | registration uncertainty ∧ domain/clustering ∧ ST; MI/entropi ayrıştırma ∧ registration | tıpta registration→segmentation uncertainty; MI-tabanlı kayıt belirsizliği (tıp); GPSA/stvgp; TISSUE (ST'de tahmin belirsizliği) |
+| M4 | blind-spot/Noise2Self/J-invariant ∧ GNN ∧ ST ∧ adjacent section | görüntü denoising (Noise2Self, Noise2Same, blind-spot ağları); ST'de histolojiden tahmin (Hist2ST vb.) — **kesit-arası bağımsızlıkla kapı eğitimi bulunamadı** |
+
+Ek not: genel ST literatürü, **spotlar arası bağımlılığı** (pseudoreplication) vurguluyor; M1'de replika
+birimi **kesit çiftleri** olduğundan bu uyarıyla uyumlu, ama gürültü bağımsızlığı varsayımı (ambient RNA,
+difüzyon) ayrıca sınanmalı (§6, H5; fantom B ailesi).
+
 ---
 
 ## 9. `ZBRIDGE_DESIGN.md` ile ilişki ve değişiklikler
